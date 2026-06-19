@@ -1,58 +1,84 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# PDF to Markdown Pipeline (`pdf-markdown-pipeline`)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A robust, local-first document ingestion and conversion portal that transforms dense, unstructured PDFs into clean, structured, AI-ready Markdown.
 
-## About Laravel
+## 📖 Project Background & Scope
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+This pipeline was architected to handle the document digitization needs of two State Government bodies:
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Department of Excise**, Government of Uttar Pradesh
+- **Department of Sugarcane & Sugar Industries**, Government of Uttar Pradesh
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Government workflows require parsing thousands of pages of dense bureaucratic material — Government Orders (GOs), service codes, departmental policies, and legacy court orders — in both English and administrative Hindi (Rajbhasha). Due to strict data privacy and security mandates, this system runs **100% on-premise**, ensuring sensitive administrative data never touches third-party cloud APIs.
 
-## Learning Laravel
+While built for government requirements, the architecture is fully open-source and adaptable for any organization that needs an auditable, human-in-the-loop document conversion pipeline.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## ✨ Core Features
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- **Dual-Engine Processing**
+  - Native-text PDFs are processed via the `markitdown` Python package (invoked through Laravel queue jobs).
+  - Scanned legacy documents fall back to OCR (Tesseract, with the `hin` language pack for bilingual Devanagari/English text).
+- **Human-in-the-Loop Validation UI** — A split-pane interface where clerks and administrators visually verify the original PDF against the compiled, styled Markdown (rendered via Parsedown) before committing the data to the vault.
+- **Strict Siloed Architecture** — A hierarchical directory structure (Level → Body → Section) maps directly to database records, preventing context leakage between administrative units (e.g. Excise data never resolves into a Sugarcane query, and vice versa).
+- **Metadata Injection** — Processed Markdown files carry YAML frontmatter (department, section, GO reference, dates, etc.), enabling accurate context retrieval for downstream LLM/RAG pipelines.
+- **Full Audit Trail** — Every document state transition (`Uploaded → Processing → Review → Verified`) is logged with the acting user and timestamp.
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+## 🛠️ Technology Stack
 
-## Agentic Development
+| Layer | Technology |
+|---|---|
+| Core Framework | Laravel 13, PHP 8.4 |
+| Database | MariaDB 12 |
+| Frontend / UI | Blade Templates, Tailwind CSS v4, Parsedown |
+| Text Extraction | Python `markitdown`, via the [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package |
+| OCR Engine | Tesseract OCR (`hin` + `eng` language packs) |
+| Queue | Laravel database queue driver (local single-box deployment, no Redis dependency) |
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## 📂 Document Vault Structure
 
-```bash
-composer require laravel/boost --dev
+Scope for this phase is **Secretariat and Head Quarter level only** — policies, GOs, and rules are uniform across field offices (DEO/DEC/JEC), so no district/jurisdiction-level breakdown is needed in the vault. Field office tiers can be added later if a use case requires it.
 
-php artisan boost:install
+```text
+storage/app/document_vault/
+├── secretariat_level/
+│   └── excise/                                  # repeat sibling for sugarcane/, sugar_federation/ when added
+│       ├── joint_secretary_wing/
+│       │   └── sections/                        # section names to be added later
+│       └── deputy_secretary_wing/
+│           └── sections/                        # section names to be added later
+│
+└── department_level/
+    ├── excise/
+    │   └── headquarter/
+    │       ├── establishment_section/
+    │       ├── accounts_section/
+    │       ├── audit_section/
+    │       ├── statistics_section/
+    │       ├── license_section/
+    │       ├── technical_section/
+    │       ├── molasses_section/
+    │       ├── alcohol_section/
+    │       ├── excise_intelligence_bureau/
+    │       ├── legal_section/
+    │       └── task_force/
+    │
+    └── sugarcane_sugar/
+        └── (structure to be added once scoped)
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Additional departments, wings, or sections can be added to the vault without restructuring existing branches.
 
-## Contributing
+## 🗄️ Database Schema (Overview)
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+> Schema is under active design and will evolve. Structural columns are kept minimal; department/section-specific fields live in a flexible metadata column until they stabilize enough to be promoted to real columns.
 
-## Code of Conduct
+Planned tables:
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+- **`documents`** — One row per ingested file. Tracks vault path, originating department/section/level, processing status (`uploaded → processing → review → verified`), original PDF path, converted Markdown path, uploading user, and a JSON `metadata` column for evolving fields (GO number, subject, dates, etc.).
+- **`document_status_history`** — Append-only audit log of every state transition, with actor and timestamp.
+- **`users`** — Department personnel with role/section assignments controlling vault access.
+- **`departments`** / **`sections`** — Reference tables defining the hierarchy shown in the vault structure above, used to enforce that a document's silo path matches its assigned department (preventing Excise data from resolving under a Sugarcane query, and vice versa).
 
-## Security Vulnerabilities
+## 🚧 Status
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Early scaffolding stage — repository initialized, architecture and schema design in progress.
