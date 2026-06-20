@@ -4,13 +4,11 @@
     page-subtitle="{{ $department->level === 'secretariat_level' ? 'Secretariat Level' : 'Department Level' }} · {{ $department->sections_count }} {{ Str::plural('section', $department->sections_count) }} · {{ $department->documents_count }} {{ Str::plural('document', $department->documents_count) }}"
 >
 
-<x-slot:breadcrumb>
-    <a href="{{ route('home') }}" class="hover:text-slate-600 dark:hover:text-slate-300">Home</a>
-    <i class="ti ti-chevron-right"></i>
-    <a href="{{ route('vault.departments.index') }}" class="hover:text-slate-600 dark:hover:text-slate-300">Departments</a>
-    <i class="ti ti-chevron-right"></i>
-    <span>{{ $department->name }}</span>
-</x-slot:breadcrumb>
+<x-breadcrumb :items="[
+    ['name' => 'Home', 'url' => route('home')],
+    ['name' => 'Departments', 'url' => route('departments.index')],
+    ['name' => $department->name, 'url' => null],
+]" />
 
 {{-- Info + actions bar --}}
 <div class="flex items-start justify-between gap-4 mb-6">
@@ -24,7 +22,7 @@
         </div>
     </div>
     @auth @if(auth()->user()->isAdmin())
-    <a href="{{ route('vault.departments.edit', $department) }}"
+    <a href="{{ route('departments.edit', $department) }}"
        class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
         <i class="ti ti-pencil text-base"></i> Edit
     </a>
@@ -40,7 +38,7 @@
             <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ $sections->count() }} {{ Str::plural('section', $sections->count()) }} in this department</p>
         </div>
         @auth @if(auth()->user()->isAdmin())
-        <a href="{{ route('vault.departments.sections.create', $department) }}"
+        <a href="{{ route('departments.sections.create', $department) }}"
            class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
             <i class="ti ti-plus text-base"></i> Add Section
         </a>
@@ -68,7 +66,7 @@
                 <span class="text-xs text-slate-400 dark:text-slate-500">
                     {{ $section->documents_count }} {{ Str::plural('doc', $section->documents_count) }}
                 </span>
-                <a href="{{ route('vault.departments.sections.show', [$department, $section]) }}"
+                <a href="{{ route('departments.sections.show', [$department, $section]) }}"
                    class="text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
                     <i class="ti ti-arrow-right text-base"></i>
                 </a>

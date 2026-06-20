@@ -4,11 +4,10 @@
     page-subtitle="Browse vault by department and level"
 >
 
-<x-slot:breadcrumb>
-    <a href="{{ route('home') }}" class="hover:text-slate-600 dark:hover:text-slate-300">Home</a>
-    <i class="ti ti-chevron-right"></i>
-    <span>Departments</span>
-</x-slot:breadcrumb>
+<x-breadcrumb :items="[
+    ['name' => 'Home', 'url' => route('home')],
+    ['name' => 'Departments', 'url' => null],
+]" />
 
 @php
     $levelGroups = $departments->groupBy('level');
@@ -45,7 +44,7 @@
     <p class="text-sm font-medium text-slate-600 dark:text-slate-300">No departments configured yet</p>
     <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Run the database seeder to load the standard vault structure.</p>
     @auth @if(auth()->user()->isAdmin())
-    <a href="{{ route('vault.departments.create') }}"
+    <a href="{{ route('departments.create') }}"
        class="mt-4 inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
         <i class="ti ti-plus text-base"></i> Add Department
     </a>
@@ -75,7 +74,7 @@
         @foreach($depts as $i => $dept)
         @php $c = $deptColors[$i % count($deptColors)]; @endphp
 
-        <a href="{{ route('vault.departments.show', $dept) }}"
+        <a href="{{ route('departments.show', $dept) }}"
            class="group bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 p-5 flex flex-col gap-4 transition-all hover:shadow-md">
 
             {{-- Icon --}}
@@ -111,7 +110,7 @@
 
         {{-- Add department card (admin only) --}}
         @auth @if(auth()->user()->isAdmin())
-        <a href="{{ route('vault.departments.create') }}"
+        <a href="{{ route('departments.create') }}"
            class="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 hover:border-indigo-400 dark:hover:border-indigo-500 p-5 flex flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-all min-h-[140px]">
             <i class="ti ti-plus text-xl"></i>
             <span class="text-xs font-medium">Add Department</span>
