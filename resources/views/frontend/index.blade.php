@@ -117,7 +117,7 @@
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                 <i class="ti ti-clock-hour-4 text-slate-400 dark:text-slate-500"></i> Recent Documents
             </h3>
-            <a href="{{ route('vault.documents.index') }}"
+            <a href="{{ route('documents.index') }}"
                class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-medium">
                 View all <i class="ti ti-arrow-right text-sm"></i>
             </a>
@@ -165,7 +165,7 @@
                 <span class="text-xs text-slate-400 dark:text-slate-500 flex-shrink-0 hidden lg:block">
                     {{ $doc->created_at->diffForHumans() }}
                 </span>
-                <a href="{{ route('vault.documents.show', $doc) }}"
+                <a href="{{ route('documents.show', $doc) }}"
                    class="flex-shrink-0 text-slate-300 dark:text-slate-600 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
                     <i class="ti ti-arrow-right text-base"></i>
                 </a>

@@ -21,44 +21,44 @@
             <span class="sidebar-text">Dashboard</span>
         </a>
 
-        <a href="{{ route('vault.documents.index') }}"
+        <a href="{{ route('documents.index') }}"
            data-tooltip="All Documents"
-           class="nav-link {{ request()->routeIs('vault.documents.*') ? 'nav-link-active' : 'nav-link-idle' }}">
+           class="nav-link {{ request()->routeIs('documents.*') ? 'nav-link-active' : 'nav-link-idle' }}">
             <i class="ti ti-folder-open w-5 text-center text-base flex-shrink-0"></i>
             <span class="sidebar-text">All Documents</span>
         </a>
 
         <span class="nav-section-label">Browse Vault</span>
 
-        <a href="{{ route('vault.departments.index') }}"
+        <a href="{{ route('departments.index') }}"
            data-tooltip="Excise Department"
            class="nav-link nav-link-idle">
             <i class="ti ti-building-community w-5 text-center text-base flex-shrink-0 text-amber-400"></i>
             <span class="sidebar-text">Excise Department</span>
         </a>
 
-        <a href="{{ route('vault.departments.index') }}"
+        <a href="{{ route('departments.index') }}"
            data-tooltip="Sugarcane &amp; Sugar"
            class="nav-link nav-link-idle">
             <i class="ti ti-leaf w-5 text-center text-base flex-shrink-0 text-emerald-400"></i>
             <span class="sidebar-text">Sugarcane &amp; Sugar</span>
         </a>
 
-        <a href="{{ route('vault.departments.index') }}"
+        <a href="{{ route('departments.index') }}"
            data-tooltip="Sugar Mill Corp."
            class="nav-link nav-link-idle">
             <i class="ti ti-building-factory w-5 text-center text-base flex-shrink-0 text-cyan-400"></i>
             <span class="sidebar-text">Sugar Mill Corp.</span>
         </a>
 
-        <a href="{{ route('vault.departments.index') }}"
+        <a href="{{ route('departments.index') }}"
            data-tooltip="Cane Federation"
            class="nav-link nav-link-idle">
             <i class="ti ti-stack-2 w-5 text-center text-base flex-shrink-0 text-violet-400"></i>
             <span class="sidebar-text">Cane Federation</span>
         </a>
 
-        <a href="{{ route('vault.departments.index') }}"
+        <a href="{{ route('departments.index') }}"
            data-tooltip="Secretariat"
            class="nav-link nav-link-idle">
             <i class="ti ti-building-arch w-5 text-center text-base flex-shrink-0 text-rose-400"></i>
@@ -81,9 +81,9 @@
 
         <span class="nav-section-label">Admin</span>
 
-        <a href="{{ route('vault.departments.index') }}"
+        <a href="{{ route('departments.index') }}"
            data-tooltip="Departments"
-           class="nav-link {{ request()->routeIs('vault.departments.*') ? 'nav-link-active' : 'nav-link-idle' }}">
+           class="nav-link {{ request()->routeIs('departments.*') ? 'nav-link-active' : 'nav-link-idle' }}">
             <i class="ti ti-building w-5 text-center text-base flex-shrink-0"></i>
             <span class="sidebar-text">Departments</span>
         </a>

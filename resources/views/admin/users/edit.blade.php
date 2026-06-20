@@ -4,13 +4,11 @@
     page-subtitle="Update account details for {{ $user->name }}"
 >
 
-<x-slot:breadcrumb>
-    <a href="{{ route('home') }}" class="hover:text-slate-600 dark:hover:text-slate-300">Home</a>
-    <i class="ti ti-chevron-right"></i>
-    <a href="{{ route('admin.users.index') }}" class="hover:text-slate-600 dark:hover:text-slate-300">Users</a>
-    <i class="ti ti-chevron-right"></i>
-    <span>Edit · {{ $user->name }}</span>
-</x-slot:breadcrumb>
+<x-breadcrumb :items="[
+    ['name' => 'Home', 'url' => route('home')],
+    ['name' => 'Users', 'url' => route('admin.users.index')],
+    ['name' => 'Edit · ' . $user->name, 'url' => null],
+]" />
 
 <form
     id="editUserForm"

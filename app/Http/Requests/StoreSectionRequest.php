@@ -2,28 +2,44 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class StoreSectionRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
-        return false;
+        return $this->user()?->isAdmin() ?? false;
     }
 
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array<string, ValidationRule|array<mixed>|string>
-     */
+    protected function prepareForValidation(): void
+    {
+        $name = trim(strip_tags($this->name ?? ''));
+        $slug = $this->slug ? Str::slug(strip_tags($this->slug)) : Str::slug($name);
+        $wing = trim(strip_tags($this->wing ?? '')) ?: null;
+
+        $this->merge(compact('name', 'slug', 'wing'));
+    }
+
     public function rules(): array
     {
+        $departmentId = $this->route('department')?->id;
+
         return [
-            //
+            'name' => ['required', 'string', 'max:120', 'regex:/^[\p{L}\s\&\'\-\.\/]+$/u'],
+            'slug' => ['required', 'string', 'max:80', 'regex:/^[a-z0-9\-_]+$/',
+                       Rule::unique('sections')->where(fn ($q) => $q
+                           ->where('department_id', $departmentId)
+                           ->where('wing', $this->wing ?: null))],
+            'wing' => ['nullable', 'string', 'in:headquarter,joint_secretary_wing,deputy_secretary_wing,field_office'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'slug.unique' => 'A section with this slug already exists in this department / wing.',
         ];
     }
 }
