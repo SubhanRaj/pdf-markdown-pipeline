@@ -2,12 +2,11 @@
 
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\FrontendController;
 use App\Http\Controllers\SectionController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
-})->name('home');
+Route::get('/', [FrontendController::class, 'dashboard'])->name('home');
 
 Route::prefix('vault')->name('vault.')->group(function () {
 
