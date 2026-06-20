@@ -21,6 +21,24 @@ Key packages present at init: `subhanraj/laravel-db-provisioner`, `symfony/proce
 
 **Traits on all models except `DocumentStatusHistory`:** `SoftDeletes`, `HasFactory`. `DocumentStatusHistory` intentionally excluded from soft deletes — deleting audit rows defeats the audit trail.
 
-**Routes** — all grouped under `/vault`, named under `vault.*`. Sections nested under departments (`vault/departments/{department}/sections/{section}`). Documents flat under `vault/documents/` with semantic URL aliases (`/upload` for create, `/review` for edit).
+**Routes** — initially under `/vault` prefix, later removed (see M3). Sections nested under departments (`/departments/{department}/sections/{section}`). Documents flat under `/documents/` with semantic URL aliases (`/upload` for create, `/review` for edit).
 
-**Next:** UI layer — Blade views and controllers for the upload and review workflow.
+---
+
+## M3 — Controllers, Views & Route Refactor
+
+**Controllers scaffolded** with full CRUD (index/show/create/store/edit/update/destroy):
+- `DocumentController` — document lifecycle, vault access
+- `DepartmentController` — department management with slug validation
+- `SectionController` — section management, wing-aware, nested under department
+- `Admin\UserManagementController` — admin-only; account creation, role toggle, self-delete guard
+
+All mutations protected by `middleware('auth')`. Admin routes additionally gated by `isAdmin()` check in Form Request `authorize()`.
+
+**Form Request classes** created for every POST/PATCH endpoint. All include `prepareForValidation()` for sanitisation (`strip_tags`, `trim`, slug normalisation). Frontend JS validation mirrors server-side rules (real-time on `blur`/`input`, submission gated, scrolls to first error).
+
+**Blade views** built for all CRUD actions across Departments, Sections, Documents, and Admin Users. All views use the `<x-layout>` anonymous component — no `@extends` inheritance anywhere.
+
+**Route refactor** — `vault` URL prefix and `vault.` name prefix removed entirely. Resources now sit at the root (`/documents`, `/departments`, `/departments/{department}/sections`). Route names: `documents.index`, `departments.sections.show`, `admin.users.create`, etc. Public read-only routes and auth-protected mutations are separate groups; public routes carry no middleware.
+
+**Next:** queue job for PDF extraction (`markitdown`), OCR fallback logic, split-pane review UI, vault path resolution on verification.
