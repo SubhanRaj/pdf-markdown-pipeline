@@ -50,8 +50,17 @@ class SectionController extends Controller
 
     public function show(Department $department, Section $section): View
     {
-        $section->loadCount('documents');
-        return view('sections.show', compact('department', 'section'));
+        $documentsQuery = $section->documents()
+            ->with('user:id,name')
+            ->orderByDesc('created_at');
+
+        if (! auth()->check()) {
+            $documentsQuery->where('status', 'verified');
+        }
+
+        $documents = $documentsQuery->paginate(20)->withQueryString();
+
+        return view('sections.show', compact('department', 'section', 'documents'));
     }
 
     public function edit(Department $department, Section $section): View

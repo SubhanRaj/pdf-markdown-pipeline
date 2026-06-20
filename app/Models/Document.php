@@ -13,10 +13,30 @@ class Document extends Model
     /** @use HasFactory<\Database\Factories\DocumentFactory> */
     use HasFactory, SoftDeletes;
 
+    public const DOCUMENT_TYPES = [
+        'go'           => 'Government Order',
+        'policy'       => 'Policy',
+        'notice'       => 'Notice',
+        'court_order'  => 'Court Order',
+        'service_code' => 'Service Code',
+        'other'        => 'Other',
+    ];
+
+    public const STATUSES = [
+        'uploaded'    => ['label' => 'Uploaded',    'color' => 'slate'],
+        'processing'  => ['label' => 'Processing',  'color' => 'blue'],
+        'ocr_pending' => ['label' => 'OCR Pending', 'color' => 'amber'],
+        'review'      => ['label' => 'Review',      'color' => 'indigo'],
+        'verified'    => ['label' => 'Verified',    'color' => 'green'],
+        'failed'      => ['label' => 'Failed',      'color' => 'red'],
+    ];
+
     protected $fillable = [
         'department_id',
         'section_id',
         'user_id',
+        'title',
+        'document_type',
         'original_filename',
         'original_pdf_path',
         'markdown_path',
