@@ -101,3 +101,23 @@ Max size remains 50 MB (`max:51200`).
 **Frontend alignment (`sections/show.blade.php`)**
 
 File input `accept` attribute updated to all supported extensions. JS validation switched from PDF-only extension check to an `ACCEPTED_EXTS` `Set` — UX guard only; server enforces via magic bytes.
+
+---
+
+## M6 — Dashboard Auth-Aware Feed & Department Links
+
+**Guest-safe document feed (`FrontendController@dashboard`)**
+
+Recent-documents query now applies a conditional scope: guests receive only `status = verified` documents; authenticated users see all statuses. The `statusBreakdown` query (per-status counts) was removed — it was unused on the dashboard view after the status-breakdown widget was dropped.
+
+**Department card links (`frontend/index.blade.php`)**
+
+Department cards on the dashboard were previously `href="#"` placeholders. Each card now resolves its target at render time: if the card's slug matches a loaded `Department` record, it routes to `departments.show`; otherwise it falls back to `departments.index`. No new DB query — uses the `$departments` collection already fetched for stat counts.
+
+**Empty-state CTA updated**
+
+The zero-documents empty state CTA was changed from "Convert your first PDF" (which linked to `#`) to "Browse Departments" linking to `departments.index`, accurately reflecting the upload flow (upload is initiated from a section page, not the dashboard).
+
+**Document feed display**
+
+Recent-document rows now show `$doc->title` (the human-readable document title set at upload) instead of `$doc->original_filename`. A document-type label is also appended alongside the department and section name in the subtitle row, using the `Document::DOCUMENT_TYPES` constant for display.

@@ -30,10 +30,10 @@
         <div>
             <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">{{ $section->name }}</h2>
             <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                <span class="text-xs text-slate-500 dark:text-slate-400">{{ $department->name }}</span>
+                <a href="{{ route('departments.show', $department) }}" class="text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{{ $department->name }}</a>
                 @if($section->wing)
                     <span class="text-slate-300 dark:text-slate-600">·</span>
-                    <span class="text-xs text-slate-500 dark:text-slate-400">{{ Str::title(str_replace('_', ' ', $section->wing)) }}</span>
+                    <a href="{{ route('departments.show', $department) }}" class="text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{{ Str::title(str_replace('_', ' ', $section->wing)) }}</a>
                 @endif
                 <span class="text-slate-300 dark:text-slate-600">·</span>
                 <span class="text-xs text-slate-400 dark:text-slate-500">{{ $documents->total() }} {{ Str::plural('document', $documents->total()) }}</span>
