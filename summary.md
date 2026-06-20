@@ -42,3 +42,32 @@ All mutations protected by `middleware('auth')`. Admin routes additionally gated
 **Route refactor** — `vault` URL prefix and `vault.` name prefix removed entirely. Resources now sit at the root (`/documents`, `/departments`, `/departments/{department}/sections`). Route names: `documents.index`, `departments.sections.show`, `admin.users.create`, etc. Public read-only routes and auth-protected mutations are separate groups; public routes carry no middleware.
 
 **Next:** queue job for PDF extraction (`markitdown`), OCR fallback logic, split-pane review UI, vault path resolution on verification.
+
+---
+
+## M4 — Document Upload UI & File Browser
+
+**Schema additions** — `title` (string) and `document_type` (string enum: `go | policy | notice | court_order | service_code | other`) added directly to the `documents` migration. Both promoted to real columns (not metadata) as they are structurally stable and used for display/filtering.
+
+**`Document` model** — `DOCUMENT_TYPES` and `STATUSES` constants added; both used across views and Form Requests without duplication.
+
+**`StoreDocumentRequest`** — full validation: `section_id` (exists check), `title` (regex-guarded, strip_tags in prepareForValidation), `document_type` (in-list against constant keys), `file` (mimes:pdf, max 50 MB). Server messages mapped per field.
+
+**`DocumentController@store`** — vault directory resolved from department level + slug + section wing + section slug via `array_filter(implode(...))`. PDF stored to `local` disk at `uploads/{uuid}/original.pdf` before the DB transaction (file I/O is not transactional). On DB failure, uploaded file is deleted as best-effort cleanup. Status history row written inside same transaction. Redirects back to the originating section on success.
+
+**`SectionController@show`** — now paginates documents (20/page, `withQueryString`). Public guests see only `status = verified` docs; authenticated users see all statuses.
+
+**Section show page as dual-purpose hub** — the section page (`/departments/{dept}/sections/{section}`) now serves as both the public file browser and the authenticated upload point:
+- Public view: document list (verified only), type badge, date, view action
+- Auth view: all documents with status badges + uploader name + delete (admin)
+- Upload panel: toggled by "Upload PDF" button; fields are Title, Document Type (select), PDF file with drag-and-drop zone; vault destination shown as a readable breadcrumb (`Vault › Department Level › Excise Department › Headquarter › Alcohol Section`)
+- Upload submitted via `fetch` with 422 inline error surfacing; no page reload on validation failure
+- JS validation mirrors server rules: title regex, type in-list, PDF-only + 50 MB size check, real-time on blur/input
+
+**Sidebar UX** — restructured for auth state:
+- Guests: "Browse Vault" section (specific dept links) + "Departments" section with "All Departments" link to `departments.index`
+- Authenticated: "Browse Vault" + "Manage" section (Departments + Users for admin) — "Admin" label replaced with "Manage"
+- Excise Department vault link now routes directly to the Excise dept show page (DB lookup with fallback to index if record absent); highlights as active on that dept's pages
+- Non-admin guests never see the Manage section
+
+**Vault path display** — raw slug paths removed from section headers and replaced with human-readable breadcrumb trails using department name, humanised wing, and section name throughout.

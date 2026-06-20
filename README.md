@@ -80,12 +80,14 @@ Core tables are migrated and in use. Structural columns are minimal; evolving fi
 
 ## 🚧 Status
 
-Active development. Core scaffolding is complete:
+Active development. The core upload and browse loop is now working end-to-end.
 
-- All database migrations applied and models wired with relationships and `$fillable`.
-- Full CRUD routes and controller stubs for Documents, Departments, Sections, and admin User Management.
-- Blade component architecture in place (`x-layout`, sidebar, header, dark mode toggle).
-- Admin dashboard with document statistics chart.
-- Form Request validation classes with sanitisation and JS-side real-time validation.
+**Complete:**
+- Database schema migrated: `departments`, `sections`, `documents` (with `title` + `document_type`), `document_status_histories`, `users`
+- Full CRUD controllers and Form Requests for Documents, Departments, Sections, and admin User Management — all with DB transactions, try/catch, and `$request->validated()` throughout
+- Section page doubles as the public file browser and authenticated upload point — no separate upload route needed
+- PDF upload: stored privately at `uploads/{uuid}/original.pdf`; vault directory auto-created from the department/section hierarchy; status history written atomically in the same transaction
+- Sidebar context-aware: guests see Browse Vault + All Departments; authenticated users see Browse Vault + Manage (admin also sees Users)
+- Vault paths displayed as human-readable breadcrumbs (department name / wing / section name) — raw slugs removed from UI
 
-**Next up:** queue job for PDF extraction via `markitdown`, OCR fallback, split-pane review UI, and vault path resolution on verification.
+**Next up:** queue job for PDF extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), and vault path file resolution on verification.
