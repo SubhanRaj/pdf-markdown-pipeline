@@ -84,6 +84,17 @@
             <span class="sidebar-badge ml-auto text-[10px] bg-indigo-900/60 text-indigo-400 px-1.5 py-0.5 rounded font-medium">Soon</span>
         </span>
 
+        @guest
+        <span class="nav-section-label">Departments</span>
+
+        <a href="{{ route('departments.index') }}"
+           data-tooltip="All Departments"
+           class="nav-link {{ request()->routeIs('departments.*') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-building w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">All Departments</span>
+        </a>
+        @endguest
+
         @auth
         <span class="nav-section-label">Manage</span>
 
