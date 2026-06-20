@@ -102,10 +102,12 @@ Unique constraint: `(department_id, wing, slug)`.
 | `department_id` | FK → departments | `restrictOnDelete` |
 | `section_id` | FK → sections | `restrictOnDelete` |
 | `user_id` | FK → users nullable | `nullOnDelete` — uploader |
+| `title` | string | human-readable document title / reference |
+| `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `other` |
 | `original_filename` | string | |
-| `original_pdf_path` | string | |
-| `markdown_path` | string nullable | set after extraction |
-| `vault_path` | string nullable | resolved after verification |
+| `original_pdf_path` | string | stored at `uploads/{uuid}/original.pdf` on local disk |
+| `markdown_path` | string nullable | set after extraction job completes |
+| `vault_path` | string nullable | vault directory path; set at upload, file placed on verification |
 | `status` | string | `uploaded` → `processing` → `ocr_pending` → `review` → `verified` \| `failed` |
 | `metadata` | json nullable | GO number, subject, dates, etc. |
 | `timestamps` + `softDeletes` | | |
@@ -131,9 +133,9 @@ Standard Laravel/Fortify users table with `is_admin` boolean. Public registratio
 | Module | Controller | Notes |
 |---|---|---|
 | Dashboard | `FrontendController` | Public landing page with document stats |
-| Documents | `DocumentController` | Full CRUD scaffold (extraction/OCR jobs not yet wired) |
+| Documents | `DocumentController` | Full CRUD; upload stores PDF + creates vault dir + writes status history |
 | Departments | `DepartmentController` | Full CRUD with slug validation |
-| Sections | `SectionController` | Nested under departments; wing-aware |
+| Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + upload point |
 | User management | `Admin\UserManagementController` | Admin-only; account creation, role toggle, self-delete guard |
 
 ### Route map
@@ -148,6 +150,26 @@ Routes have **no global prefix** — resources sit at the root:
 | Admin users | — | `GET/POST /admin/users`, `GET /admin/users/{user}`, edit/patch/delete |
 
 Route names follow `resource.action` (e.g. `documents.index`, `departments.sections.show`, `admin.users.create`).
+
+### Document upload flow
+
+Upload is initiated from the section show page (`departments.sections.show`), not a standalone upload route. The form POSTs to `POST /documents` with `section_id` as a hidden field. On the server:
+
+1. Vault directory computed: `document_vault/{dept.level}/{dept.slug}/{section.wing?}/{section.slug}`
+2. PDF stored to `uploads/{uuid}/original.pdf` on the local disk (before the DB transaction)
+3. DB transaction: `Document::create()` + `DocumentStatusHistory::create()` atomically
+4. On transaction failure: uploaded PDF deleted as best-effort cleanup
+5. On success: redirect back to the originating section page
+
+### Sidebar auth states
+
+| State | Sections shown |
+|---|---|
+| Guest | Browse Vault + Departments (→ `departments.index`) |
+| Authenticated | Browse Vault + Manage → Departments |
+| Admin | Browse Vault + Manage → Departments + Users |
+
+Excise Department vault link routes directly to `departments.show` for the excise dept (DB lookup in sidebar component with `departments.index` fallback).
 
 ## Architecture decisions already made (don't re-litigate without reason)
 
