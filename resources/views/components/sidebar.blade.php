@@ -162,7 +162,7 @@
         <a href="{{ route('login') }}"
            data-tooltip="Sign in"
            class="sidebar-user-text flex-shrink-0 text-slate-500 hover:text-slate-200 transition-colors">
-            <i class="ti ti-login-2 text-lg"></i>
+            <i class="ti ti-login-2 text-xl"></i>
         </a>
         @endauth
     </div>
