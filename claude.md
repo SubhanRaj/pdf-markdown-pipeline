@@ -87,6 +87,75 @@ Planned core tables:
 5. **Schema flexibility over premature normalization** — JSON `metadata` column absorbs new fields; promote to real columns only once a field has proven stable across iterations.
 6. **No district/field-office granularity** in this phase — explicitly descoped.
 
+## Frontend architecture
+
+**Blade anonymous components** — not `@extends`/`@section` layout inheritance.
+
+All pages use `<x-layout>` and pass data via props and named slots. Do **not** create new views using `@extends('layouts.*')`.
+
+### Component structure
+
+```
+resources/views/components/
+├── layout.blade.php   — main shell: composes head, sidebar, header, footer; holds @stack('scripts')
+├── head.blade.php     — <head> tag: CDN links, Tailwind config, @stack('styles'), title prop
+├── sidebar.blade.php  — left nav (no props; uses request()->routeIs() internally)
+├── header.blade.php   — top bar; props: page-title, page-subtitle
+└── footer.blade.php   — footer bar (no props)
+```
+
+### How to author a new page
+
+```blade
+<x-layout
+    title="Page Title"
+    page-title="Page Title"
+    page-subtitle="Descriptive subtitle here"
+>
+    {{-- optional breadcrumb --}}
+    <x-slot:breadcrumb>
+        <a href="{{ route('home') }}">Home</a>
+        <i class="ti ti-chevron-right"></i>
+        <span>Current Page</span>
+    </x-slot:breadcrumb>
+
+    {{-- page content --}}
+
+    @push('scripts')
+    <script>/* page-specific JS */</script>
+    @endpush
+
+</x-layout>
+```
+
+### Passing PHP data to JavaScript
+
+Never interpolate `{{ }}` inside `<script>` blocks — IDE JS parsers choke on it. Use a JSON data island instead:
+
+```blade
+<script id="my-data" type="application/json">@json($someVariable)</script>
+
+@push('scripts')
+<script>
+    const data = JSON.parse(document.getElementById('my-data').textContent);
+</script>
+@endpush
+```
+
+### CDN libraries (loaded in head.blade.php)
+
+| Library | Source |
+|---|---|
+| Tailwind CSS (Play CDN) | `https://cdn.tailwindcss.com` |
+| Tabler Icons (webfont) | jsDelivr — `@tabler/icons-webfont@3.30.0` |
+| Chart.js | jsDelivr — `chart.js@4.4.7` |
+
+All additional JS/CSS packages must be loaded from jsDelivr. Add them to `head.blade.php` (global) or push to `@stack('styles')` / `@stack('scripts')` from individual pages.
+
+### Shared utility CSS classes (defined in head.blade.php via `<style type="text/tailwindcss">`)
+
+`nav-link`, `nav-link-active`, `nav-link-idle`, `nav-section-label`, `stat-card`, `stat-icon`, `badge` — use these across pages before adding new utility classes.
+
 ## Conventions
 
 - Bridge any new Python dependency through a Composer/Laravel package where one exists (as with `markitdown`) rather than raw `Process::run()` calls, unless no package exists.
