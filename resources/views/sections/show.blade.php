@@ -115,11 +115,12 @@
 
             {{-- File --}}
             <div>
-                <label for="doc-file" class="field-label">PDF File <span class="text-red-500">*</span></label>
-                <input type="file" id="doc-file" name="file" accept=".pdf,application/pdf"
+                <label for="doc-file" class="field-label">File <span class="text-red-500">*</span></label>
+                <input type="file" id="doc-file" name="file"
+                       accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif,.svg"
                        class="field-input file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 dark:file:bg-indigo-900/30 dark:file:text-indigo-300 cursor-pointer">
                 <p id="err-file" class="field-err-msg hidden"></p>
-                <p id="hint-file" class="field-hint">PDF only · max 50 MB</p>
+                <p id="hint-file" class="field-hint">PDF · Word · Excel · PowerPoint · Images · ODT · RTF · TXT · max 50 MB</p>
             </div>
 
             {{-- Vault destination preview --}}
@@ -310,6 +311,12 @@
 
     const TITLE_RE = /^[\p{L}\p{N}\s\-_.,()\/\#\&]+$/u;
     const MAX_BYTES = 50 * 1024 * 1024;
+    // Extension allowlist for client-side UX check only — server validates magic bytes via mimetypes: rule
+    const ACCEPTED_EXTS = new Set([
+        'pdf','doc','docx','xls','xlsx','ppt','pptx',
+        'odt','ods','odp','rtf','txt','csv',
+        'jpg','jpeg','png','webp','gif','tiff','tif','bmp','heic','heif','svg',
+    ]);
 
     function validateTitle() {
         const v = titleInput.value.trim();
@@ -325,8 +332,10 @@
     function validateFile() {
         const f = fileInput.files[0];
         if (!f)                                    { showErr('err-file', 'Please select a PDF file.'); return false; }
-        if (!f.name.toLowerCase().endsWith('.pdf') && f.type !== 'application/pdf') {
-            showErr('err-file', 'Only PDF files are accepted.'); return false;
+        const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
+        if (!ACCEPTED_EXTS.has(ext)) {
+            showErr('err-file', 'Unsupported file type. Accepted: PDF, Word, Excel, PowerPoint, images, ODT, RTF, TXT, CSV.');
+            return false;
         }
         if (f.size > MAX_BYTES)                    { showErr('err-file', 'File must not exceed 50 MB.'); return false; }
         clearErr('err-file'); return true;

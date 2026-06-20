@@ -51,7 +51,7 @@ All mutations protected by `middleware('auth')`. Admin routes additionally gated
 
 **`Document` model** — `DOCUMENT_TYPES` and `STATUSES` constants added; both used across views and Form Requests without duplication.
 
-**`StoreDocumentRequest`** — full validation: `section_id` (exists check), `title` (regex-guarded, strip_tags in prepareForValidation), `document_type` (in-list against constant keys), `file` (mimes:pdf, max 50 MB). Server messages mapped per field.
+**`StoreDocumentRequest`** — full validation: `section_id` (exists check), `title` (regex-guarded, strip_tags in prepareForValidation), `document_type` (in-list against constant keys), `file` (mimetypes: magic-byte checked, max 50 MB — see M5 for full type list). Server messages mapped per field.
 
 **`DocumentController@store`** — vault directory resolved from department level + slug + section wing + section slug via `array_filter(implode(...))`. PDF stored to `local` disk at `uploads/{uuid}/original.pdf` before the DB transaction (file I/O is not transactional). On DB failure, uploaded file is deleted as best-effort cleanup. Status history row written inside same transaction. Redirects back to the originating section on success.
 
@@ -71,3 +71,33 @@ All mutations protected by `middleware('auth')`. Admin routes additionally gated
 - Non-admin guests never see the Manage section
 
 **Vault path display** — raw slug paths removed from section headers and replaced with human-readable breadcrumb trails using department name, humanised wing, and section name throughout.
+
+---
+
+## M5 — Security Hardening: Rate Limiting & File Upload
+
+**Rate limiting (`AppServiceProvider` + `routes/web.php`)**
+
+Four named limiters defined in `AppServiceProvider::boot()` via `RateLimiter::for(...)`:
+
+| Limiter | Limit | Key | Applied to |
+|---|---|---|---|
+| `login` | 5/min per email+IP AND 10/min per IP | email+IP / IP | Fortify login route (was referenced but undefined) |
+| `two-factor` | 5/min | session login.id + IP | Fortify 2FA route |
+| `mutations` | 60/min | user ID or IP | All auth-protected POST/PATCH/DELETE route groups |
+| `uploads` | 10/min | user ID or IP | `POST /documents` only — applied on top of `mutations` |
+
+The `login` and `two-factor` limiters were already named in `config/fortify.php` but had no definition — Fortify was silently falling back to a built-in default. Now they are explicit and tunable.
+
+**Strict file upload validation (`StoreDocumentRequest`)**
+
+Replaced `mimes:pdf` (extension-based check) with `mimetypes:` (magic-byte check via PHP Fileinfo). A renamed `.exe` will fail validation regardless of extension or client Content-Type. Accepted MIME types defined as `ACCEPTED_MIMETYPES` public constant on the Form Request:
+
+- **Documents:** `application/pdf`, `.doc`/`.docx`, `.xls`/`.xlsx`, `.ppt`/`.pptx`, `.odt`/`.ods`/`.odp`, `application/rtf`, `text/plain`, `text/csv`
+- **Images:** `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/tiff`, `image/bmp`, `image/heic`, `image/heif`, `image/svg+xml`
+
+Max size remains 50 MB (`max:51200`).
+
+**Frontend alignment (`sections/show.blade.php`)**
+
+File input `accept` attribute updated to all supported extensions. JS validation switched from PDF-only extension check to an `ACCEPTED_EXTS` `Set` — UX guard only; server enforces via magic bytes.

@@ -8,6 +8,35 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class StoreDocumentRequest extends FormRequest
 {
+    // Accepted MIME types — validated against actual file signature (magic bytes), not extension.
+    // mimetypes: rule uses PHP's Fileinfo extension, not client-supplied Content-Type.
+    public const ACCEPTED_MIMETYPES = [
+        // Documents
+        'application/pdf',
+        'application/msword',                                                          // .doc
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',    // .docx
+        'application/vnd.ms-excel',                                                   // .xls
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',          // .xlsx
+        'application/vnd.ms-powerpoint',                                              // .ppt
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',  // .pptx
+        'application/vnd.oasis.opendocument.text',                                    // .odt
+        'application/vnd.oasis.opendocument.spreadsheet',                             // .ods
+        'application/vnd.oasis.opendocument.presentation',                            // .odp
+        'application/rtf',
+        'text/plain',
+        'text/csv',
+        // Images
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/gif',
+        'image/tiff',
+        'image/bmp',
+        'image/heic',
+        'image/heif',
+        'image/svg+xml',
+    ];
+
     public function authorize(): bool
     {
         return $this->user() !== null;
@@ -26,13 +55,14 @@ class StoreDocumentRequest extends FormRequest
      */
     public function rules(): array
     {
-        $validTypes = implode(',', array_keys(Document::DOCUMENT_TYPES));
+        $validTypes     = implode(',', array_keys(Document::DOCUMENT_TYPES));
+        $acceptedMimes  = implode(',', self::ACCEPTED_MIMETYPES);
 
         return [
             'section_id'    => ['required', 'integer', 'exists:sections,id'],
             'title'         => ['required', 'string', 'max:255', 'regex:/^[\p{L}\p{N}\s\-_.,()\/\#\&]+$/u'],
             'document_type' => ['required', 'string', "in:{$validTypes}"],
-            'file'          => ['required', 'file', 'mimes:pdf', 'max:51200'], // 50 MB
+            'file'          => ['required', 'file', "mimetypes:{$acceptedMimes}", 'max:51200'], // 50 MB
         ];
     }
 
@@ -41,7 +71,7 @@ class StoreDocumentRequest extends FormRequest
         return [
             'title.regex'         => 'Title contains invalid characters.',
             'document_type.in'    => 'Please select a valid document type.',
-            'file.mimes'          => 'Only PDF files are accepted.',
+            'file.mimetypes'      => 'Unsupported file type. Accepted: PDF, Word, Excel, PowerPoint, ODT, images (JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC), RTF, TXT, CSV.',
             'file.max'            => 'File size must not exceed 50 MB.',
         ];
     }
