@@ -86,8 +86,9 @@ Active development. The core upload and browse loop is now working end-to-end.
 - Database schema migrated: `departments`, `sections`, `documents` (with `title` + `document_type`), `document_status_histories`, `users`
 - Full CRUD controllers and Form Requests for Documents, Departments, Sections, and admin User Management — all with DB transactions, try/catch, and `$request->validated()` throughout
 - Section page doubles as the public file browser and authenticated upload point — no separate upload route needed
-- PDF upload: stored privately at `uploads/{uuid}/original.pdf`; vault directory auto-created from the department/section hierarchy; status history written atomically in the same transaction
+- File upload: accepts PDF, Word, Excel, PowerPoint, ODT, all image formats, RTF, TXT, CSV — validated against actual magic bytes (`mimetypes:` rule, not extension); stored privately at `uploads/{uuid}/original.pdf`; vault directory auto-created; status history written atomically
+- Rate limiting: login brute-force (5/min per email+IP), general mutation cap (60/min/user), upload cap (10/min/user) — all named limiters, not inline throttle values
 - Sidebar context-aware: guests see Browse Vault + All Departments; authenticated users see Browse Vault + Manage (admin also sees Users)
 - Vault paths displayed as human-readable breadcrumbs (department name / wing / section name) — raw slugs removed from UI
 
-**Next up:** queue job for PDF extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), and vault path file resolution on verification.
+**Next up:** queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.

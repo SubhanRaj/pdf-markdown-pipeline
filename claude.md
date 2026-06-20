@@ -171,6 +171,23 @@ Upload is initiated from the section show page (`departments.sections.show`), no
 
 Excise Department vault link routes directly to `departments.show` for the excise dept (DB lookup in sidebar component with `departments.index` fallback).
 
+### Rate limiting
+
+Named limiters defined in `AppServiceProvider::boot()`. Never use anonymous `throttle:60,1` inline — always use a named limiter so limits are tuneable in one place.
+
+| Limiter name | Limit | Key |
+|---|---|---|
+| `login` | 5/min per email+IP + 10/min per IP | Fortify brute-force |
+| `two-factor` | 5/min per session+IP | Fortify 2FA |
+| `mutations` | 60/min | user ID or IP — all auth POST/PATCH/DELETE groups |
+| `uploads` | 10/min | user ID or IP — `POST /documents` only (on top of mutations) |
+
+### File upload validation
+
+Always use `mimetypes:` (not `mimes:`) for file type validation — `mimetypes:` reads actual file bytes via PHP Fileinfo (magic-byte check); `mimes:` only checks the extension. Accepted types are defined as `StoreDocumentRequest::ACCEPTED_MIMETYPES` — reference this constant from tests or other Form Requests rather than duplicating the list.
+
+Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/pptx), ODT/ODS/ODP, RTF, TXT, CSV, JPEG, PNG, WebP, GIF, TIFF, BMP, HEIC/HEIF, SVG. Max size: 50 MB.
+
 ## Architecture decisions already made (don't re-litigate without reason)
 
 1. **Queue driver:** `database`, not Redis — no extra service to manage on a local single-box deployment.
@@ -329,6 +346,18 @@ try {
 - Use `$request->user()?->isAdmin()` (nullable-safe) in `authorize()` — never assume the user is logged in inside a Form Request.
 - Self-deletion must be blocked explicitly in controllers (see `UserManagementController@destroy`).
 - Fortify's public registration is **disabled** — accounts are admin-created only.
+
+### Rate limiting
+- All auth mutation route groups carry `throttle:mutations` middleware (60/min/user).
+- `POST /documents` additionally carries `throttle:uploads` (10/min/user) to prevent disk exhaustion.
+- All named limiters live in `AppServiceProvider::configureRateLimiters()` — never add inline `throttle:N,M` to routes.
+- The `login` and `two-factor` limiters are named in `config/fortify.php` and defined in `AppServiceProvider` — both must remain in sync.
+
+### File uploads
+- Always use `mimetypes:` validation (magic-byte check via PHP Fileinfo), never `mimes:` (extension-only).
+- Reference `StoreDocumentRequest::ACCEPTED_MIMETYPES` for the canonical list of accepted types — do not duplicate it.
+- Store uploaded files outside the webroot: `Storage::disk('local')` at `uploads/{uuid}/filename`. Never store to `public` disk.
+- File I/O happens **before** the DB transaction. On transaction failure, delete the orphaned file in the `catch` block.
 
 ### General
 - Never log passwords, tokens, or full request bodies — always `$request->except(['password', 'password_confirmation'])`.

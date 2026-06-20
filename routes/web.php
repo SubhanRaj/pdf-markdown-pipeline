@@ -36,14 +36,15 @@ Route::prefix('departments')->name('departments.')->group(function () {
 });
 
 // ── Auth-protected mutations ──────────────────────────────────────────────────
+// throttle:mutations = 60 state-changing requests/minute/user (defined in AppServiceProvider)
 
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'throttle:mutations'])->group(function () {
 
     // Documents — mutations
     // Note: /upload must be before /{document} to avoid wildcard collision
     Route::prefix('documents')->name('documents.')->group(function () {
         Route::get('/upload',            [DocumentController::class, 'create'])->name('create');
-        Route::post('/',                 [DocumentController::class, 'store'])->name('store');
+        Route::post('/',                 [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads'); // tighter: 10/min
         Route::get('/{document}/review', [DocumentController::class, 'edit'])->name('edit');
         Route::patch('/{document}',      [DocumentController::class, 'update'])->name('update');
         Route::delete('/{document}',     [DocumentController::class, 'destroy'])->name('destroy');
@@ -70,7 +71,7 @@ Route::middleware('auth')->group(function () {
 
 // ── Admin-only ────────────────────────────────────────────────────────────────
 
-Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
+Route::prefix('admin')->name('admin.')->middleware(['auth', 'throttle:mutations'])->group(function () {
 
     // User management — admin creates and manages all vault accounts
     Route::prefix('users')->name('users.')->group(function () {
