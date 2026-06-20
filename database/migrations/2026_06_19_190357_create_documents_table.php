@@ -16,6 +16,8 @@ return new class extends Migration
             $table->foreignId('department_id')->constrained()->restrictOnDelete();
             $table->foreignId('section_id')->constrained()->restrictOnDelete();
             $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
+            $table->string('title');
+            $table->string('document_type'); // go | policy | notice | court_order | service_code | other
             $table->string('original_filename');
             $table->string('original_pdf_path');
             $table->string('markdown_path')->nullable();
