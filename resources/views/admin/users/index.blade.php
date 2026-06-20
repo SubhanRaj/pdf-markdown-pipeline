@@ -58,7 +58,7 @@
                             </div>
                             <div class="min-w-0">
                                 <p class="font-medium text-slate-800 dark:text-slate-100 truncate">{{ $user->name }}</p>
-                                <p class="text-xs text-slate-400 dark:text-slate-500 truncate">@{{ $user->username }}</p>
+                                <p class="text-xs text-slate-400 dark:text-slate-500 truncate">{{ '@' . $user->username }}</p>
                             </div>
                         </div>
                     </td>
