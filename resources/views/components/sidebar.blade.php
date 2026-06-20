@@ -1,97 +1,154 @@
-<aside class="w-64 bg-slate-950 flex flex-col flex-shrink-0 overflow-y-auto">
+<aside id="sidebar" class="sidebar-expanded bg-slate-950 flex flex-col flex-shrink-0 overflow-hidden">
 
-    {{-- Logo / App identity --}}
-    <div class="px-5 py-5 flex items-center gap-3 border-b border-slate-800/70">
+    {{-- Logo --}}
+    <div class="px-4 py-5 flex items-center gap-3 border-b border-slate-800/70 min-w-0">
         <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
             <i class="ti ti-file-text-ai text-white text-lg"></i>
         </div>
-        <div class="min-w-0">
+        <div class="sidebar-logo-text min-w-0">
             <p class="text-sm font-semibold text-white leading-tight">Document Vault</p>
             <p class="text-xs text-slate-500 truncate">UP Dept. of Excise</p>
         </div>
     </div>
 
     {{-- Navigation --}}
-    <nav class="flex-1 px-3 py-3 space-y-0.5">
+    <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
 
         <a href="{{ route('home') }}"
+           data-tooltip="Dashboard"
            class="nav-link {{ request()->routeIs('home') ? 'nav-link-active' : 'nav-link-idle' }}">
-            <i class="ti ti-layout-dashboard w-4 text-center text-base"></i>
-            <span>Dashboard</span>
+            <i class="ti ti-layout-dashboard w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">Dashboard</span>
         </a>
 
         <a href="{{ route('vault.documents.index') }}"
-           class="nav-link {{ request()->routeIs('vault.documents.index') ? 'nav-link-active' : 'nav-link-idle' }}">
-            <i class="ti ti-folder-open w-4 text-center text-base"></i>
-            <span>All Documents</span>
+           data-tooltip="All Documents"
+           class="nav-link {{ request()->routeIs('vault.documents.*') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-folder-open w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">All Documents</span>
         </a>
 
-        {{-- Browse by Department --}}
         <span class="nav-section-label">Browse Vault</span>
 
-        <a href="#" class="nav-link nav-link-idle">
-            <i class="ti ti-building-community w-4 text-center text-base text-amber-400"></i>
-            <span>Excise Department</span>
+        <a href="{{ route('vault.departments.index') }}"
+           data-tooltip="Excise Department"
+           class="nav-link nav-link-idle">
+            <i class="ti ti-building-community w-5 text-center text-base flex-shrink-0 text-amber-400"></i>
+            <span class="sidebar-text">Excise Department</span>
         </a>
 
-        <a href="#" class="nav-link nav-link-idle">
-            <i class="ti ti-leaf w-4 text-center text-base text-emerald-400"></i>
-            <span>Sugarcane & Sugar</span>
+        <a href="{{ route('vault.departments.index') }}"
+           data-tooltip="Sugarcane &amp; Sugar"
+           class="nav-link nav-link-idle">
+            <i class="ti ti-leaf w-5 text-center text-base flex-shrink-0 text-emerald-400"></i>
+            <span class="sidebar-text">Sugarcane &amp; Sugar</span>
         </a>
 
-        <a href="#" class="nav-link nav-link-idle">
-            <i class="ti ti-building-factory w-4 text-center text-base text-cyan-400"></i>
-            <span>Sugar Mill Corp.</span>
+        <a href="{{ route('vault.departments.index') }}"
+           data-tooltip="Sugar Mill Corp."
+           class="nav-link nav-link-idle">
+            <i class="ti ti-building-factory w-5 text-center text-base flex-shrink-0 text-cyan-400"></i>
+            <span class="sidebar-text">Sugar Mill Corp.</span>
         </a>
 
-        <a href="#" class="nav-link nav-link-idle">
-            <i class="ti ti-stack-2 w-4 text-center text-base text-violet-400"></i>
-            <span>Cane Federation</span>
+        <a href="{{ route('vault.departments.index') }}"
+           data-tooltip="Cane Federation"
+           class="nav-link nav-link-idle">
+            <i class="ti ti-stack-2 w-5 text-center text-base flex-shrink-0 text-violet-400"></i>
+            <span class="sidebar-text">Cane Federation</span>
         </a>
 
-        <a href="#" class="nav-link nav-link-idle">
-            <i class="ti ti-building-arch w-4 text-center text-base text-rose-400"></i>
-            <span>Secretariat</span>
+        <a href="{{ route('vault.departments.index') }}"
+           data-tooltip="Secretariat"
+           class="nav-link nav-link-idle">
+            <i class="ti ti-building-arch w-5 text-center text-base flex-shrink-0 text-rose-400"></i>
+            <span class="sidebar-text">Secretariat</span>
         </a>
 
-        {{-- Tools --}}
         <span class="nav-section-label">Tools</span>
 
-        <a href="#" class="nav-link nav-link-idle">
-            <i class="ti ti-file-upload w-4 text-center text-base text-indigo-400"></i>
-            <span>Convert PDF</span>
-            <span class="ml-auto text-[10px] bg-indigo-900/60 text-indigo-400 px-1.5 py-0.5 rounded font-medium">Soon</span>
-        </a>
+        <span data-tooltip="Convert PDF — Coming soon" class="nav-link nav-link-idle opacity-60 cursor-not-allowed">
+            <i class="ti ti-file-upload w-5 text-center text-base flex-shrink-0 text-indigo-400"></i>
+            <span class="sidebar-text">Convert PDF</span>
+            <span class="sidebar-badge ml-auto text-[10px] bg-indigo-900/60 text-indigo-400 px-1.5 py-0.5 rounded font-medium">Soon</span>
+        </span>
 
-        <a href="#" class="nav-link nav-link-idle">
-            <i class="ti ti-markdown w-4 text-center text-base text-sky-400"></i>
-            <span>Markdown Editor</span>
-            <span class="ml-auto text-[10px] bg-indigo-900/60 text-indigo-400 px-1.5 py-0.5 rounded font-medium">Soon</span>
-        </a>
+        <span data-tooltip="Markdown Editor — Coming soon" class="nav-link nav-link-idle opacity-60 cursor-not-allowed">
+            <i class="ti ti-markdown w-5 text-center text-base flex-shrink-0 text-sky-400"></i>
+            <span class="sidebar-text">Markdown Editor</span>
+            <span class="sidebar-badge ml-auto text-[10px] bg-indigo-900/60 text-indigo-400 px-1.5 py-0.5 rounded font-medium">Soon</span>
+        </span>
 
-        {{-- Admin --}}
         <span class="nav-section-label">Admin</span>
 
         <a href="{{ route('vault.departments.index') }}"
+           data-tooltip="Departments"
            class="nav-link {{ request()->routeIs('vault.departments.*') ? 'nav-link-active' : 'nav-link-idle' }}">
-            <i class="ti ti-building w-4 text-center text-base"></i>
-            <span>Departments</span>
+            <i class="ti ti-building w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">Departments</span>
         </a>
+
+        @auth
+        @if(auth()->user()->isAdmin())
+        <a href="{{ route('admin.users.index') }}"
+           data-tooltip="Users"
+           class="nav-link {{ request()->routeIs('admin.users.*') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-users w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">Users</span>
+        </a>
+        @endif
+        @endauth
 
     </nav>
 
-    {{-- User profile bar --}}
-    <div class="px-4 py-4 border-t border-slate-800/70 flex items-center gap-3">
-        <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
-            SR
-        </div>
-        <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium text-slate-200 truncate">Subhan Raj</p>
-            <p class="text-xs text-slate-500 truncate">Administrator</p>
-        </div>
-        <button class="text-slate-600 hover:text-slate-300 transition-colors" title="Logout">
-            <i class="ti ti-logout text-sm"></i>
+    {{-- Collapse toggle --}}
+    <div class="px-2 pb-2">
+        <button
+            id="sidebar-toggle"
+            onclick="window.toggleSidebar()"
+            data-tooltip="Expand sidebar"
+            class="nav-link nav-link-idle w-full text-slate-500 hover:text-slate-300"
+        >
+            <i id="sidebar-toggle-icon" class="ti ti-layout-sidebar-left-collapse w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text text-xs">Collapse</span>
         </button>
+    </div>
+
+    {{-- User profile / login --}}
+    <div class="px-3 py-4 border-t border-slate-800/70 flex items-center gap-3 min-w-0">
+        @auth
+        <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+             data-tooltip="{{ auth()->user()->name }} · {{ ucfirst(auth()->user()->role) }}">
+            {{ strtoupper(substr(auth()->user()->name, 0, 1)) }}
+        </div>
+        <div class="sidebar-user-text flex-1 min-w-0">
+            <p class="text-sm font-medium text-slate-200 truncate">{{ auth()->user()->name }}</p>
+            <p class="text-xs text-slate-500 truncate">{{ ucfirst(auth()->user()->role) }}</p>
+        </div>
+        <form method="POST" action="{{ route('logout') }}" class="sidebar-user-text flex-shrink-0">
+            @csrf
+            <button type="submit"
+                    data-tooltip="Log out"
+                    class="text-slate-600 hover:text-slate-300 transition-colors"
+                    title="Logout">
+                <i class="ti ti-logout text-sm"></i>
+            </button>
+        </form>
+        @else
+        <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-400 flex-shrink-0"
+             data-tooltip="Guest · Not signed in">
+            G
+        </div>
+        <div class="sidebar-user-text flex-1 min-w-0">
+            <p class="text-sm font-medium text-slate-400 truncate">Guest</p>
+            <p class="text-xs text-slate-600 truncate">Visitor</p>
+        </div>
+        <a href="{{ route('login') }}"
+           data-tooltip="Sign in"
+           class="sidebar-user-text flex-shrink-0 text-slate-500 hover:text-slate-200 transition-colors">
+            <i class="ti ti-login-2 text-lg"></i>
+        </a>
+        @endauth
     </div>
 
 </aside>

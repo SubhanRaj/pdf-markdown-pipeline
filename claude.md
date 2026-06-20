@@ -154,10 +154,96 @@ All additional JS/CSS packages must be loaded from jsDelivr. Add them to `head.b
 
 ### Shared utility CSS classes (defined in head.blade.php via `<style type="text/tailwindcss">`)
 
-`nav-link`, `nav-link-active`, `nav-link-idle`, `nav-section-label`, `stat-card`, `stat-icon`, `badge` — use these across pages before adding new utility classes.
+`nav-link`, `nav-link-active`, `nav-link-idle`, `nav-section-label`, `stat-card`, `stat-icon`, `badge`, `field-label`, `field-input`, `field-error`, `field-valid`, `field-hint`, `field-err-msg` — use these across pages before adding new utility classes. All have dark: variants defined globally.
+
+### Dark mode
+
+- Dark mode class strategy: `dark:` variant on every visual element. All shared utility classes (above) have dark variants in `head.blade.php`.
+- Toggle is `window.toggleDarkMode()` in `layout.blade.php`. Preference stored in `localStorage.color_scheme` (`'dark'` / `'light'`).
+- Anti-flash script runs synchronously at top of `<head>` before paint — do not move it.
+- To check dark mode in JS: `document.documentElement.classList.contains('dark')`.
+
+### Sidebar
+
+- Sidebar collapse toggled via `window.toggleSidebar()`. State stored in `localStorage.sidebar_collapsed` (`'1'` / `'0'`).
+- CSS classes on `#sidebar`: `sidebar-expanded` (w-64) / `sidebar-collapsed` (w-16, icons only).
+- `.sidebar-text`, `.sidebar-logo-text`, `.sidebar-user-text`, `.nav-section-label`, `.sidebar-badge` are hidden when collapsed.
+- `.nav-tooltip` CSS provides hover labels in collapsed state with a `::before` arrow.
+
+### Flash notifications (php-flasher/flasher-laravel)
+
+**Package:** `php-flasher/flasher-laravel` v2.x — installed, configured, and rendering via `@flasher_render` in `layout.blade.php`.
+
+In controllers, use the `flash()` helper:
+```php
+flash()->success('User created successfully.');
+flash()->error('Operation failed. Please try again.');
+flash()->warning('You cannot delete your own account.');
+flash()->info('Account is pending email verification.');
+```
+
+**Rules:**
+- Do **not** use `->with('success', ...)` / `->with('error', ...)` session flash in any controller that returns to a `<x-layout>` page — Flasher renders toast notifications automatically.
+- Do **not** add `@if(session('success'))` / `@if(session('error'))` blocks in Blade views under `<x-layout>` — Flasher already handles display.
+- `@flasher_render` is already placed in `layout.blade.php` before `@stack('scripts')` — never add it again in individual views.
+
+## Security conventions (non-negotiable, apply from day one)
+
+This app may be exposed over a public network. All DB-touching code must be treated as production-grade regardless of environment.
+
+### Database operations
+- **Always wrap multi-step DB writes in `DB::transaction()`** — single writes also benefit from atomicity.
+- **Always wrap DB calls in `try/catch (\Throwable $e)`** — log the error with `Log::error(...)`, return a user-friendly message, never leak stack traces.
+- **Never call `save()` / `create()` / `update()` outside of transactions** for anything business-critical.
+
+```php
+// Required pattern for every controller mutation
+try {
+    DB::transaction(function () use ($request, $model) {
+        $model->update($validated);
+        // ... related writes
+    });
+    flash()->success('Done.');             // use flash(), not ->with('success', ...)
+    return redirect()->route('...');
+} catch (\Throwable $e) {
+    Log::error('ControllerName@method failed', ['error' => $e->getMessage()]);
+    flash()->error('Operation failed. Please try again.');
+    return back()->withInput();
+}
+```
+
+### Input validation & sanitisation
+- Use **Form Request classes** (`php artisan make:request`) for all POST/PATCH endpoints — never validate inline in a controller.
+- Call `prepareForValidation()` in the Form Request to sanitise before validation: `strip_tags()`, `trim()`, `strtolower()`, `preg_replace()` on relevant fields.
+- Use **strict regex rules** on all string fields. Never trust free-text input.
+- Passwords: use `Password::min(8)->mixedCase()->numbers()->symbols()` (Laravel's built-in).
+- Use `exists:table,column` rules for FK references — prevents orphaned or spoofed IDs.
+- Unique rules on updates must exclude the current record: `unique:users,email,{$id}`.
+
+### Mass assignment protection
+- Every model must have an explicit `$fillable` array (or `#[Fillable]` attribute). **Never use `$guarded = []`**.
+- Never pass `$request->all()` directly to `create()` / `update()` — always use `$request->validated()` or an explicit array.
+
+### Frontend validation
+- Add JS validation (regex-based, real-time on `blur` + `input`) for all forms — use the pattern established in `admin/users/create.blade.php`.
+- Use `novalidate` on `<form>` and implement custom JS validation instead of browser native — for consistent UX.
+- Always gate form submission in JS and scroll to the first error.
+- **Pass PHP data to JS via `<script type="application/json">` data islands**, never via `{{ }}` interpolation inside `<script>` blocks (IDE false positives + XSS surface).
+
+### Auth & access control
+- Mutations (POST/PATCH/DELETE) are always behind `middleware('auth')` — no exceptions.
+- Admin-only routes live under the `admin.*` name prefix and additionally check `$user->isAdmin()` inside the Form Request's `authorize()` method.
+- Use `$request->user()?->isAdmin()` (nullable-safe) in `authorize()` — never assume the user is logged in inside a Form Request.
+- Self-deletion must be blocked explicitly in controllers (see `UserManagementController@destroy`).
+- Fortify's public registration is **disabled** — accounts are admin-created only.
+
+### General
+- Never log passwords, tokens, or full request bodies — always `$request->except(['password', 'password_confirmation'])`.
+- Sensitive config (DB credentials, mail passwords) belongs in `.env` only — never hardcoded.
+- `.env.example` must have blank values for all secrets.
 
 ## Conventions
 
 - Bridge any new Python dependency through a Composer/Laravel package where one exists (as with `markitdown`) rather than raw `Process::run()` calls, unless no package exists.
 - Long-running or potentially slow operations (extraction, OCR) must be dispatched as queued jobs — never run synchronously in a request/controller, to avoid browser timeouts.
-- When generating migrations, prefer additive/nullable changes given the schema is still in flux.
+- When generating migrations, prefer updating the original migration file directly for schema-in-flux tables rather than creating alter migrations — migration files are the single source of truth for table shape.

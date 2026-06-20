@@ -10,8 +10,10 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "laravel/fortify": "^1.37",
         "laravel/framework": "^13.8",
         "laravel/tinker": "^3.0",
+        "php-flasher/flasher-laravel": "^2.6",
         "subhanraj/laravel-db-provisioner": "^1.0"
     },
     "require-dev": {
