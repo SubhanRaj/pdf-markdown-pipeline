@@ -1,3 +1,8 @@
+@php
+    $exciseDept = \App\Models\Department::where('slug', 'excise')
+        ->where('level', 'department_level')
+        ->first(['id']);
+@endphp
 <aside id="sidebar" class="sidebar-expanded bg-slate-950 flex flex-col flex-shrink-0 overflow-hidden">
 
     {{-- Logo --}}
@@ -30,9 +35,9 @@
 
         <span class="nav-section-label">Browse Vault</span>
 
-        <a href="{{ route('departments.index') }}"
+        <a href="{{ $exciseDept ? route('departments.show', $exciseDept) : route('departments.index') }}"
            data-tooltip="Excise Department"
-           class="nav-link nav-link-idle">
+           class="nav-link {{ request()->routeIs('departments.show') && request()->route('department')?->slug === 'excise' ? 'nav-link-active' : 'nav-link-idle' }}">
             <i class="ti ti-building-community w-5 text-center text-base flex-shrink-0 text-amber-400"></i>
             <span class="sidebar-text">Excise Department</span>
         </a>
@@ -79,7 +84,8 @@
             <span class="sidebar-badge ml-auto text-[10px] bg-indigo-900/60 text-indigo-400 px-1.5 py-0.5 rounded font-medium">Soon</span>
         </span>
 
-        <span class="nav-section-label">Admin</span>
+        @auth
+        <span class="nav-section-label">Manage</span>
 
         <a href="{{ route('departments.index') }}"
            data-tooltip="Departments"
@@ -88,7 +94,6 @@
             <span class="sidebar-text">Departments</span>
         </a>
 
-        @auth
         @if(auth()->user()->isAdmin())
         <a href="{{ route('admin.users.index') }}"
            data-tooltip="Users"
