@@ -2,28 +2,40 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class StoreDepartmentRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
-        return false;
+        return $this->user()?->isAdmin() ?? false;
     }
 
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array<string, ValidationRule|array<mixed>|string>
-     */
+    protected function prepareForValidation(): void
+    {
+        $name  = trim(strip_tags($this->name ?? ''));
+        $slug  = $this->slug ? Str::slug(strip_tags($this->slug)) : Str::slug($name);
+        $level = trim($this->level ?? '');
+
+        $this->merge(compact('name', 'slug', 'level'));
+    }
+
     public function rules(): array
     {
         return [
-            //
+            'name'  => ['required', 'string', 'max:100', 'regex:/^[\p{L}\s\&\'\-\.]+$/u'],
+            'level' => ['required', 'in:secretariat_level,department_level'],
+            'slug'  => ['required', 'string', 'max:80', 'regex:/^[a-z0-9\-_]+$/',
+                        Rule::unique('departments')->where('level', $this->level)],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'slug.unique' => 'A department with this slug already exists at the selected level.',
         ];
     }
 }

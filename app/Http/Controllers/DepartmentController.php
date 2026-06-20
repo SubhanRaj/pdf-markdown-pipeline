@@ -5,62 +5,88 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreDepartmentRequest;
 use App\Http\Requests\UpdateDepartmentRequest;
 use App\Models\Department;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\View\View;
 
 class DepartmentController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function index(): View
     {
-        //
+        $departments = Department::withCount(['sections', 'documents'])
+            ->orderBy('level')
+            ->orderBy('name')
+            ->get();
+
+        return view('department.index', compact('departments'));
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
+    public function create(): View
     {
-        //
+        return view('department.create');
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(StoreDepartmentRequest $request)
+    public function store(StoreDepartmentRequest $request): RedirectResponse
     {
-        //
+        try {
+            DB::transaction(function () use ($request) {
+                Department::create($request->validated());
+            });
+
+            flash()->success("Department \"{$request->name}\" created.");
+            return redirect()->route('department.index');
+        } catch (\Throwable $e) {
+            Log::error('DepartmentController@store failed', ['error' => $e->getMessage()]);
+            flash()->error('Failed to create department. Please try again.');
+            return back()->withInput();
+        }
     }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(Department $department)
+    public function show(Department $department): View
     {
-        //
+        $department->loadCount(['sections', 'documents']);
+        $sections = $department->sections()->withCount('documents')->orderBy('name')->get();
+
+        return view('department.show', compact('department', 'sections'));
     }
 
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(Department $department)
+    public function edit(Department $department): View
     {
-        //
+        return view('department.edit', compact('department'));
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(UpdateDepartmentRequest $request, Department $department)
+    public function update(UpdateDepartmentRequest $request, Department $department): RedirectResponse
     {
-        //
+        try {
+            DB::transaction(fn () => $department->update($request->validated()));
+
+            flash()->success("Department \"{$department->name}\" updated.");
+            return redirect()->route('department.show', $department);
+        } catch (\Throwable $e) {
+            Log::error('DepartmentController@update failed', [
+                'dept_id' => $department->id,
+                'error'   => $e->getMessage(),
+            ]);
+            flash()->error('Failed to update department. Please try again.');
+            return back()->withInput();
+        }
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(Department $department)
+    public function destroy(Department $department): RedirectResponse
     {
-        //
+        try {
+            DB::transaction(fn () => $department->delete());
+
+            flash()->success("Department \"{$department->name}\" deleted.");
+            return redirect()->route('department.index');
+        } catch (\Throwable $e) {
+            Log::error('DepartmentController@destroy failed', [
+                'dept_id' => $department->id,
+                'error'   => $e->getMessage(),
+            ]);
+            flash()->error('Failed to delete department. Please try again.');
+            return back();
+        }
     }
 }
