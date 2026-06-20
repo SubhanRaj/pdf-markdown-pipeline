@@ -15,11 +15,11 @@
 </x-slot:breadcrumb>
 
 {{-- Data island for JS --}}
-<script id="page-data" type="application/json">@json([
+<script id="page-data" type="application/json">{{ json_encode([
     'documentTypes' => \App\Models\Document::DOCUMENT_TYPES,
     'storeUrl'      => route('documents.store'),
     'csrfToken'     => csrf_token(),
-])</script>
+]) }}</script>
 
 {{-- ── Section header ─────────────────────────────────────────────────────── --}}
 <div class="flex items-start justify-between gap-4 mb-6">
@@ -30,14 +30,32 @@
         <div>
             <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">{{ $section->name }}</h2>
             <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                <span class="text-xs font-mono text-slate-400 dark:text-slate-500">{{ $section->slug }}</span>
+                <span class="text-xs text-slate-500 dark:text-slate-400">{{ $department->name }}</span>
+                @if($section->wing)
+                    <span class="text-slate-300 dark:text-slate-600">·</span>
+                    <span class="text-xs text-slate-500 dark:text-slate-400">{{ Str::title(str_replace('_', ' ', $section->wing)) }}</span>
+                @endif
                 <span class="text-slate-300 dark:text-slate-600">·</span>
                 <span class="text-xs text-slate-400 dark:text-slate-500">{{ $documents->total() }} {{ Str::plural('document', $documents->total()) }}</span>
-                <span class="text-slate-300 dark:text-slate-600">·</span>
-                <span class="text-xs font-mono text-slate-300 dark:text-slate-600 truncate max-w-xs">
-                    document_vault/{{ $department->level }}/{{ $department->slug }}{{ $section->wing ? '/' . $section->wing : '' }}/{{ $section->slug }}
-                </span>
             </div>
+            {{-- Vault path — formatted with readable names --}}
+            @auth
+            <div class="flex items-center gap-1 mt-1 flex-wrap">
+                @php
+                    $vaultCrumbs = array_filter([
+                        'Vault',
+                        Str::title(str_replace('_', ' ', $department->level)),
+                        $department->name,
+                        $section->wing ? Str::title(str_replace('_', ' ', $section->wing)) : null,
+                        $section->name,
+                    ]);
+                @endphp
+                @foreach($vaultCrumbs as $crumb)
+                    @if(!$loop->first)<span class="text-[10px] text-slate-300 dark:text-slate-700">/</span>@endif
+                    <span class="text-[10px] font-mono text-slate-300 dark:text-slate-600">{{ $crumb }}</span>
+                @endforeach
+            </div>
+            @endauth
         </div>
     </div>
     <div class="flex items-center gap-2">
@@ -102,6 +120,17 @@
                        class="field-input file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 dark:file:bg-indigo-900/30 dark:file:text-indigo-300 cursor-pointer">
                 <p id="err-file" class="field-err-msg hidden"></p>
                 <p id="hint-file" class="field-hint">PDF only · max 50 MB</p>
+            </div>
+
+            {{-- Vault destination preview --}}
+            <div class="sm:col-span-2 bg-slate-50 dark:bg-slate-900/50 rounded-lg px-4 py-3 border border-slate-100 dark:border-slate-700/50">
+                <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5">Will be saved to</p>
+                <div class="flex items-center gap-1 flex-wrap">
+                    @foreach($vaultCrumbs as $crumb)
+                        @if(!$loop->first)<i class="ti ti-chevron-right text-[10px] text-slate-300 dark:text-slate-600"></i>@endif
+                        <span class="text-xs text-slate-500 dark:text-slate-400 {{ $loop->last ? 'font-medium text-indigo-600 dark:text-indigo-400' : '' }}">{{ $crumb }}</span>
+                    @endforeach
+                </div>
             </div>
 
             {{-- Submit --}}
