@@ -90,5 +90,8 @@ Active development. The core upload and browse loop is now working end-to-end.
 - Rate limiting: login brute-force (5/min per email+IP), general mutation cap (60/min/user), upload cap (10/min/user) — all named limiters, not inline throttle values
 - Sidebar context-aware: guests see Browse Vault + All Departments; authenticated users see Browse Vault + Manage (admin also sees Users)
 - Vault paths displayed as human-readable breadcrumbs (department name / wing / section name) — raw slugs removed from UI
+- Dashboard recent-document feed is auth-aware: guests see only `verified` documents; authenticated users see all statuses
+- Dashboard department cards now link directly to `departments.show` (resolved at render from the already-loaded collection) with `departments.index` fallback — no placeholder `href="#"` links remain
+- Dashboard document feed shows the human document title and document-type label instead of raw filename
 
 **Next up:** queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.
