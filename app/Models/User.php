@@ -2,38 +2,84 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
-use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password'])]
-#[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, SoftDeletes;
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
+    protected $fillable = [
+        'name',
+        'username',
+        'email',
+        'mobile',
+        'password',
+        'post',
+        'role',
+        'privileges',
+        'department_id',
+        'section_id',
+        'email_verified_at',
+    ];
+
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+
     protected function casts(): array
     {
         return [
             'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            'password'          => 'hashed',
+            'privileges'        => 'array',
         ];
+    }
+
+    // ── Relationships ────────────────────────────────────────────────────────
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
+    }
+
+    public function section(): BelongsTo
+    {
+        return $this->belongsTo(Section::class);
     }
 
     public function documents(): HasMany
     {
         return $this->hasMany(Document::class);
+    }
+
+    // ── Role helpers ─────────────────────────────────────────────────────────
+
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
+    }
+
+    public function isOperator(): bool
+    {
+        return $this->role === 'operator';
+    }
+
+    public function hasPrivilege(string $privilege): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        $privileges = $this->privileges ?? [];
+
+        return in_array('*', $privileges, true) || in_array($privilege, $privileges, true);
     }
 }

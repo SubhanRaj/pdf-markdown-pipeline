@@ -6,19 +6,26 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
+            $table->string('name', 100);
+            $table->string('username', 30)->unique();
+            $table->string('email', 255)->unique();
+            $table->string('mobile', 10)->nullable();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+            $table->string('post', 100)->nullable();            // job title / designation
+            $table->enum('role', ['admin', 'operator', 'viewer'])->default('viewer');
+            $table->json('privileges')->nullable();             // granular permission flags
+            // Soft FKs — departments/sections are created after users, so no constraint here.
+            // Relationships are enforced at model/policy layer.
+            $table->unsignedBigInteger('department_id')->nullable()->index();
+            $table->unsignedBigInteger('section_id')->nullable()->index();
             $table->rememberToken();
             $table->timestamps();
+            $table->softDeletes();
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
@@ -37,9 +44,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('users');
