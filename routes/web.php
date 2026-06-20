@@ -18,29 +18,26 @@ Route::get('/admin', function () {
 
 Route::get('/', [FrontendController::class, 'dashboard'])->name('home');
 
-Route::prefix('vault')->name('vault.')->group(function () {
+// Documents — read-only browse is public
+Route::prefix('documents')->name('documents.')->group(function () {
+    Route::get('/',           [DocumentController::class, 'index'])->name('index');
+    Route::get('/{document}', [DocumentController::class, 'show'])->name('show');
+});
 
-    // Documents — read-only browse is public
-    Route::prefix('documents')->name('documents.')->group(function () {
-        Route::get('/',           [DocumentController::class, 'index'])->name('index');
-        Route::get('/{document}', [DocumentController::class, 'show'])->name('show');
-    });
+// Departments & sections — read-only public
+Route::prefix('departments')->name('departments.')->group(function () {
+    Route::get('/',             [DepartmentController::class, 'index'])->name('index');
+    Route::get('/{department}', [DepartmentController::class, 'show'])->name('show');
 
-    // Departments & sections — read-only public
-    Route::prefix('departments')->name('departments.')->group(function () {
-        Route::get('/',             [DepartmentController::class, 'index'])->name('index');
-        Route::get('/{department}', [DepartmentController::class, 'show'])->name('show');
-
-        Route::prefix('/{department}/sections')->name('sections.')->group(function () {
-            Route::get('/',          [SectionController::class, 'index'])->name('index');
-            Route::get('/{section}', [SectionController::class, 'show'])->name('show');
-        });
+    Route::prefix('/{department}/sections')->name('sections.')->group(function () {
+        Route::get('/',          [SectionController::class, 'index'])->name('index');
+        Route::get('/{section}', [SectionController::class, 'show'])->name('show');
     });
 });
 
 // ── Auth-protected mutations ──────────────────────────────────────────────────
 
-Route::prefix('vault')->name('vault.')->middleware('auth')->group(function () {
+Route::middleware('auth')->group(function () {
 
     // Documents — mutations
     // Note: /upload must be before /{document} to avoid wildcard collision

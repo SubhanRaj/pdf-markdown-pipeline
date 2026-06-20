@@ -68,15 +68,86 @@ Reference org structure this is derived from:
 
 Additional departments, wings, or sections can be added without restructuring existing branches.
 
-## Database schema (in progress — expect frequent change)
+## Database schema
 
 Schema is intentionally not finalized. Structural columns are kept minimal; volatile/evolving fields go into a JSON `metadata` column rather than triggering new migrations on every iteration.
 
-Planned core tables:
-- **`documents`** — one row per ingested file: vault path, originating department/section/level, `status` (`uploaded → processing → review → verified`, plus `ocr_pending` / `failed`), original PDF path, converted Markdown path, uploading user, `metadata` JSON column.
-- **`document_status_history`** — append-only audit log of state transitions (from/to status, actor, timestamp, note).
-- **`users`** — department personnel with role/section assignments controlling vault access.
-- **`departments`** / **`sections`** — reference tables defining the hierarchy above; used to enforce that a document's silo path matches its assigned department (Excise data must never resolve under a Sugarcane query, and vice versa).
+### `departments`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `name` | string | Display name |
+| `slug` | string | URL-safe identifier |
+| `level` | string | `secretariat_level` \| `department_level` |
+| `timestamps` + `softDeletes` | | |
+
+Unique constraint: `(slug, level)`.
+
+### `sections`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `department_id` | FK → departments | `restrictOnDelete` |
+| `wing` | string nullable | e.g. `joint_secretary_wing`, `headquarter` |
+| `name` | string | |
+| `slug` | string | |
+| `timestamps` + `softDeletes` | | |
+
+Unique constraint: `(department_id, wing, slug)`.
+
+### `documents`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `department_id` | FK → departments | `restrictOnDelete` |
+| `section_id` | FK → sections | `restrictOnDelete` |
+| `user_id` | FK → users nullable | `nullOnDelete` — uploader |
+| `original_filename` | string | |
+| `original_pdf_path` | string | |
+| `markdown_path` | string nullable | set after extraction |
+| `vault_path` | string nullable | resolved after verification |
+| `status` | string | `uploaded` → `processing` → `ocr_pending` → `review` → `verified` \| `failed` |
+| `metadata` | json nullable | GO number, subject, dates, etc. |
+| `timestamps` + `softDeletes` | | |
+
+### `document_status_histories`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `document_id` | FK → documents | `cascadeOnDelete` |
+| `actor_id` | FK → users nullable | `nullOnDelete` |
+| `from_status` | string nullable | |
+| `to_status` | string | |
+| `note` | text nullable | |
+| `created_at` | timestamp | append-only — no `updated_at` |
+
+### `users`
+Standard Laravel/Fortify users table with `is_admin` boolean. Public registration disabled — admin-created only.
+
+## What's built (as of 2026-06-20)
+
+### Modules / controllers
+
+| Module | Controller | Notes |
+|---|---|---|
+| Dashboard | `FrontendController` | Public landing page with document stats |
+| Documents | `DocumentController` | Full CRUD scaffold (extraction/OCR jobs not yet wired) |
+| Departments | `DepartmentController` | Full CRUD with slug validation |
+| Sections | `SectionController` | Nested under departments; wing-aware |
+| User management | `Admin\UserManagementController` | Admin-only; account creation, role toggle, self-delete guard |
+
+### Route map
+
+Routes have **no global prefix** — resources sit at the root:
+
+| Resource | Public | Auth-protected mutations |
+|---|---|---|
+| Documents | `GET /documents`, `GET /documents/{document}` | `GET /documents/upload`, `POST /documents`, `GET /documents/{document}/review`, `PATCH /documents/{document}`, `DELETE /documents/{document}` |
+| Departments | `GET /departments`, `GET /departments/{department}` | `GET /departments/create`, `POST /departments`, `GET /departments/{department}/edit`, `PATCH`, `DELETE` |
+| Sections | `GET /departments/{department}/sections`, `GET …/sections/{section}` | same pattern nested under department |
+| Admin users | — | `GET/POST /admin/users`, `GET /admin/users/{user}`, edit/patch/delete |
+
+Route names follow `resource.action` (e.g. `documents.index`, `departments.sections.show`, `admin.users.create`).
 
 ## Architecture decisions already made (don't re-litigate without reason)
 

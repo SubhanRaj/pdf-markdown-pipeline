@@ -68,17 +68,24 @@ storage/app/document_vault/
 
 Additional departments, wings, or sections can be added to the vault without restructuring existing branches.
 
-## 🗄️ Database Schema (Overview)
+## 🗄️ Database Schema
 
-> Schema is under active design and will evolve. Structural columns are kept minimal; department/section-specific fields live in a flexible metadata column until they stabilize enough to be promoted to real columns.
+Core tables are migrated and in use. Structural columns are minimal; evolving fields (GO number, subject, dates, etc.) live in a `metadata` JSON column until they stabilise.
 
-Planned tables:
-
-- **`documents`** — One row per ingested file. Tracks vault path, originating department/section/level, processing status (`uploaded → processing → review → verified`), original PDF path, converted Markdown path, uploading user, and a JSON `metadata` column for evolving fields (GO number, subject, dates, etc.).
-- **`document_status_history`** — Append-only audit log of every state transition, with actor and timestamp.
-- **`users`** — Department personnel with role/section assignments controlling vault access.
-- **`departments`** / **`sections`** — Reference tables defining the hierarchy shown in the vault structure above, used to enforce that a document's silo path matches its assigned department (preventing Excise data from resolving under a Sugarcane query, and vice versa).
+- **`departments`** — name, slug, level (`secretariat_level` / `department_level`). Unique on `(slug, level)`. Soft-deleted.
+- **`sections`** — belongs to a department; carries an optional `wing` (e.g. `joint_secretary_wing`, `headquarter`). Unique on `(department_id, wing, slug)`. Soft-deleted.
+- **`documents`** — one row per ingested file. FK to department + section + uploader. Status machine: `uploaded → processing → ocr_pending → review → verified | failed`. Stores `original_pdf_path`, `markdown_path`, `vault_path` (set post-verification), and a JSON `metadata` column.
+- **`document_status_histories`** — append-only audit log of every status transition, with actor and optional note.
+- **`users`** — standard Fortify users table with `is_admin` boolean. Public registration disabled.
 
 ## 🚧 Status
 
-Early scaffolding stage — repository initialized, architecture and schema design in progress.
+Active development. Core scaffolding is complete:
+
+- All database migrations applied and models wired with relationships and `$fillable`.
+- Full CRUD routes and controller stubs for Documents, Departments, Sections, and admin User Management.
+- Blade component architecture in place (`x-layout`, sidebar, header, dark mode toggle).
+- Admin dashboard with document statistics chart.
+- Form Request validation classes with sanitisation and JS-side real-time validation.
+
+**Next up:** queue job for PDF extraction via `markitdown`, OCR fallback, split-pane review UI, and vault path resolution on verification.
