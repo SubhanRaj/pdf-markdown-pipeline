@@ -20,17 +20,13 @@ class FrontendController extends Controller
 
         $departments = Department::withCount('documents')->orderBy('name')->get();
 
+        // Guests see only verified documents in the recent feed
         $recentDocuments = Document::with(['department', 'section'])
+            ->when(! auth()->check(), fn ($q) => $q->where('status', 'verified'))
             ->latest()
             ->limit(8)
             ->get();
 
-        $statusBreakdown = Document::selectRaw('status, count(*) as total')
-            ->groupBy('status')
-            ->pluck('total', 'status');
-
-        return view('frontend.index', compact(
-            'stats', 'departments', 'recentDocuments', 'statusBreakdown'
-        ));
+        return view('frontend.index', compact('stats', 'departments', 'recentDocuments'));
     }
 }

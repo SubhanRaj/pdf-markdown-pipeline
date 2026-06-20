@@ -90,7 +90,15 @@
         @endphp
 
         @foreach($deptCards as $card)
-        <a href="#" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 {{ $hoverMap[$card['color']] }} hover:shadow-md hover:-translate-y-0.5 transition-all group">
+        @php
+            $matchedDept = $card['slug']
+                ? $departments->first(fn ($d) => $d->slug === $card['slug'])
+                : null;
+            $cardHref = $matchedDept
+                ? route('departments.show', $matchedDept)
+                : route('departments.index');
+        @endphp
+        <a href="{{ $cardHref }}" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 {{ $hoverMap[$card['color']] }} hover:shadow-md hover:-translate-y-0.5 transition-all group">
             <div class="w-10 h-10 rounded-lg {{ $iconBgMap[$card['color']] }} flex items-center justify-center mb-3 transition-colors">
                 <i class="ti {{ $card['icon'] }} text-xl {{ $iconColorMap[$card['color']] }}"></i>
             </div>
@@ -129,9 +137,9 @@
                 <i class="ti ti-folder-off text-2xl text-slate-300 dark:text-slate-500"></i>
             </div>
             <p class="text-sm font-semibold text-slate-500 dark:text-slate-400">No documents yet</p>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">Upload a PDF and convert it to Markdown to populate the vault.</p>
-            <a href="#" class="mt-4 inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
-                <i class="ti ti-file-upload"></i> Convert your first PDF
+            <p class="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-xs">Navigate to a section and upload a PDF to start converting it to Markdown.</p>
+            <a href="{{ route('departments.index') }}" class="mt-4 inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
+                <i class="ti ti-building"></i> Browse Departments
             </a>
         </div>
         @else
@@ -153,10 +161,12 @@
                     <i class="ti ti-file-type-pdf text-base text-red-500"></i>
                 </div>
                 <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{{ $doc->original_filename }}</p>
+                    <p class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{{ $doc->title }}</p>
                     <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate">
                         {{ $doc->department?->name ?? '—' }}
                         @if($doc->section)<span class="mx-1 text-slate-300 dark:text-slate-600">·</span>{{ $doc->section->name }}@endif
+                        <span class="mx-1 text-slate-300 dark:text-slate-600">·</span>
+                        {{ \App\Models\Document::DOCUMENT_TYPES[$doc->document_type] ?? ucfirst($doc->document_type) }}
                     </p>
                 </div>
                 <span class="badge {{ $badgeClass }} flex-shrink-0">
