@@ -103,6 +103,7 @@ Unique constraint: `(department_id, wing, slug)`.
 | `section_id` | FK → sections | `restrictOnDelete` |
 | `user_id` | FK → users nullable | `nullOnDelete` — uploader |
 | `title` | string | human-readable document title / reference |
+| `slug` | string | URL-safe; auto-generated from title at upload; unique per section (suffixed `-2`, `-3` on collision) |
 | `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `other` |
 | `original_filename` | string | |
 | `original_pdf_path` | string | stored at `uploads/{uuid}/original.pdf` on local disk |
@@ -111,6 +112,8 @@ Unique constraint: `(department_id, wing, slug)`.
 | `status` | string | `uploaded` → `processing` → `ocr_pending` → `review` → `verified` \| `failed` |
 | `metadata` | json nullable | GO number, subject, dates, etc. |
 | `timestamps` + `softDeletes` | | |
+
+Unique constraint: `(section_id, slug)`. Slug generated via `Document::uniqueSlugForSection($title, $sectionId)` — checks `withTrashed()` to avoid reusing slugs of soft-deleted docs.
 
 ### `document_status_histories`
 | Column | Type | Notes |
@@ -126,40 +129,61 @@ Unique constraint: `(department_id, wing, slug)`.
 ### `users`
 Standard Laravel/Fortify users table with `is_admin` boolean. Public registration disabled — admin-created only.
 
-## What's built (as of 2026-06-20)
+## What's built (as of 2026-06-21)
 
 ### Modules / controllers
 
 | Module | Controller | Notes |
 |---|---|---|
 | Dashboard | `FrontendController` | Public landing page with document stats |
-| Documents | `DocumentController` | Full CRUD; upload stores PDF + creates vault dir + writes status history |
-| Departments | `DepartmentController` | Full CRUD with slug validation |
-| Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + upload point |
+| Documents | `DocumentController` | Full CRUD; upload (AJAX-only store), PDF stream, hierarchical URLs, slug generation |
+| Departments | `DepartmentController` | Full CRUD; slug-based route model binding |
+| Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + upload modal |
 | User management | `Admin\UserManagementController` | Admin-only; account creation, role toggle, self-delete guard |
 
 ### Route map
 
-Routes have **no global prefix** — resources sit at the root:
+Routes have **no global prefix** — resources sit at the root. All models use `getRouteKeyName()` returning `'slug'` — IDs never appear in URLs.
 
 | Resource | Public | Auth-protected mutations |
 |---|---|---|
-| Documents | `GET /documents`, `GET /documents/{document}` | `GET /documents/upload`, `POST /documents`, `GET /documents/{document}/review`, `PATCH /documents/{document}`, `DELETE /documents/{document}` |
-| Departments | `GET /departments`, `GET /departments/{department}` | `GET /departments/create`, `POST /departments`, `GET /departments/{department}/edit`, `PATCH`, `DELETE` |
-| Sections | `GET /departments/{department}/sections`, `GET …/sections/{section}` | same pattern nested under department |
+| Documents index | `GET /documents` | — |
+| Document show | `GET /documents/{department}/{section}/{document}` | — |
+| Document PDF stream | `GET /documents/{department}/{section}/{document}/pdf` | — |
+| Document mutations | — | `POST /documents`, `GET …/{document}/review`, `PATCH …/{document}`, `DELETE …/{document}` |
+| Departments | `GET /departments`, `GET /departments/create`*, `GET /departments/{department}` | `POST /departments`, edit/patch/delete |
+| Sections | `GET /departments/{department}/sections`, `GET …/sections/create`*, `GET …/sections/{section}` | `POST`, edit/patch/delete |
 | Admin users | — | `GET/POST /admin/users`, `GET /admin/users/{user}`, edit/patch/delete |
 
-Route names follow `resource.action` (e.g. `documents.index`, `departments.sections.show`, `admin.users.create`).
+\* `/create` routes live in the public group with inline `->middleware(['auth', 'throttle:mutations'])` — they MUST be registered before the `/{wildcard}` route in the same group or Laravel will try to model-bind `"create"` as a slug and 404.
+
+Route names follow `resource.action` (e.g. `documents.show`, `departments.sections.show`, `admin.users.create`).
+
+### Slug-based routing (all models)
+
+`Department`, `Section`, and `Document` all override `getRouteKeyName()` to return `'slug'`. Route helpers accept model instances — Laravel calls `getRouteKey()` automatically. Never pass `->id` manually to a route helper for these models.
+
+`Document::uniqueSlugForSection($title, $sectionId)` — generates a slug from the title, querying `withTrashed()` to avoid reusing slugs of soft-deleted documents. Appends `-2`, `-3` etc. on collision.
 
 ### Document upload flow
 
-Upload is initiated from the section show page (`departments.sections.show`), not a standalone upload route. The form POSTs to `POST /documents` with `section_id` as a hidden field. On the server:
+Upload is initiated from the section show page (`departments.sections.show`) via a modal. The form POSTs to `POST /documents` via AJAX (`fetch`). The `POST /documents` endpoint is **AJAX-only** and always returns JSON — `StoreDocumentRequest::failedValidation()` is overridden to throw `HttpResponseException` with a 422 JSON body so validation errors never return a redirect. On the server:
 
-1. Vault directory computed: `document_vault/{dept.level}/{dept.slug}/{section.wing?}/{section.slug}`
-2. PDF stored to `uploads/{uuid}/original.pdf` on the local disk (before the DB transaction)
-3. DB transaction: `Document::create()` + `DocumentStatusHistory::create()` atomically
-4. On transaction failure: uploaded PDF deleted as best-effort cleanup
-5. On success: redirect back to the originating section page
+1. Slug generated: `Document::uniqueSlugForSection($title, $section->id)`
+2. Vault directory computed: `document_vault/{dept.level}/{dept.slug}/{section.wing?}/{section.slug}`
+3. PDF stored to `uploads/{uuid}/original.pdf` on the local disk (before the DB transaction)
+4. DB transaction: `Document::create()` + `DocumentStatusHistory::create()` atomically
+5. On transaction failure: uploaded PDF deleted as best-effort cleanup
+6. On success: JSON `{'redirect': section_url}` returned; JS navigates
+
+### PDF streaming
+
+`GET /documents/{department}/{section}/{document}/pdf` — served by `DocumentController@pdf`. Streams directly from the `local` disk via `Storage::disk('local')->response(...)` with `Content-Disposition: inline`. Guests blocked from non-verified documents (403). Never stored to `public` disk.
+
+### Document views
+
+- **`documents/show`** — hierarchical breadcrumb (Home → Departments → Dept → Section → Title), inline PDF embed (iframe, 75vh), extracted Markdown section below PDF once available, metadata sidebar, status history timeline (auth only), admin Review/Delete actions.
+- **`documents/index`** — tabbed by department; tab per department with document count badge; lists all documents (auth: all statuses; guest: verified only).
 
 ### Sidebar auth states
 
@@ -169,7 +193,7 @@ Upload is initiated from the section show page (`departments.sections.show`), no
 | Authenticated | Browse Vault + Manage → Departments |
 | Admin | Browse Vault + Manage → Departments + Users |
 
-Excise Department vault link routes directly to `departments.show` for the excise dept (DB lookup in sidebar component with `departments.index` fallback).
+Excise Department vault link: DB lookup in sidebar component selecting `['id', 'slug']` — both columns required since `getRouteKeyName()` now uses `slug`.
 
 ### Rate limiting
 
@@ -196,6 +220,9 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 4. **Single disk, path-convention silos** — not multiple Laravel filesystem disks. Department/section isolation is enforced at the model/policy layer against the vault path convention above.
 5. **Schema flexibility over premature normalization** — JSON `metadata` column absorbs new fields; promote to real columns only once a field has proven stable across iterations.
 6. **No district/field-office granularity** in this phase — explicitly descoped.
+7. **Slug-based URLs for all resources** — `Department`, `Section`, `Document` all use `getRouteKeyName() = 'slug'`. IDs must never appear in public URLs. Document URLs are hierarchical: `/documents/{dept_slug}/{section_slug}/{doc_slug}`.
+8. **`POST /documents` is AJAX-only** — always returns JSON regardless of `Accept` header. `StoreDocumentRequest::failedValidation()` overrides the default redirect to throw `HttpResponseException` with 422 JSON. The JS `fetch` call always sends `Accept: application/json` + `X-CSRF-TOKEN` header + `X-Requested-With: XMLHttpRequest`.
+9. **PDF served via controller, never public disk** — `DocumentController@pdf` streams from `local` disk with `Content-Disposition: inline`. Guests see 403 on non-verified documents.
 
 ## Frontend architecture
 
