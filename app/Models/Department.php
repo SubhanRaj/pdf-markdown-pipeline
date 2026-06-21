@@ -14,6 +14,11 @@ class Department extends Model
 
     protected $fillable = ['name', 'slug', 'level'];
 
+    public function getRouteKeyName(): string
+    {
+        return 'slug';
+    }
+
     public function sections(): HasMany
     {
         return $this->hasMany(Section::class);

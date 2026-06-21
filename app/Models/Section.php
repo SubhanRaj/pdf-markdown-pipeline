@@ -15,6 +15,11 @@ class Section extends Model
 
     protected $fillable = ['department_id', 'wing', 'name', 'slug'];
 
+    public function getRouteKeyName(): string
+    {
+        return 'slug';
+    }
+
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
