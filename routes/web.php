@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\FrontendController;
+use App\Http\Controllers\RuleSetController;
 use App\Http\Controllers\SectionController;
 use Illuminate\Support\Facades\Route;
 
@@ -23,8 +24,14 @@ Route::get('/', [FrontendController::class, 'dashboard'])->name('home');
 // {level} = 'dept' (department_level) | 'sectt' (secretariat_level)
 Route::prefix('documents')->name('documents.')->group(function () {
     Route::get('/', [DocumentController::class, 'index'])->name('index');
+    // Section-based documents
     Route::get('/{level}/{department}/{section}/{document}',     [DocumentController::class, 'show'])->name('show');
     Route::get('/{level}/{department}/{section}/{document}/pdf', [DocumentController::class, 'pdf'])->name('pdf');
+    // Rule-set-based documents
+    Route::prefix('/{level}/{department}/rules/{rule_set}')->name('rules.')->group(function () {
+        Route::get('/{document}',     [DocumentController::class, 'showRuleSetDoc'])->name('show');
+        Route::get('/{document}/pdf', [DocumentController::class, 'pdfRuleSetDoc'])->name('pdf');
+    });
 });
 
 // Departments & sections — read-only public
@@ -40,6 +47,11 @@ Route::prefix('departments')->name('departments.')->group(function () {
         Route::get('/create',    [SectionController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
         Route::get('/{section}', [SectionController::class, 'show'])->name('show');
     });
+
+    Route::prefix('/{level}/{department}/rules')->name('rules.')->group(function () {
+        Route::get('/create',     [RuleSetController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
+        Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show');
+    });
 });
 
 // ── Auth-protected mutations ──────────────────────────────────────────────────
@@ -53,6 +65,12 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
         Route::get('/{level}/{department}/{section}/{document}/review', [DocumentController::class, 'edit'])->name('edit');
         Route::patch('/{level}/{department}/{section}/{document}',      [DocumentController::class, 'update'])->name('update');
         Route::delete('/{level}/{department}/{section}/{document}',     [DocumentController::class, 'destroy'])->name('destroy');
+        // Rule-set document mutations
+        Route::prefix('/{level}/{department}/rules/{rule_set}')->name('rules.')->group(function () {
+            Route::get('/{document}/review', [DocumentController::class, 'editRuleSetDoc'])->name('edit');
+            Route::patch('/{document}',      [DocumentController::class, 'updateRuleSetDoc'])->name('update');
+            Route::delete('/{document}',     [DocumentController::class, 'destroyRuleSetDoc'])->name('destroy');
+        });
     });
 
     // Departments — mutations
@@ -68,6 +86,14 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
             Route::get('/{section}/edit',  [SectionController::class, 'edit'])->name('edit');
             Route::patch('/{section}',     [SectionController::class, 'update'])->name('update');
             Route::delete('/{section}',    [SectionController::class, 'destroy'])->name('destroy');
+        });
+
+        // Rule sets — mutations (admin only — enforced in Form Request authorize())
+        Route::prefix('/{level}/{department}/rules')->name('rules.')->group(function () {
+            Route::post('/',               [RuleSetController::class, 'store'])->name('store');
+            Route::get('/{rule_set}/edit', [RuleSetController::class, 'edit'])->name('edit');
+            Route::patch('/{rule_set}',    [RuleSetController::class, 'update'])->name('update');
+            Route::delete('/{rule_set}',   [RuleSetController::class, 'destroy'])->name('destroy');
         });
     });
 });

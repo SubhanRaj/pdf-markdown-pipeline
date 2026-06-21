@@ -21,7 +21,7 @@ class FrontendController extends Controller
         $departments = Department::withCount('documents')->orderBy('name')->get();
 
         // Guests see only verified documents in the recent feed
-        $recentDocuments = Document::with(['department', 'section'])
+        $recentDocuments = Document::with(['department', 'section', 'ruleSet'])
             ->when(! auth()->check(), fn ($q) => $q->where('status', 'verified'))
             ->latest()
             ->limit(8)

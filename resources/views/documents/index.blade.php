@@ -89,7 +89,9 @@
                 <div class="flex-1 min-w-0">
                     <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $doc->title }}</p>
                     <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span class="text-xs text-slate-400 dark:text-slate-500">{{ $doc->section->name }}</span>
+                        <span class="text-xs text-slate-400 dark:text-slate-500">
+                            {{ $doc->section?->name ?? $doc->ruleSet?->name ?? '—' }}
+                        </span>
                         <span class="text-slate-300 dark:text-slate-600">·</span>
                         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
                             {{ \App\Models\Document::DOCUMENT_TYPES[$doc->document_type] ?? $doc->document_type }}
@@ -109,7 +111,9 @@
                 </div>
 
                 {{-- Actions --}}
-                <a href="{{ route('documents.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]) }}"
+                <a href="{{ $doc->section
+                    ? route('documents.show',       [$doc->department->levelAlias(), $doc->department, $doc->section, $doc])
+                    : route('documents.rules.show', [$doc->department->levelAlias(), $doc->department, $doc->ruleSet,  $doc]) }}"
                    class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all"
                    title="View">
                     <i class="ti ti-eye text-base"></i>

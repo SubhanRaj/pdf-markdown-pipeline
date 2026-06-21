@@ -41,8 +41,6 @@ All mutations protected by `middleware('auth')`. Admin routes additionally gated
 
 **Route refactor** — `vault` URL prefix and `vault.` name prefix removed entirely. Resources now sit at the root (`/documents`, `/departments`, `/departments/{department}/sections`). Route names: `documents.index`, `departments.sections.show`, `admin.users.create`, etc. Public read-only routes and auth-protected mutations are separate groups; public routes carry no middleware.
 
-**Next:** queue job for PDF extraction (`markitdown`), OCR fallback logic, split-pane review UI, vault path resolution on verification.
-
 ---
 
 ## M4 — Document Upload UI & File Browser
@@ -51,26 +49,13 @@ All mutations protected by `middleware('auth')`. Admin routes additionally gated
 
 **`Document` model** — `DOCUMENT_TYPES` and `STATUSES` constants added; both used across views and Form Requests without duplication.
 
-**`StoreDocumentRequest`** — full validation: `section_id` (exists check), `title` (regex-guarded, strip_tags in prepareForValidation), `document_type` (in-list against constant keys), `file` (mimetypes: magic-byte checked, max 50 MB — see M5 for full type list). Server messages mapped per field.
+**`StoreDocumentRequest`** — full validation: `section_id` (exists check), `title` (regex-guarded, strip_tags in prepareForValidation), `document_type` (in-list against constant keys), `file` (mimetypes: magic-byte checked, max 50 MB). Server messages mapped per field.
 
-**`DocumentController@store`** — vault directory resolved from department level + slug + section wing + section slug via `array_filter(implode(...))`. PDF stored to `local` disk at `uploads/{uuid}/original.pdf` before the DB transaction (file I/O is not transactional). On DB failure, uploaded file is deleted as best-effort cleanup. Status history row written inside same transaction. Redirects back to the originating section on success.
+**`DocumentController@store`** — vault directory resolved from department level + slug + section wing + section slug via `array_filter(implode(...))`. PDF stored to `local` disk before the DB transaction (file I/O is not transactional). On DB failure, uploaded file is deleted as best-effort cleanup. Status history row written inside same transaction.
 
-**`SectionController@show`** — now paginates documents (20/page, `withQueryString`). Public guests see only `status = verified` docs; authenticated users see all statuses.
+**`SectionController@show`** — paginates documents (20/page, `withQueryString`). Public guests see only `status = verified` docs; authenticated users see all statuses.
 
-**Section show page as dual-purpose hub** — the section page (`/departments/{dept}/sections/{section}`) now serves as both the public file browser and the authenticated upload point:
-- Public view: document list (verified only), type badge, date, view action
-- Auth view: all documents with status badges + uploader name + delete (admin)
-- Upload panel: toggled by "Upload PDF" button; fields are Title, Document Type (select), PDF file with drag-and-drop zone; vault destination shown as a readable breadcrumb (`Vault › Department Level › Excise Department › Headquarter › Alcohol Section`)
-- Upload submitted via `fetch` with 422 inline error surfacing; no page reload on validation failure
-- JS validation mirrors server rules: title regex, type in-list, PDF-only + 50 MB size check, real-time on blur/input
-
-**Sidebar UX** — restructured for auth state:
-- Guests: "Browse Vault" section (specific dept links) + "Departments" section with "All Departments" link to `departments.index`
-- Authenticated: "Browse Vault" + "Manage" section (Departments + Users for admin) — "Admin" label replaced with "Manage"
-- Excise Department vault link now routes directly to the Excise dept show page (DB lookup with fallback to index if record absent); highlights as active on that dept's pages
-- Non-admin guests never see the Manage section
-
-**Vault path display** — raw slug paths removed from section headers and replaced with human-readable breadcrumb trails using department name, humanised wing, and section name throughout.
+**Section show page as dual-purpose hub** — public file browser and authenticated upload point in one view.
 
 ---
 
@@ -82,45 +67,25 @@ Four named limiters defined in `AppServiceProvider::boot()` via `RateLimiter::fo
 
 | Limiter | Limit | Key | Applied to |
 |---|---|---|---|
-| `login` | 5/min per email+IP AND 10/min per IP | email+IP / IP | Fortify login route (was referenced but undefined) |
+| `login` | 5/min per email+IP AND 10/min per IP | email+IP / IP | Fortify login route |
 | `two-factor` | 5/min | session login.id + IP | Fortify 2FA route |
 | `mutations` | 60/min | user ID or IP | All auth-protected POST/PATCH/DELETE route groups |
 | `uploads` | 10/min | user ID or IP | `POST /documents` only — applied on top of `mutations` |
 
-The `login` and `two-factor` limiters were already named in `config/fortify.php` but had no definition — Fortify was silently falling back to a built-in default. Now they are explicit and tunable.
-
 **Strict file upload validation (`StoreDocumentRequest`)**
 
-Replaced `mimes:pdf` (extension-based check) with `mimetypes:` (magic-byte check via PHP Fileinfo). A renamed `.exe` will fail validation regardless of extension or client Content-Type. Accepted MIME types defined as `ACCEPTED_MIMETYPES` public constant on the Form Request:
-
+Replaced `mimes:pdf` with `mimetypes:` (magic-byte check via PHP Fileinfo). Accepted MIME types defined as `ACCEPTED_MIMETYPES` public constant:
 - **Documents:** `application/pdf`, `.doc`/`.docx`, `.xls`/`.xlsx`, `.ppt`/`.pptx`, `.odt`/`.ods`/`.odp`, `application/rtf`, `text/plain`, `text/csv`
 - **Images:** `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/tiff`, `image/bmp`, `image/heic`, `image/heif`, `image/svg+xml`
-
-Max size remains 50 MB (`max:51200`).
-
-**Frontend alignment (`sections/show.blade.php`)**
-
-File input `accept` attribute updated to all supported extensions. JS validation switched from PDF-only extension check to an `ACCEPTED_EXTS` `Set` — UX guard only; server enforces via magic bytes.
 
 ---
 
 ## M6 — Dashboard Auth-Aware Feed & Department Links
 
-**Guest-safe document feed (`FrontendController@dashboard`)**
-
-Recent-documents query now applies a conditional scope: guests receive only `status = verified` documents; authenticated users see all statuses. The `statusBreakdown` query (per-status counts) was removed — it was unused on the dashboard view after the status-breakdown widget was dropped.
-
-**Department card links (`frontend/index.blade.php`)**
-
-Department cards on the dashboard were previously `href="#"` placeholders. Each card now resolves its target at render time: if the card's slug matches a loaded `Department` record, it routes to `departments.show`; otherwise it falls back to `departments.index`. No new DB query — uses the `$departments` collection already fetched for stat counts.
-
-**Empty-state CTA updated**
-
-The zero-documents empty state CTA was changed from "Convert your first PDF" (which linked to `#`) to "Browse Departments" linking to `departments.index`, accurately reflecting the upload flow (upload is initiated from a section page, not the dashboard).
-
-**Document feed display**
-
-Recent-document rows now show `$doc->title` (the human-readable document title set at upload) instead of `$doc->original_filename`. A document-type label is also appended alongside the department and section name in the subtitle row, using the `Document::DOCUMENT_TYPES` constant for display.
+- Recent-documents query applies conditional scope: guests see `verified` only; authenticated users see all statuses.
+- Dashboard department cards now resolve `departments.show` from the already-loaded collection — no placeholder `href="#"` links.
+- Recent-document rows show `$doc->title` instead of `$doc->original_filename`.
+- Empty-state CTA updated to "Browse Departments" → `departments.index`.
 
 ---
 
@@ -128,107 +93,157 @@ Recent-document rows now show `$doc->title` (the human-readable document title s
 
 ### Slug-based routing (all models)
 
-`Department`, `Section`, and `Document` models all now override `getRouteKeyName()` to return `'slug'`. IDs no longer appear in any public URL. The sidebar's excise-dept DB lookup was updated to select `['id', 'slug']` — previously only `['id']` was fetched, which caused `UrlGenerationException` once `getRouteKeyName()` changed.
+`Department`, `Section`, and `Document` override `getRouteKeyName()` to return `'slug'`. IDs no longer appear in any public URL.
 
 ### Route ordering — static before wildcard
 
-Any static path segment (e.g. `/create`, `/upload`) that sits next to a `/{wildcard}` route **must** be registered before the wildcard, or Laravel matches the string `"create"` as a model slug and 404s. Fixed for:
-- `GET /departments/create` — moved into the public group with inline `->middleware(['auth', 'throttle:mutations'])` before `GET /departments/{department}`
-- `GET /departments/{department}/sections/create` — same fix before `GET …/sections/{section}`
-
-This is the canonical pattern for all future static+wildcard pairings in this codebase.
+Static path segments (e.g. `/create`) that sit beside a `/{wildcard}` route must be registered before the wildcard or Laravel matches the string `"create"` as a slug and 404s. Applied to `/departments/create` and `/departments/{department}/sections/create`.
 
 ### Document slug column
 
-`slug` column added to `documents` table (in-place migration edit per CLAUDE.md convention). Unique constraint on `(section_id, slug)`. `Document::uniqueSlugForSection($title, $sectionId)` auto-generates a URL-safe slug from the title, querying `withTrashed()` to avoid reusing slugs of soft-deleted docs, appending `-2`/`-3` etc. on collision.
+`slug` column added to `documents` table. Unique on `(section_id, slug)`. `Document::uniqueSlugForSection($title, $sectionId)` queries `withTrashed()` to avoid reusing soft-deleted slugs, appends `-2`/`-3` on collision.
 
 ### Hierarchical document URLs
 
-Document routes changed from flat `/documents/{document}` to `/documents/{department}/{section}/{document}`, mirroring the vault path hierarchy. All three segments are slug-bound. All views and route helpers updated accordingly.
-
-### Section module
-
-`SectionController` built with full CRUD. `sections/create.blade.php`, `sections/edit.blade.php`, and `sections/show.blade.php` implemented. Show page is the dual-purpose file browser + upload modal. Sections are nested under departments in both URLs and route names (`departments.sections.*`).
+`/documents/{department}/{section}/{document}` — all three segments are slug-bound.
 
 ### Document views
 
-- **`documents/show`** — hierarchical breadcrumb (Home → Departments → Dept → Section → Title), inline PDF embed (iframe, 75vh) via controller-streamed route, extracted Markdown rendered below once available, metadata + status history sidebar (auth only), admin Review/Delete.
-- **`documents/index`** — tabbed by department with document count badges; auth users see all statuses, guests see verified only.
+- **`documents/show`** — hierarchical breadcrumb, inline PDF embed (iframe, 75vh) via controller-streamed route, extracted Markdown rendered below once available, metadata + status history sidebar (auth only), admin Review/Delete.
+- **`documents/index`** — tabbed by department with count badges.
 
-### PDF streaming
+### Upload AJAX fix
 
-`GET /documents/{department}/{section}/{document}/pdf` — `DocumentController@pdf` streams the file from the `local` disk via `Storage::disk('local')->response()` with `Content-Disposition: inline`. Guests blocked (403) on non-verified documents. File is never served from `public` disk.
-
-### Upload AJAX fix — always JSON
-
-`POST /documents` is now an AJAX-only endpoint that always returns JSON, regardless of `Accept` header:
-- `DocumentController@store` return type changed to `JsonResponse` only — no dual `$ajax ? json : redirect` branching.
-- `StoreDocumentRequest::failedValidation()` overridden to throw `HttpResponseException` with 422 JSON body, bypassing Laravel's default redirect on validation failure.
-- JS `fetch` sends `Accept: application/json` + `X-CSRF-TOKEN` header + `X-Requested-With: XMLHttpRequest`.
-- File input outside the `<form>` element (left column of two-column modal) — `new FormData(form)` does NOT capture it. File is explicitly appended via `formData.append('file', fileInput.files[0])`.
-- Form has `method="POST"` and `action` as hard fallback to prevent GET submission if JS fails.
-- JS init block wrapped in `try/catch` so a JSON parse error doesn't silently leave the form unprotected.
-
-### `DocumentStatusHistory` cast fix
-
-`$timestamps = false` on the model disabled auto-casting, leaving `created_at` as a raw string. Added `protected $casts = ['created_at' => 'datetime']` so Carbon methods work correctly.
+`POST /documents` is AJAX-only, always returns JSON. `StoreDocumentRequest::failedValidation()` overridden to throw `HttpResponseException` with 422 JSON. File input outside the `<form>` element appended explicitly via `formData.append('file', ...)`.
 
 ---
 
 ## M8 — Dynamic Sidebar Browse Vault
 
-**Browse Vault section made fully dynamic.**
-
-Previously, sidebar department links were hardcoded in `sidebar.blade.php` — adding a new department required a manual sidebar edit, and non-Excise entries pointed to `departments.index` instead of the actual dept page.
-
-`sidebar.blade.php` now queries all `Department` records (ordered by level, then name) and renders each as a `departments.show` link. A `$deptMeta` map (slug → icon + color) provides distinct icons for known departments; any slug not in the map falls back to a cycling palette of icons/colors. The active-link highlight checks both `routeIs()` and the current route's `{department}` slug parameter so the correct entry highlights when browsing that dept's sections or documents.
-
-**Slug key convention:** map keys use underscores to match DB slugs (e.g. `sugarcane_sugar`, `sugar_mill_corp`, `cane_federation`). This was the root cause of the initial icon regression — the map was written with hyphens before the actual DB slugs were verified.
+`sidebar.blade.php` now queries all `Department` records and renders each as a `departments.show` link. A `$deptMeta` map (slug → icon + color) provides distinct icons for known departments; unknown slugs fall back to a cycling palette. Active-link highlight checks `routeIs()` and the current `{department}` slug parameter. Slug keys use underscores to match DB slugs.
 
 ---
 
 ## M9 — Storage Consolidation: Vault-First, Public Disk, Slug-Named Files
 
-**What changed:** Eliminated the separate `uploads/{uuid}/original.pdf` staging pattern. All document files now go directly into the vault directory on the `public` disk, using the document slug as the filename.
+Eliminated the `uploads/{uuid}/original.pdf` staging pattern. All document files go directly into the vault directory on the `public` disk.
 
 **New file path convention:**
 ```
 storage/app/public/document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.pdf
-storage/app/public/document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.md   ← future markdown
+storage/app/public/document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.md
 ```
 
-**Key changes:**
-
-- **Disk**: `local` (`storage/app/private/`) → `public` (`storage/app/public/`). Symlink created via `php artisan storage:link`.
-- **Filename**: `{slug}_{YmdHis}.pdf` instead of `original.pdf` inside a UUID folder. Slug is generated before file I/O so the filename is determined before the file is written. Collision prevention: `uniqueSlugForSection` appends `-2`/`-3` on title collision; the timestamp suffix prevents any remaining overwrites.
-- **`original_pdf_path`**: now the full relative vault path (e.g. `document_vault/department_level/excise/headquarter/accounts_section/beer-retail-2021_20260621143022.pdf`).
-- **`vault_path`**: directory only (unchanged semantics, used by extraction jobs to know where to write `.md`).
-- **Markdown**: will be stored in the same directory with the same base name and `.md` extension. `show.blade.php` markdown check updated from `file_exists(storage_path('app/...'))` to `Storage::disk('public')->exists(...)`.
-- **PDF streaming**: `DocumentController@pdf` updated to `Storage::disk('public')`. Auth gate (403 for guests on non-verified docs) unchanged — always link to `/pdf` route, never raw storage URL.
-- **Cleanup on failure**: `Storage::disk('public')->delete($pdfPath)` (single file delete) instead of `deleteDirectory("uploads/{uuid}")`.
-- **Existing data**: 1 document migrated via tinker — file copied from `private/uploads/{uuid}/original.pdf` to new vault path, DB record updated.
-
-**Why**: Single storage location for PDF + future Markdown makes the vault a proper file repository. Slug-named files are human-readable in the filesystem. No wasted UUID directories. Aligns storage layout with the logical document hierarchy already expressed in the DB.
+Key changes: disk `local` → `public`, filename `original.pdf` → `{slug}_{YmdHis}.pdf`, `original_pdf_path` is now the full relative vault path, PDF streaming updated to `Storage::disk('public')`.
 
 ---
 
 ## M10 — Level-Aware Department Routing
 
-**Problem**: `departments` has a unique constraint on `(slug, level)`, allowing the same slug (e.g. `excise`) at both `department_level` and `secretariat_level`. Route model binding queried only by slug and always resolved `department_level` first — Excise Secretariat was unreachable, clicking it opened Excise Department.
+**Problem**: `departments` unique on `(slug, level)` — the same slug (e.g. `excise`) exists at both levels. Old binding queried by slug alone and always resolved `department_level` first.
 
-**Fix**: Added `{level}` as a URL alias segment (`dept` = `department_level`, `sectt` = `secretariat_level`) before `{department}` in every department, section, and document route.
+**Fix**: Added `{level}` URL alias (`dept` = `department_level`, `sectt` = `secretariat_level`) before `{department}` in every department, section, and document route.
 
-**URL changes:**
-- `/departments/{department}` → `/departments/{level}/{department}`
-- `/departments/{department}/sections/{section}` → `/departments/{level}/{department}/sections/{section}`
-- `/documents/{department}/{section}/{document}` → `/documents/{level}/{department}/{section}/{document}`
+`Route::bind('department', ...)` in `AppServiceProvider::configureRouteBindings()` maps alias → DB level value and queries `WHERE slug = ? AND level = ?`. Controller methods must declare `string $level` as the first parameter before model arguments.
 
-**Key implementation details:**
-- `Route::bind('department', ...)` in `AppServiceProvider::configureRouteBindings()` reads `request()->route('level')`, maps alias → DB level value, and queries `WHERE slug = ? AND level = ?`.
-- Controller methods that have `{level}` in their route **must** declare `string $level` as the first parameter before the model arguments, or Laravel injects the raw alias string into the model parameter and throws a `TypeError`. (Discovered: Laravel resolves route params by name-match order — undeclared params are passed positionally.)
-- `Department::levelAlias()` → `'dept'` or `'sectt'` — used in all `route()` helpers as the first array element.
+- `Department::levelAlias()` → `'dept'` or `'sectt'` — used in all `route()` helpers.
 - `Department::levelLabel()` → `'Department'` or `'Secretariat'` — used in breadcrumbs.
-- All route helpers updated to `route('departments.show', [$dept->levelAlias(), $dept])` pattern across all controllers, views, and components.
-- Sidebar active-link check updated from slug comparison to `->is($dept)` (primary key) to survive slug collisions.
-- Breadcrumbs now show the level label as a step: `Home > Departments > Department > Excise Department > Section`.
-- **Also fixed**: pre-existing typos in `DepartmentController` (`'department.index'`, `'department.show'` → `'departments.index'`, `'departments.show'`) that were silently redirecting to `/login` via the fallback route.
+- All route helpers updated to `route('...', [$dept->levelAlias(), $dept])` pattern.
+
+---
+
+## M11 — Rule Sets (Acts, Rules & Amendments)
+
+Introduced a second document taxonomy alongside section-based documents: **Rule Sets** group Acts, Rules, and their amendments at the department level.
+
+### New database table: `rule_sets`
+
+| Column | Notes |
+|---|---|
+| `department_id` | FK → departments, `restrictOnDelete` |
+| `name` | Full name of the Act or Rule (e.g. *U.P. Excise Act 1910*) |
+| `slug` | Auto-generated from name; unique per department (checked against soft-deleted records) |
+| `description` | Optional summary, max 500 chars |
+| `metadata` | JSON — for category, origin year, etc. |
+| timestamps + softDeletes | |
+
+Unique constraint: `(department_id, slug)`.
+
+### `documents` table changes
+
+- `section_id` made **nullable** — null for rule-set documents.
+- `rule_set_id` added — nullable FK → `rule_sets`, `nullOnDelete`.
+- New document type constant: `rule_amendment`.
+- New slug helper: `Document::uniqueSlugForRuleSet($title, $ruleSetId)`.
+
+### New model: `RuleSet`
+
+- `getRouteKeyName()` returns `'slug'`.
+- `uniqueSlugForDepartment(name, departmentId, exceptId?)` — generates collision-safe slugs, checks `withTrashed()`.
+- Relations: `belongsTo(Department)`, `hasMany(Document)`.
+
+### Model updates
+
+- `Department` — added `ruleSets()` hasMany relation.
+- `Document` — added `ruleSet()` belongsTo relation, `rule_set_id` to `$fillable`, `rule_amendment` to `DOCUMENT_TYPES`.
+
+### New controller: `RuleSetController`
+
+Full CRUD — `create`, `store`, `show`, `edit`, `update`, `destroy`. All mutations wrap in `DB::transaction()` with try/catch and flash messages. Admin-only via `StoreRuleSetRequest::authorize()`.
+
+### DocumentController updates
+
+`store()` now handles both contexts:
+- If `rule_set_id` provided: resolves `RuleSet`, computes vault path as `document_vault/{level}/{dept_slug}/rules/{rule_set_slug}/`, calls `uniqueSlugForRuleSet()`.
+- If `section_id` provided: existing path unchanged.
+- Redirect target switches accordingly: `departments.rules.show` vs `departments.sections.show`.
+
+Five new methods added for rule-set document lifecycle: `showRuleSetDoc`, `pdfRuleSetDoc`, `editRuleSetDoc`, `updateRuleSetDoc`, `destroyRuleSetDoc`.
+
+### Route binding
+
+`Route::bind('rule_set', ...)` in `AppServiceProvider::configureRouteBindings()` scopes lookups to `WHERE slug = ? AND department_id = ?` using the already-resolved `{department}` from the same request.
+
+### New routes
+
+**Public:**
+```
+GET /departments/{level}/{department}/rules/create     → departments.rules.create
+GET /departments/{level}/{department}/rules/{rule_set} → departments.rules.show
+GET /documents/{level}/{department}/rules/{rule_set}/{document}     → documents.rules.show
+GET /documents/{level}/{department}/rules/{rule_set}/{document}/pdf → documents.rules.pdf
+```
+
+**Auth-protected:**
+```
+POST   /departments/{level}/{department}/rules                             → departments.rules.store
+GET    /departments/{level}/{department}/rules/{rule_set}/edit             → departments.rules.edit
+PATCH  /departments/{level}/{department}/rules/{rule_set}                  → departments.rules.update
+DELETE /departments/{level}/{department}/rules/{rule_set}                  → departments.rules.destroy
+GET    /documents/{level}/{department}/rules/{rule_set}/{document}/review  → documents.rules.edit
+PATCH  /documents/{level}/{department}/rules/{rule_set}/{document}         → documents.rules.update
+DELETE /documents/{level}/{department}/rules/{rule_set}/{document}         → documents.rules.destroy
+```
+
+### New views
+
+- `rule_sets/create.blade.php` — name + description form with JS validation; slug auto-generated server-side.
+- `rule_sets/edit.blade.php` — same, pre-populated; slug read-only (set at creation, never changed).
+- `rule_sets/show.blade.php` — header with description, upload amendment modal (pre-selects `rule_amendment` type, passes `rule_set_id`), amendment/document timeline list with status badges and auth-gated actions.
+
+### Updated views
+
+- `department/show.blade.php` — "Rules & Regulations" panel added below the Sections panel; lists rule sets with document count, description, and link to rule set show page. Admin sees "Add Rule Set" button.
+- `documents/show.blade.php` — refactored to support both section and rule-set contexts. A `$isRuleSetDoc` flag (set when `$ruleSet` is passed) switches breadcrumbs, page subtitle, vault path display, and all route helpers (PDF, edit, destroy) without duplicating the template. The sidebar "Section/Rule Set" label also adapts dynamically.
+
+### Vault path for rule-set documents
+
+```
+storage/app/public/document_vault/{level}/{dept_slug}/rules/{rule_set_slug}/{slug}_{YmdHis}.pdf
+```
+
+### Form requests
+
+- `StoreRuleSetRequest` — name (regex-guarded, max 150 chars), description (nullable, max 500). `authorize()` requires `isAdmin()`.
+- `UpdateRuleSetRequest` — same rules.
+- `StoreDocumentRequest` — `section_id` and `rule_set_id` are now mutually required-without each other (`required_without:`). One must be provided; both at once is a logical error caught server-side.

@@ -47,8 +47,9 @@ class DepartmentController extends Controller
     {
         $department->loadCount(['sections', 'documents']);
         $sections = $department->sections()->withCount('documents')->orderBy('name')->get();
+        $ruleSets = $department->ruleSets()->withCount('documents')->orderBy('name')->get();
 
-        return view('department.show', compact('department', 'sections'));
+        return view('department.show', compact('department', 'sections', 'ruleSets'));
     }
 
     public function edit(string $level, Department $department): View

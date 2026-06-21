@@ -12,7 +12,7 @@ This repo and its context are scoped to engineering work only — no administrat
 
 ## Project overview
 
-**`pdf-markdown-pipeline`** — a local-first document ingestion and conversion portal that transforms dense bureaucratic PDFs (Government Orders, service codes, policies, legacy court orders — English and Hindi/Rajbhasha) into clean, structured, AI-ready Markdown.
+**`pdf-markdown-pipeline`** — a local-first document ingestion and conversion portal that transforms dense bureaucratic PDFs (Government Orders, service codes, policies, Acts, Rules, amendments — English and Hindi/Rajbhasha) into clean, structured, AI-ready Markdown.
 
 Built for the UP Department of Excise (and eventually Sugarcane & Sugar Industries), but the architecture is generic and open-source. Runs **100% on-premise** — no cloud APIs — due to government data-privacy mandates. Deployment targets: developer's Mac, departmental PC, or a local server (no Redis, no managed cloud services).
 
@@ -28,7 +28,7 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Text extraction | Python `markitdown`, via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
 | OCR | Tesseract OCR (`hin` + `eng` language packs), invoked via `symfony/process`. Only triggered when markitdown output is empty/low-quality (i.e. scanned legacy GOs). |
 | Queue | Laravel **database** queue driver — deliberately no Redis, single-box local deployment |
-| Disk | Single local filesystem disk; logical separation enforced by path convention, not multiple disks |
+| Disk | Single local filesystem disk (`public`); logical separation enforced by path convention, not multiple disks |
 
 ## Document vault structure
 
@@ -39,9 +39,9 @@ storage/app/document_vault/
 ├── secretariat_level/
 │   └── excise/                       # sibling sugarcane/, sugar_federation/ to be added later
 │       ├── joint_secretary_wing/
-│       │   └── sections/             # section names TBD
+│       │   └── sections/
 │       └── deputy_secretary_wing/
-│           └── sections/             # section names TBD
+│           └── sections/
 │
 └── department_level/
     ├── excise/
@@ -56,17 +56,23 @@ storage/app/document_vault/
     │       ├── alcohol_section/
     │       ├── excise_intelligence_bureau/
     │       ├── legal_section/
-    │       └── task_force/
+    │       ├── task_force/
+    │       └── rules/
+    │           └── {rule-set-slug}/   # Acts, Rules, and their amendments
     │
     └── sugarcane_sugar/
         └── (to be scoped — org chart not yet provided)
 ```
 
+**Section-based file path:** `document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.pdf`
+
+**Rule-set-based file path:** `document_vault/{level}/{dept_slug}/rules/{rule_set_slug}/{slug}_{YmdHis}.pdf`
+
 Reference org structure this is derived from:
 - **Secretariat chain:** Hon'able Minister → Principal Secretary/Secretary/ACS → Special Secretary → [Joint Secretary | Deputy Secretary] → Section Officer → Section
 - **Excise Department chain:** Excise Department → Head Quarter (11 sections listed above) / Field Office (out of scope for now)
 
-Additional departments, wings, or sections can be added without restructuring existing branches.
+Additional departments, wings, sections, or rule sets can be added without restructuring existing branches.
 
 ## Database schema
 
@@ -95,25 +101,42 @@ Unique constraint: `(slug, level)`.
 
 Unique constraint: `(department_id, wing, slug)`.
 
+### `rule_sets`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `department_id` | FK → departments | `restrictOnDelete` |
+| `name` | string | Full name of the Act/Rule (e.g. *U.P. Excise Act 1910*) |
+| `slug` | string | Auto-generated from name; unique per department |
+| `description` | text nullable | Optional summary (max 500 chars) |
+| `metadata` | json nullable | Category, origin year, etc. |
+| `timestamps` + `softDeletes` | | |
+
+Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueSlugForDepartment($name, $departmentId)` — checks `withTrashed()` to avoid reusing slugs of soft-deleted rule sets.
+
 ### `documents`
 | Column | Type | Notes |
 |---|---|---|
 | `id` | bigint PK | |
 | `department_id` | FK → departments | `restrictOnDelete` |
-| `section_id` | FK → sections | `restrictOnDelete` |
+| `section_id` | FK → sections **nullable** | `restrictOnDelete` — null for rule-set docs |
+| `rule_set_id` | FK → rule_sets **nullable** | `nullOnDelete` — null for section-based docs |
 | `user_id` | FK → users nullable | `nullOnDelete` — uploader |
 | `title` | string | human-readable document title / reference |
-| `slug` | string | URL-safe; auto-generated from title at upload; unique per section (suffixed `-2`, `-3` on collision) |
-| `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `other` |
+| `slug` | string | URL-safe; auto-generated from title at upload; unique per section or per rule set |
+| `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `rule_amendment` \| `other` |
 | `original_filename` | string | |
-| `original_pdf_path` | string | full relative path on `public` disk, e.g. `document_vault/department_level/excise/headquarter/accounts_section/{slug}_{YmdHis}.pdf` |
+| `original_pdf_path` | string | full relative path on `public` disk |
 | `markdown_path` | string nullable | set after extraction job completes |
-| `vault_path` | string nullable | vault directory path; set at upload, file placed on verification |
+| `vault_path` | string nullable | vault directory path; set at upload |
 | `status` | string | `uploaded` → `processing` → `ocr_pending` → `review` → `verified` \| `failed` |
 | `metadata` | json nullable | GO number, subject, dates, etc. |
 | `timestamps` + `softDeletes` | | |
 
-Unique constraint: `(section_id, slug)`. Slug generated via `Document::uniqueSlugForSection($title, $sectionId)` — checks `withTrashed()` to avoid reusing slugs of soft-deleted docs.
+Exactly one of `section_id` or `rule_set_id` is non-null per row. Slug helpers:
+- Section docs: `Document::uniqueSlugForSection($title, $sectionId)` — unique within `(section_id, slug)`.
+- Rule-set docs: `Document::uniqueSlugForRuleSet($title, $ruleSetId)` — unique within `(rule_set_id, slug)`.
+Both check `withTrashed()` and append `-2`, `-3` on collision.
 
 ### `document_status_histories`
 | Column | Type | Notes |
@@ -129,75 +152,102 @@ Unique constraint: `(section_id, slug)`. Slug generated via `Document::uniqueSlu
 ### `users`
 Standard Laravel/Fortify users table with `is_admin` boolean. Public registration disabled — admin-created only.
 
-## What's built (as of 2026-06-21)
+## What's built (as of 2026-06-22)
 
 ### Modules / controllers
 
 | Module | Controller | Notes |
 |---|---|---|
-| Dashboard | `FrontendController` | Public landing page with document stats |
-| Documents | `DocumentController` | Full CRUD; upload (AJAX-only store), PDF stream, hierarchical URLs, slug generation |
-| Departments | `DepartmentController` | Full CRUD; slug-based route model binding |
+| Dashboard | `FrontendController` | Public landing page with document stats; auth-aware recent feed |
+| Documents | `DocumentController` | Full CRUD; AJAX-only store (handles both section and rule-set uploads); PDF stream; hierarchical URLs; slug generation; rule-set doc methods |
+| Departments | `DepartmentController` | Full CRUD; slug-based route model binding; loads rule sets for show page |
 | Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + upload modal |
+| Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; upload modal on show page pre-selects `rule_amendment` type |
 | User management | `Admin\UserManagementController` | Admin-only; account creation, role toggle, self-delete guard |
 
 ### Route map
 
 Routes have **no global prefix** — resources sit at the root. All models use `getRouteKeyName()` returning `'slug'` — IDs never appear in URLs.
 
-**`{level}` URL segment** — departments share slugs across levels (e.g. `excise` exists at both `department_level` and `secretariat_level`). A `{level}` alias is inserted before `{department}` in every department/section/document URL to disambiguate:
+**`{level}` URL segment** — departments share slugs across levels (e.g. `excise` exists at both `department_level` and `secretariat_level`). A `{level}` alias is inserted before `{department}` in every department/section/rule-set/document URL:
 - `dept` → `department_level`
 - `sectt` → `secretariat_level`
 
-`Route::bind('department', ...)` in `AppServiceProvider::configureRouteBindings()` reads `request()->route('level')`, converts the alias to the DB value, and queries `WHERE slug = ? AND level = ?`. Controller method signatures do **not** need a `$level` parameter — Laravel ignores unmatched route segments.
+`Route::bind('department', ...)` in `AppServiceProvider::configureRouteBindings()` reads `request()->route('level')`, converts the alias to the DB value, and queries `WHERE slug = ? AND level = ?`.
 
-`Department::levelAlias()` returns the URL alias for use in route helpers: `route('departments.show', [$dept->levelAlias(), $dept])`. `Department::levelLabel()` returns the human label (`'Department'` / `'Secretariat'`) for breadcrumbs.
+`Route::bind('rule_set', ...)` scopes rule set lookups to `WHERE slug = ? AND department_id = ?` using the already-resolved `{department}` from the same request.
+
+Controller method signatures **must** declare `string $level` as their first parameter (before model arguments) for any route containing `{level}`, or Laravel throws a `TypeError`.
+
+`Department::levelAlias()` → URL alias for route helpers. `Department::levelLabel()` → human label for breadcrumbs.
 
 | Resource | Public | Auth-protected mutations |
 |---|---|---|
 | Documents index | `GET /documents` | — |
-| Document show | `GET /documents/{level}/{department}/{section}/{document}` | — |
-| Document PDF stream | `GET /documents/{level}/{department}/{section}/{document}/pdf` | — |
-| Document mutations | — | `POST /documents`, `GET …/{document}/review`, `PATCH …/{document}`, `DELETE …/{document}` |
-| Departments | `GET /departments`, `GET /departments/create`*, `GET /departments/{level}/{department}` | `POST /departments`, edit/patch/delete |
-| Sections | `GET /departments/{level}/{department}/sections`, `GET …/sections/create`*, `GET …/sections/{section}` | `POST`, edit/patch/delete |
-| Admin users | — | `GET/POST /admin/users`, `GET /admin/users/{user}`, edit/patch/delete |
+| Section document show | `GET /documents/{level}/{dept}/{section}/{doc}` | `POST /documents`, `PATCH …/{doc}`, `DELETE …/{doc}` |
+| Section document PDF | `GET /documents/{level}/{dept}/{section}/{doc}/pdf` | — |
+| Rule-set document show | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}` | `PATCH …/{doc}`, `DELETE …/{doc}` |
+| Rule-set document PDF | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | — |
+| Departments | `GET /departments`, `GET /departments/{level}/{dept}` | `POST /departments`, edit/patch/delete |
+| Sections | `GET /departments/{level}/{dept}/sections/{section}` | `POST`, edit/patch/delete |
+| Rule sets | `GET /departments/{level}/{dept}/rules/{rule_set}` | `POST /departments/{level}/{dept}/rules`, edit/patch/delete |
+| Admin users | — | `GET/POST /admin/users`, edit/patch/delete |
 
-\* `/create` routes need no special ordering now — they have only one path segment after the prefix, so they never conflict with `/{level}/{department}` (two segments).
-
-Route names follow `resource.action` (e.g. `documents.show`, `departments.sections.show`, `admin.users.create`).
+Route names: `documents.show`, `documents.rules.show`, `departments.sections.show`, `departments.rules.show`, `admin.users.create`, etc.
 
 ### Slug-based routing (all models)
 
-`Department`, `Section`, and `Document` all override `getRouteKeyName()` to return `'slug'`. Route helpers accept model instances — Laravel calls `getRouteKey()` automatically. Never pass `->id` manually to a route helper for these models.
+`Department`, `Section`, `RuleSet`, and `Document` all override `getRouteKeyName()` to return `'slug'`. Route helpers accept model instances. Never pass `->id` manually to a route helper for these models.
 
-`Document::uniqueSlugForSection($title, $sectionId)` — generates a slug from the title, querying `withTrashed()` to avoid reusing slugs of soft-deleted documents. Appends `-2`, `-3` etc. on collision.
+Slug helpers:
+- `Document::uniqueSlugForSection($title, $sectionId, $exceptId?)` — section-scoped
+- `Document::uniqueSlugForRuleSet($title, $ruleSetId, $exceptId?)` — rule-set-scoped
+- `RuleSet::uniqueSlugForDepartment($name, $departmentId, $exceptId?)` — department-scoped
 
-**Level-aware department binding** — `departments` has a unique constraint on `(slug, level)`, meaning the same slug (e.g. `excise`) can exist at both `department_level` and `secretariat_level`. A custom `Route::bind('department', ...)` in `AppServiceProvider::configureRouteBindings()` scopes lookups to `WHERE slug = ? AND level = ?`, reading level from the `{level}` URL segment. Controller methods **must** declare `string $level` as their first parameter (before `Department $department`) or Laravel will inject the raw `"dept"` / `"sectt"` string into `$department` and throw a `TypeError`.
+All check `withTrashed()` and append `-2`, `-3` on collision.
+
+**Level-aware department binding** — see route map above. Controller methods must declare `string $level` as first parameter.
 
 ### Document upload flow
 
-Upload is initiated from the section show page (`departments.sections.show`) via a modal. The form POSTs to `POST /documents` via AJAX (`fetch`). The `POST /documents` endpoint is **AJAX-only** and always returns JSON — `StoreDocumentRequest::failedValidation()` is overridden to throw `HttpResponseException` with a 422 JSON body so validation errors never return a redirect. On the server:
+Upload is initiated from a section show page or rule set show page via a modal. The form POSTs to `POST /documents` via AJAX (`fetch`). The endpoint is **AJAX-only** and always returns JSON — `StoreDocumentRequest::failedValidation()` throws `HttpResponseException` with 422 JSON.
 
-1. Slug generated: `Document::uniqueSlugForSection($title, $section->id)` — done **before** file I/O so the filename is known upfront
-2. Vault directory computed: `document_vault/{dept.level}/{dept.slug}/{section.wing?}/{section.slug}`
-3. PDF stored directly to vault directory on the **`public` disk** as `{slug}_{YmdHis}.pdf` (e.g. `beer-retail-2021-19th-amendment_20260621143022.pdf`)
-4. DB transaction: `Document::create()` + `DocumentStatusHistory::create()` atomically; `original_pdf_path` = full relative path, `vault_path` = directory only
-5. On transaction failure: uploaded PDF deleted as best-effort cleanup (`Storage::disk('public')->delete($pdfPath)`)
-6. On success: JSON `{'redirect': section_url}` returned; JS navigates
+**Section-based upload:**
+1. Slug: `Document::uniqueSlugForSection($title, $section->id)`
+2. Vault dir: `document_vault/{dept.level}/{dept.slug}/{section.wing?}/{section.slug}`
+3. File stored: `{vaultDir}/{slug}_{YmdHis}.pdf` on `public` disk
+4. DB transaction: `Document::create()` + `DocumentStatusHistory::create()`
+5. On failure: delete orphaned PDF; return 500 JSON
+6. On success: JSON `{'redirect': sections_url}`
 
-**No separate `uploads/` staging folder** — files go straight into the vault directory. No UUID folders. Filename collision is prevented by the slug uniqueness guarantee (slug suffix `-2`, `-3`) plus the timestamp suffix.
+**Rule-set-based upload:**
+1. Slug: `Document::uniqueSlugForRuleSet($title, $ruleSet->id)`
+2. Vault dir: `document_vault/{dept.level}/{dept.slug}/rules/{ruleSet.slug}`
+3. Same file/DB/error flow as above
+4. On success: JSON `{'redirect': rule_set_url}`
 
-**Converted Markdown** lands in the same vault directory with the same base filename and `.md` extension (e.g. `beer-retail-2021-19th-amendment_20260621143022.md`). The `markdown_path` column stores the full relative path on the `public` disk.
+`StoreDocumentRequest` — `section_id` and `rule_set_id` are `required_without:` each other. Exactly one must be provided.
+
+**Converted Markdown** lands in the same vault directory, same base filename, `.md` extension. `markdown_path` stores the full relative path on `public` disk.
 
 ### PDF streaming
 
-`GET /documents/{department}/{section}/{document}/pdf` — served by `DocumentController@pdf`. Streams from the **`public` disk** via `Storage::disk('public')->response(...)` with `Content-Disposition: inline`. Guests blocked from non-verified documents (403). The `/pdf` route is the primary access path — direct `storage/` URLs bypass the auth gate, so always link via this route.
+Section docs: `GET /documents/{level}/{dept}/{section}/{doc}/pdf` → `DocumentController@pdf`
+
+Rule-set docs: `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` → `DocumentController@pdfRuleSetDoc`
+
+Both stream from the `public` disk via `Storage::disk('public')->response(...)` with `Content-Disposition: inline`. Guests blocked (403) on non-verified documents. Always link via these routes — raw `Storage::url()` links bypass the auth gate.
 
 ### Document views
 
-- **`documents/show`** — hierarchical breadcrumb (Home → Departments → Dept → Section → Title), inline PDF embed (iframe, 75vh), extracted Markdown section below PDF once available, metadata sidebar, status history timeline (auth only), admin Review/Delete actions.
-- **`documents/index`** — tabbed by department; tab per department with document count badge; lists all documents (auth: all statuses; guest: verified only).
+- **`documents/show`** — context-aware: receives either `$section` (section doc) or `$ruleSet` (rule-set doc). A `$isRuleSetDoc` flag switches breadcrumbs, page subtitle, vault path display, and all route helpers (PDF, edit, destroy) without duplicating the template. The "Section / Rule Set" metadata label also adapts.
+- **`documents/index`** — tabbed by department; renders both section and rule-set documents; row links branch on `$doc->section ? documents.show : documents.rules.show`.
+
+### Rule set views
+
+- **`rule_sets/create`** — name + description form with JS validation; slug is auto-generated server-side from name.
+- **`rule_sets/edit`** — same, pre-populated; slug is read-only (set at creation, never changed).
+- **`rule_sets/show`** — header with description, upload amendment modal (hidden for guests; pre-selects `rule_amendment` type; sends `rule_set_id`), amendment/document timeline list with status badges and auth-gated view/delete actions.
 
 ### Sidebar auth states
 
@@ -207,11 +257,11 @@ Upload is initiated from the section show page (`departments.sections.show`) via
 | Authenticated | Browse Vault + Manage → Departments |
 | Admin | Browse Vault + Manage → Departments + Users |
 
-**Browse Vault is fully dynamic** — `sidebar.blade.php` queries all `Department` records ordered by level then name and renders each as a nav link pointing to `departments.show`. Icon and color are resolved from a slug → `[icon, color]` map (`$deptMeta`) defined at the top of the component; unknown slugs fall back to a cycling palette. Adding a new department via the UI automatically adds it to the sidebar — no manual sidebar edits needed. Slug keys in `$deptMeta` use underscores (matching the DB slug convention), e.g. `sugarcane_sugar`, `sugar_mill_corp`.
+**Browse Vault is fully dynamic** — `sidebar.blade.php` queries all `Department` records ordered by level then name. Icon and color resolved from a `$deptMeta` slug → `[icon, color]` map; unknown slugs fall back to a cycling palette. Slug keys use underscores (matching DB slugs), e.g. `sugarcane_sugar`.
 
 ### Rate limiting
 
-Named limiters defined in `AppServiceProvider::boot()`. Never use anonymous `throttle:60,1` inline — always use a named limiter so limits are tuneable in one place.
+Named limiters defined in `AppServiceProvider::boot()`. Never use anonymous `throttle:60,1` inline.
 
 | Limiter name | Limit | Key |
 |---|---|---|
@@ -222,7 +272,7 @@ Named limiters defined in `AppServiceProvider::boot()`. Never use anonymous `thr
 
 ### File upload validation
 
-Always use `mimetypes:` (not `mimes:`) for file type validation — `mimetypes:` reads actual file bytes via PHP Fileinfo (magic-byte check); `mimes:` only checks the extension. Accepted types are defined as `StoreDocumentRequest::ACCEPTED_MIMETYPES` — reference this constant from tests or other Form Requests rather than duplicating the list.
+Always use `mimetypes:` (not `mimes:`) — reads actual file bytes via PHP Fileinfo (magic-byte check); `mimes:` only checks extension. Accepted types defined as `StoreDocumentRequest::ACCEPTED_MIMETYPES` — reference this constant from tests or other Form Requests rather than duplicating the list.
 
 Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/pptx), ODT/ODS/ODP, RTF, TXT, CSV, JPEG, PNG, WebP, GIF, TIFF, BMP, HEIC/HEIF, SVG. Max size: 50 MB.
 
@@ -231,12 +281,14 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 1. **Queue driver:** `database`, not Redis — no extra service to manage on a local single-box deployment.
 2. **Text extraction:** `innobrain/markitdown` Composer package, `MARKITDOWN_USE_VENV_PACKAGE=true` — the package manages its own Python venv, so no hand-rolled subprocess/venv bridge is needed.
 3. **OCR is conditional, not default** — only runs when markitdown returns near-empty/low-confidence text, to avoid wasting time OCR'ing native-text PDFs.
-4. **Single disk (`public`), path-convention silos** — all document files (PDF + Markdown) live on the `public` disk (`storage/app/public/`), symlinked to `public/storage/` via `php artisan storage:link`. Department/section isolation is enforced at the model/policy layer against the vault path convention. There is no separate staging/uploads folder — files go straight into their vault directory.
+4. **Single disk (`public`), path-convention silos** — all document files (PDF + Markdown) live on the `public` disk (`storage/app/public/`), symlinked to `public/storage/` via `php artisan storage:link`. Isolation is enforced at the model/policy layer against vault path convention. No separate staging/uploads folder.
 5. **Schema flexibility over premature normalization** — JSON `metadata` column absorbs new fields; promote to real columns only once a field has proven stable across iterations.
 6. **No district/field-office granularity** in this phase — explicitly descoped.
-7. **Slug-based URLs with level disambiguation** — `Department`, `Section`, `Document` all use `getRouteKeyName() = 'slug'`. IDs never appear in public URLs. A `{level}` alias (`dept` / `sectt`) precedes `{department}` in every department/section/document URL so that departments sharing a slug across levels resolve correctly. Document URLs: `/documents/{level}/{dept_slug}/{section_slug}/{doc_slug}`. Always pass `[$dept->levelAlias(), $dept]` to route helpers — never just `$dept` alone for department-containing routes.
-8. **`POST /documents` is AJAX-only** — always returns JSON regardless of `Accept` header. `StoreDocumentRequest::failedValidation()` overrides the default redirect to throw `HttpResponseException` with 422 JSON. The JS `fetch` call always sends `Accept: application/json` + `X-CSRF-TOKEN` header + `X-Requested-With: XMLHttpRequest`.
-9. **PDF served via controller route** — `DocumentController@pdf` streams from the `public` disk with `Content-Disposition: inline`. Guests see 403 on non-verified documents. The `/pdf` route is the canonical access path; always link via it rather than constructing raw `Storage::url()` links, since direct storage URLs bypass the auth gate.
+7. **Slug-based URLs with level disambiguation** — `Department`, `Section`, `RuleSet`, `Document` all use `getRouteKeyName() = 'slug'`. IDs never appear in public URLs. A `{level}` alias (`dept` / `sectt`) precedes `{department}` in every URL. Always pass `[$dept->levelAlias(), $dept]` to route helpers — never just `$dept` alone.
+8. **`POST /documents` is AJAX-only** — always returns JSON regardless of `Accept` header. `StoreDocumentRequest::failedValidation()` overrides the default redirect to throw `HttpResponseException` with 422 JSON. The JS `fetch` call always sends `Accept: application/json` + `X-CSRF-TOKEN` + `X-Requested-With: XMLHttpRequest`.
+9. **PDF served via controller routes** — `DocumentController@pdf` and `@pdfRuleSetDoc` stream from the `public` disk with `Content-Disposition: inline`. Guests see 403 on non-verified documents. Always link via these routes — raw `Storage::url()` links bypass the auth gate.
+10. **Dual document taxonomy** — documents belong to either a `Section` (GOs, notices, circulars) or a `RuleSet` (Acts, Rules, amendments), never both. `section_id` and `rule_set_id` are mutually exclusive nullable FKs. The `documents/show` view handles both contexts with a single template via the `$isRuleSetDoc` flag; separate URL routes exist for each context (`documents.show` vs `documents.rules.show`). When iterating documents across both types (index, dashboard feed), always check `$doc->section ? ... : ...` for routing and `$doc->section?->name ?? $doc->ruleSet?->name` for display.
+11. **Rule-set slug is immutable after creation** — `UpdateRuleSetRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths.
 
 ## Frontend architecture
 
@@ -397,8 +449,9 @@ try {
 ### File uploads
 - Always use `mimetypes:` validation (magic-byte check via PHP Fileinfo), never `mimes:` (extension-only).
 - Reference `StoreDocumentRequest::ACCEPTED_MIMETYPES` for the canonical list of accepted types — do not duplicate it.
-- Store uploaded files on `Storage::disk('public')` directly inside the vault directory at `document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.pdf`. No staging/UUID folder. File I/O happens **before** the DB transaction; on transaction failure, delete the file in the `catch` block.
-- File I/O happens **before** the DB transaction. On transaction failure, delete the orphaned file in the `catch` block.
+- Section-based uploads store at: `document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.pdf`
+- Rule-set uploads store at: `document_vault/{level}/{dept_slug}/rules/{rule_set_slug}/{slug}_{YmdHis}.pdf`
+- No staging/UUID folder. File I/O happens **before** the DB transaction; on transaction failure, delete the file in the `catch` block.
 
 ### Forms and mutations — no native GET/POST submissions
 - **Never allow a form to submit natively via GET or POST.** All mutations that originate from a modal or AJAX flow must use `fetch()` with `method: 'POST'` and `Accept: application/json` + `X-CSRF-TOKEN` headers.

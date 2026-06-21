@@ -9,13 +9,30 @@
         'red'    => 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
     ];
     $statusClass = $statusColors[$statusMeta['color']] ?? $statusColors['slate'];
-    $wing = $section->wing;
+
+    // Context: section-based or rule-set-based document
+    $isRuleSetDoc = isset($ruleSet) && $ruleSet !== null;
+    $wing         = $isRuleSetDoc ? null : ($section->wing ?? null);
+
+    if ($isRuleSetDoc) {
+        $contextName    = $ruleSet->name;
+        $contextUrl     = route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
+        $pdfRoute       = route('documents.rules.pdf',     [$department->levelAlias(), $department, $ruleSet, $document]);
+        $editRoute      = route('documents.rules.edit',    [$department->levelAlias(), $department, $ruleSet, $document]);
+        $destroyRoute   = route('documents.rules.destroy', [$department->levelAlias(), $department, $ruleSet, $document]);
+    } else {
+        $contextName    = $section->name;
+        $contextUrl     = route('departments.sections.show', [$department->levelAlias(), $department, $section]);
+        $pdfRoute       = route('documents.pdf',     [$department->levelAlias(), $department, $section, $document]);
+        $editRoute      = route('documents.edit',    [$department->levelAlias(), $department, $section, $document]);
+        $destroyRoute   = route('documents.destroy', [$department->levelAlias(), $department, $section, $document]);
+    }
 @endphp
 
 <x-layout
     title="{{ $document->title }}"
     page-title="{{ $document->title }}"
-    page-subtitle="{{ $document->department->name }}{{ $wing ? ' · ' . Str::title(str_replace('_', ' ', $wing)) : '' }} · {{ $document->section->name }}"
+    page-subtitle="{{ $document->department->name }}{{ $wing ? ' · ' . Str::title(str_replace('_', ' ', $wing)) : '' }} · {{ $contextName }}"
 >
 
 <x-breadcrumb :items="[
@@ -23,7 +40,7 @@
     ['name' => 'Departments',                       'url' => route('departments.index')],
     ['name' => $document->department->levelLabel(), 'url' => null],
     ['name' => $document->department->name,         'url' => route('departments.show', [$document->department->levelAlias(), $document->department])],
-    ['name' => $document->section->name,            'url' => route('departments.sections.show', [$document->department->levelAlias(), $document->department, $document->section])],
+    ['name' => $contextName,                        'url' => $contextUrl],
     ['name' => $document->title,                    'url' => null],
 ]" />
 
@@ -63,12 +80,12 @@
     @auth
     @if(auth()->user()->isAdmin())
     <div class="flex items-center gap-2 flex-shrink-0">
-        <a href="{{ route('documents.edit', [$department->levelAlias(), $department, $section, $document]) }}"
+        <a href="{{ $editRoute }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
             <span class="hidden sm:inline">Review</span>
         </a>
-        <form method="POST" action="{{ route('documents.destroy', [$department->levelAlias(), $department, $section, $document]) }}"
+        <form method="POST" action="{{ $destroyRoute }}"
               onsubmit="return confirm('Permanently delete this document? This cannot be undone.')">
             @csrf @method('DELETE')
             <button type="submit"
@@ -90,7 +107,8 @@
             Str::title(str_replace('_', ' ', $document->department->level)),
             $document->department->name,
             $wing ? Str::title(str_replace('_', ' ', $wing)) : null,
-            $document->section->name,
+            $isRuleSetDoc ? 'rules' : null,
+            $contextName,
             $document->original_filename,
         ]);
     @endphp
@@ -103,29 +121,27 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-    {{-- ── Main: markdown content or placeholder ───────────────────────────── --}}
+    {{-- ── Main: PDF viewer + extracted markdown ───────────────────────────── --}}
     <div class="lg:col-span-2 space-y-4">
 
-        {{-- PDF viewer — always shown; served via /documents/{id}/pdf which streams from public disk --}}
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
             <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
                 <div class="flex items-center gap-2">
                     <i class="ti ti-file-type-pdf text-sm text-red-400"></i>
                     <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Original Document</span>
                 </div>
-                <a href="{{ route('documents.pdf', [$department->levelAlias(), $department, $section, $document]) }}" target="_blank"
+                <a href="{{ $pdfRoute }}" target="_blank"
                    class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
                     Open in new tab <i class="ti ti-external-link text-xs"></i>
                 </a>
             </div>
-            <iframe src="{{ route('documents.pdf', [$department->levelAlias(), $department, $section, $document]) }}"
+            <iframe src="{{ $pdfRoute }}"
                     class="w-full border-0"
                     style="height: 75vh;"
                     title="{{ $document->title }}">
             </iframe>
         </div>
 
-        {{-- Extracted markdown — shown below PDF once extraction is complete --}}
         @if($document->markdown_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($document->markdown_path))
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
             <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center gap-2">
@@ -143,7 +159,6 @@
     {{-- ── Sidebar: metadata + status history ──────────────────────────────── --}}
     <div class="space-y-4">
 
-        {{-- Metadata card --}}
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
             <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700">
                 <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Details</span>
@@ -165,11 +180,11 @@
                 </div>
                 @endif
                 <div>
-                    <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">Section</dt>
+                    <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">{{ $isRuleSetDoc ? 'Rule Set' : 'Section' }}</dt>
                     <dd>
-                        <a href="{{ route('departments.sections.show', [$document->department->levelAlias(), $document->department, $document->section]) }}"
+                        <a href="{{ $contextUrl }}"
                            class="text-indigo-600 dark:text-indigo-400 hover:underline text-sm">
-                            {{ $document->section->name }}
+                            {{ $contextName }}
                         </a>
                     </dd>
                 </div>
@@ -204,7 +219,6 @@
             </dl>
         </div>
 
-        {{-- Status history --}}
         @auth
         @if($document->statusHistory->isNotEmpty())
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
