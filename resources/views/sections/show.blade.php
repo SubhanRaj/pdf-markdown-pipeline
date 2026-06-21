@@ -14,12 +14,11 @@
     <span>{{ $section->name }}</span>
 </x-slot:breadcrumb>
 
-{{-- Data island for JS --}}
-<script id="page-data" type="application/json">{{ json_encode([
-    'documentTypes' => \App\Models\Document::DOCUMENT_TYPES,
-    'storeUrl'      => route('documents.store'),
-    'csrfToken'     => csrf_token(),
-]) }}</script>
+{{-- Data island for JS — use @json() not {{ json_encode() }} to avoid HTML-entity corruption --}}
+<script id="page-data" type="application/json">@json([
+    'storeUrl'  => route('documents.store'),
+    'csrfToken' => csrf_token(),
+])</script>
 
 {{-- ── Section header ─────────────────────────────────────────────────────── --}}
 <div class="flex items-start justify-between gap-4 mb-6">
@@ -111,7 +110,7 @@
                     <i class="ti ti-cloud-upload text-3xl text-slate-300 dark:text-slate-600"></i>
                     <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Click or drag a file here</p>
                     <p class="text-xs text-slate-400 dark:text-slate-500">PDF · Word · Excel · Images · max 50 MB</p>
-                    <input type="file" id="doc-file"
+                    <input type="file" id="doc-file" name="file"
                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif,.svg"
                            style="display:none">
                 </div>
@@ -130,7 +129,8 @@
             {{-- Right: form fields --}}
             <div class="lg:w-1/2 p-6 flex flex-col gap-4">
 
-                <form id="upload-form" novalidate enctype="multipart/form-data" class="flex flex-col gap-4 flex-1">
+                <form id="upload-form" method="POST" action="{{ route('documents.store') }}"
+                      novalidate enctype="multipart/form-data" class="flex flex-col gap-4 flex-1">
                     @csrf
                     <input type="hidden" name="section_id" value="{{ $section->id }}">
 
@@ -307,10 +307,17 @@
 @push('scripts')
 <script>
 (function () {
-    const page       = JSON.parse(document.getElementById('page-data').textContent);
-    const modal      = document.getElementById('upload-modal');
+    // Guard: modal only exists for authenticated users
+    const modal = document.getElementById('upload-modal');
+    if (!modal) return;
 
-    if (!modal) return; // guest — nothing to wire up
+    let page;
+    try {
+        page = JSON.parse(document.getElementById('page-data').textContent);
+    } catch (e) {
+        console.error('page-data JSON parse failed', e);
+        return;
+    }
 
     const form       = document.getElementById('upload-form');
     const fileInput  = document.getElementById('doc-file');
@@ -324,11 +331,10 @@
     // ── File pick & preview ────────────────────────────────────────────────
     function handleFile(file) {
         if (!file) return;
-        document.getElementById('err-file').style.display = 'none';
+        clearErr('err-file');
         document.getElementById('preview-filename').textContent = file.name;
         document.getElementById('preview-filesize').textContent = (file.size / 1048576).toFixed(1) + ' MB';
         document.getElementById('preview-wrap').style.display = 'block';
-
         if (!titleInput.value.trim()) {
             titleInput.value = file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
         }
@@ -336,7 +342,7 @@
 
     fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
 
-    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = '#6366f1'; });
+    dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.borderColor = '#6366f1'; });
     dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = ''; });
     dropZone.addEventListener('drop', e => {
         e.preventDefault();
@@ -351,17 +357,25 @@
     });
 
     // ── Inline error helpers ───────────────────────────────────────────────
-    function showErr(id, msg) { const el = document.getElementById(id); el.textContent = msg; el.style.display = 'block'; }
-    function clearErr(id)     { document.getElementById(id).style.display = 'none'; }
+    function showErr(id, msg) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = msg;
+        el.style.display = 'block';
+    }
+    function clearErr(id) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    }
 
-    // ── Submit ─────────────────────────────────────────────────────────────
+    // ── Submit via AJAX — never let the form do a native GET/POST ─────────
     form.addEventListener('submit', async e => {
         e.preventDefault();
 
         let ok = true;
-        if (!titleInput.value.trim()) { showErr('err-title', 'Title is required.'); ok = false; } else clearErr('err-title');
+        if (!titleInput.value.trim()) { showErr('err-title', 'Title is required.');      ok = false; } else clearErr('err-title');
         if (!typeSelect.value)        { showErr('err-type',  'Select a document type.'); ok = false; } else clearErr('err-type');
-        if (!fileInput.files[0])      { showErr('err-file',  'Please select a file.'); ok = false; } else clearErr('err-file');
+        if (!fileInput.files[0])      { showErr('err-file',  'Please select a file.');   ok = false; } else clearErr('err-file');
         if (!ok) return;
 
         btnSubmit.disabled = true;
@@ -369,30 +383,52 @@
         status.textContent = '';
 
         try {
+            // File input is outside the <form> element (left column vs right column layout),
+            // so FormData(form) won't capture it — append explicitly.
             const formData = new FormData(form);
-            formData.set('file', fileInput.files[0]);
+            if (fileInput.files[0]) formData.append('file', fileInput.files[0]);
 
             const res = await fetch(page.storeUrl, {
-                method: 'POST',
-                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                method:   'POST',
+                redirect: 'manual', // never silently follow redirects — handle them explicitly
+                headers:  {
+                    'Accept':           'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN':     page.csrfToken,
+                },
                 body: formData,
             });
+
+            // Opaque redirect = session expired / unauthenticated (auth middleware redirected to login)
+            if (res.type === 'opaqueredirect' || res.status === 0) {
+                window.location.href = '/login';
+                return;
+            }
+
+            // Guard: ensure we got JSON back before parsing
+            const contentType = res.headers.get('Content-Type') || '';
+            if (!contentType.includes('application/json')) {
+                if (res.status === 419) throw new Error('Session expired — please refresh and try again.');
+                throw new Error('Unexpected server response (HTTP ' + res.status + '). Please refresh and retry.');
+            }
 
             const json = await res.json();
 
             if (res.status === 422) {
                 const map = { title: 'err-title', document_type: 'err-type', file: 'err-file' };
-                Object.entries(json.errors || {}).forEach(([f, msgs]) => { if (map[f]) showErr(map[f], msgs[0]); });
+                Object.entries(json.errors || {}).forEach(([field, msgs]) => {
+                    if (map[field]) showErr(map[field], msgs[0]);
+                });
                 return;
             }
 
-            if (!res.ok) throw new Error(json.message || 'HTTP ' + res.status);
+            if (!res.ok) throw new Error(json.message || 'Upload failed (HTTP ' + res.status + ')');
 
-            if (json.redirect) { window.location.href = json.redirect; return; }
+            window.location.href = json.redirect || window.location.href;
 
-            window.location.reload();
         } catch (err) {
-            status.textContent = 'Upload failed — ' + err.message;
+            status.textContent = err.message;
+            console.error('Upload error:', err);
         } finally {
             btnSubmit.disabled = false;
             btnLabel.textContent = 'Upload';

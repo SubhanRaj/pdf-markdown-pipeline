@@ -31,6 +31,8 @@ Route::prefix('departments')->name('departments.')->group(function () {
 
     Route::prefix('/{department}/sections')->name('sections.')->group(function () {
         Route::get('/',          [SectionController::class, 'index'])->name('index');
+        // /create must be registered before /{section} to prevent wildcard collision
+        Route::get('/create',    [SectionController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
         Route::get('/{section}', [SectionController::class, 'show'])->name('show');
     });
 });
@@ -60,7 +62,6 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
 
         // Sections — mutations
         Route::prefix('/{department}/sections')->name('sections.')->group(function () {
-            Route::get('/create',          [SectionController::class, 'create'])->name('create');
             Route::post('/',               [SectionController::class, 'store'])->name('store');
             Route::get('/{section}/edit',  [SectionController::class, 'edit'])->name('edit');
             Route::patch('/{section}',     [SectionController::class, 'update'])->name('update');
