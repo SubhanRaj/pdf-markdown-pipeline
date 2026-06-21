@@ -99,7 +99,7 @@
     @endphp
 
     <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-        @forelse ($departments as $dept)
+        @forelse ($departments->take(5) as $dept)
         @php
             if (isset($deptMeta[$dept->slug])) {
                 $m = $deptMeta[$dept->slug];
