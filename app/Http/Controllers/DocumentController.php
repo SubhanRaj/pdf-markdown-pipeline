@@ -7,6 +7,7 @@ use App\Http\Requests\UpdateDocumentRequest;
 use App\Models\Document;
 use App\Models\DocumentStatusHistory;
 use App\Models\Section;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -32,9 +33,10 @@ class DocumentController extends Controller
         return view('documents.show', compact('document'));
     }
 
-    public function store(StoreDocumentRequest $request): RedirectResponse
+    public function store(StoreDocumentRequest $request): JsonResponse|RedirectResponse
     {
         $validated = $request->validated();
+        $ajax      = $request->expectsJson();
 
         $section    = Section::with('department')->findOrFail($validated['section_id']);
         $department = $section->department;
@@ -48,19 +50,21 @@ class DocumentController extends Controller
             $section->slug,
         ]));
 
-        // Store PDF before transaction — file I/O cannot be rolled back
+        // Store file before transaction — file I/O cannot be rolled back
         $uuid    = (string) Str::uuid();
         $pdfPath = $request->file('file')->storeAs("uploads/{$uuid}", 'original.pdf', 'local');
 
         if (! $pdfPath) {
             flash()->error('File could not be saved. Please try again.');
-            return back()->withInput();
+            return $ajax
+                ? response()->json(['message' => 'File could not be saved. Please try again.'], 500)
+                : back()->withInput();
         }
 
         try {
             $document = null;
 
-            DB::transaction(function () use ($validated, $section, $department, $vaultDir, $pdfPath, $request, $uuid, &$document) {
+            DB::transaction(function () use ($validated, $section, $department, $vaultDir, $pdfPath, $request, &$document) {
                 // Ensure vault directory exists
                 Storage::disk('local')->makeDirectory($vaultDir);
 
@@ -86,7 +90,11 @@ class DocumentController extends Controller
             });
 
             flash()->success("\"{$validated['title']}\" uploaded successfully. Queued for extraction.");
-            return redirect()->route('departments.sections.show', [$department, $section]);
+            $redirectUrl = route('departments.sections.show', [$department, $section]);
+
+            return $ajax
+                ? response()->json(['redirect' => $redirectUrl])
+                : redirect($redirectUrl);
 
         } catch (\Throwable $e) {
             // DB failed — clean up the uploaded file so we don't orphan it
@@ -98,7 +106,9 @@ class DocumentController extends Controller
             ]);
 
             flash()->error('Upload failed. Please try again.');
-            return back()->withInput();
+            return $ajax
+                ? response()->json(['message' => 'Upload failed. Please try again.'], 500)
+                : back()->withInput();
         }
     }
 

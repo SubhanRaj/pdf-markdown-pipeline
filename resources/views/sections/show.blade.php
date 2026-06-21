@@ -61,6 +61,7 @@
     <div class="flex items-center gap-2">
         @auth
         <button id="btn-toggle-upload" type="button"
+                onclick="document.getElementById('upload-modal').style.display='block'"
                 class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
             <i class="ti ti-upload text-base"></i>
             <span class="hidden sm:inline">Upload PDF</span>
@@ -114,10 +115,15 @@
                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif,.svg"
                            style="display:none">
                 </div>
-                {{-- PDF preview iframe (shown after file selected) --}}
-                <div id="preview-wrap" style="display:none" class="flex-1 px-4 pb-4">
-                    <p id="preview-filename" class="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2 truncate"></p>
-                    <iframe id="pdf-preview" src="" style="width:100%;height:340px;border-radius:8px;border:1px solid #e2e8f0"></iframe>
+                {{-- Selected file info (shown after file picked) --}}
+                <div id="preview-wrap" style="display:none" class="px-4 pb-4">
+                    <div class="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
+                        <i id="preview-icon" class="ti ti-file-description text-2xl text-indigo-500 dark:text-indigo-400 flex-shrink-0"></i>
+                        <div class="min-w-0">
+                            <p id="preview-filename" class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate"></p>
+                            <p id="preview-filesize" class="text-xs text-slate-400 dark:text-slate-500 mt-0.5"></p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -143,6 +149,9 @@
                         <label for="doc-type" class="field-label">Document Type <span class="text-red-500">*</span></label>
                         <select id="doc-type" name="document_type" class="field-input">
                             <option value="">— Select type —</option>
+                            @foreach(\App\Models\Document::DOCUMENT_TYPES as $key => $label)
+                            <option value="{{ $key }}">{{ $label }}</option>
+                            @endforeach
                         </select>
                         <p id="err-type" class="field-err-msg" style="display:none"></p>
                     </div>
@@ -298,52 +307,28 @@
 @push('scripts')
 <script>
 (function () {
-    const page      = JSON.parse(document.getElementById('page-data').textContent);
-    const modal     = document.getElementById('upload-modal');
-    const form      = document.getElementById('upload-form');
-    const btnOpen   = document.getElementById('btn-toggle-upload');
-    const fileInput = document.getElementById('doc-file');
-    const dropZone  = document.getElementById('drop-zone');
+    const page       = JSON.parse(document.getElementById('page-data').textContent);
+    const modal      = document.getElementById('upload-modal');
+
+    if (!modal) return; // guest — nothing to wire up
+
+    const form       = document.getElementById('upload-form');
+    const fileInput  = document.getElementById('doc-file');
+    const dropZone   = document.getElementById('drop-zone');
     const typeSelect = document.getElementById('doc-type');
     const titleInput = document.getElementById('doc-title');
     const btnSubmit  = document.getElementById('btn-submit');
     const btnLabel   = document.getElementById('btn-submit-label');
     const status     = document.getElementById('upload-status');
 
-    if (!modal) return; // guest — nothing to wire up
-
-    // ── Populate doc type select ───────────────────────────────────────────
-    Object.entries(page.documentTypes).forEach(([k, v]) => {
-        const o = document.createElement('option');
-        o.value = k; o.textContent = v;
-        typeSelect.appendChild(o);
-    });
-
-    // ── Modal open/close ───────────────────────────────────────────────────
-    btnOpen.addEventListener('click', () => { modal.style.display = 'block'; });
-
     // ── File pick & preview ────────────────────────────────────────────────
     function handleFile(file) {
         if (!file) return;
-        const previewWrap = document.getElementById('preview-wrap');
-        const iframe      = document.getElementById('pdf-preview');
-        const fname       = document.getElementById('preview-filename');
-
         document.getElementById('err-file').style.display = 'none';
-        fname.textContent = file.name + ' (' + (file.size / 1048576).toFixed(1) + ' MB)';
+        document.getElementById('preview-filename').textContent = file.name;
+        document.getElementById('preview-filesize').textContent = (file.size / 1048576).toFixed(1) + ' MB';
+        document.getElementById('preview-wrap').style.display = 'block';
 
-        if (file.type === 'application/pdf') {
-            const url = URL.createObjectURL(file);
-            iframe.src = url;
-            previewWrap.style.display = 'block';
-        } else {
-            iframe.src = '';
-            previewWrap.style.display = 'none';
-            fname.textContent = file.name + ' — preview not available';
-            document.getElementById('preview-wrap').style.display = 'block';
-        }
-
-        // Auto-fill title from filename if blank
         if (!titleInput.value.trim()) {
             titleInput.value = file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
         }
@@ -351,7 +336,6 @@
 
     fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
 
-    // Drag-and-drop on drop zone
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.style.borderColor = '#6366f1'; });
     dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = ''; });
     dropZone.addEventListener('drop', e => {
@@ -359,7 +343,6 @@
         dropZone.style.borderColor = '';
         const file = e.dataTransfer.files[0];
         if (file) {
-            // Assign to the file input so FormData picks it up
             const dt = new DataTransfer();
             dt.items.add(file);
             fileInput.files = dt.files;
@@ -368,14 +351,8 @@
     });
 
     // ── Inline error helpers ───────────────────────────────────────────────
-    function showErr(id, msg) {
-        const el = document.getElementById(id);
-        el.textContent = msg;
-        el.style.display = 'block';
-    }
-    function clearErr(id) {
-        document.getElementById(id).style.display = 'none';
-    }
+    function showErr(id, msg) { const el = document.getElementById(id); el.textContent = msg; el.style.display = 'block'; }
+    function clearErr(id)     { document.getElementById(id).style.display = 'none'; }
 
     // ── Submit ─────────────────────────────────────────────────────────────
     form.addEventListener('submit', async e => {
@@ -392,18 +369,27 @@
         status.textContent = '';
 
         try {
-            const res = await fetch(page.storeUrl, { method: 'POST', body: new FormData(form) });
+            const formData = new FormData(form);
+            formData.set('file', fileInput.files[0]);
 
-            if (res.redirected) { window.location.href = res.url; return; }
+            const res = await fetch(page.storeUrl, {
+                method: 'POST',
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: formData,
+            });
+
+            const json = await res.json();
 
             if (res.status === 422) {
-                const json = await res.json();
                 const map = { title: 'err-title', document_type: 'err-type', file: 'err-file' };
                 Object.entries(json.errors || {}).forEach(([f, msgs]) => { if (map[f]) showErr(map[f], msgs[0]); });
                 return;
             }
 
-            if (!res.ok) throw new Error('HTTP ' + res.status);
+            if (!res.ok) throw new Error(json.message || 'HTTP ' + res.status);
+
+            if (json.redirect) { window.location.href = json.redirect; return; }
+
             window.location.reload();
         } catch (err) {
             status.textContent = 'Upload failed — ' + err.message;
