@@ -1,7 +1,16 @@
 @php
-    $exciseDept = \App\Models\Department::where('slug', 'excise')
-        ->where('level', 'department_level')
-        ->first(['id', 'slug']);
+    $sidebarDepts = \App\Models\Department::orderBy('level')->orderBy('name')->get(['name', 'slug', 'level']);
+
+    // icon + color per slug; fallback for anything not listed
+    $deptMeta = [
+        'excise'           => ['icon' => 'ti-building-community', 'color' => 'text-amber-400'],
+        'sugarcane_sugar'  => ['icon' => 'ti-leaf',               'color' => 'text-emerald-400'],
+        'sugar_mill_corp'  => ['icon' => 'ti-building-factory',   'color' => 'text-cyan-400'],
+        'cane_federation'  => ['icon' => 'ti-stack-2',            'color' => 'text-violet-400'],
+        'sugarcane'        => ['icon' => 'ti-plant-2',            'color' => 'text-green-400'],
+    ];
+    $fallbackIcons  = ['ti-building', 'ti-folder', 'ti-archive', 'ti-files', 'ti-database'];
+    $fallbackColors = ['text-sky-400', 'text-pink-400', 'text-orange-400', 'text-teal-400', 'text-lime-400'];
 @endphp
 <aside id="sidebar" class="sidebar-expanded bg-slate-950 flex flex-col flex-shrink-0 overflow-hidden">
 
@@ -35,40 +44,29 @@
 
         <span class="nav-section-label">Browse Vault</span>
 
-        <a href="{{ $exciseDept ? route('departments.show', $exciseDept) : route('departments.index') }}"
-           data-tooltip="Excise Department"
-           class="nav-link {{ request()->routeIs('departments.show') && request()->route('department')?->slug === 'excise' ? 'nav-link-active' : 'nav-link-idle' }}">
-            <i class="ti ti-building-community w-5 text-center text-base flex-shrink-0 text-amber-400"></i>
-            <span class="sidebar-text">Excise Department</span>
+        @forelse ($sidebarDepts as $i => $dept)
+        @php
+            $meta      = $deptMeta[$dept->slug] ?? [
+                'icon'  => $fallbackIcons[$i % count($fallbackIcons)],
+                'color' => $fallbackColors[$i % count($fallbackColors)],
+            ];
+            $isActive  = request()->routeIs('departments.show', 'departments.sections.*', 'documents.*')
+                         && request()->route('department')?->slug === $dept->slug;
+        @endphp
+        <a href="{{ route('departments.show', $dept) }}"
+           data-tooltip="{{ $dept->name }}"
+           class="nav-link {{ $isActive ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti {{ $meta['icon'] }} w-5 text-center text-base flex-shrink-0 {{ $meta['color'] }}"></i>
+            <span class="sidebar-text">{{ $dept->name }}</span>
         </a>
-
+        @empty
         <a href="{{ route('departments.index') }}"
-           data-tooltip="Sugarcane &amp; Sugar"
+           data-tooltip="All Departments"
            class="nav-link nav-link-idle">
-            <i class="ti ti-leaf w-5 text-center text-base flex-shrink-0 text-emerald-400"></i>
-            <span class="sidebar-text">Sugarcane &amp; Sugar</span>
+            <i class="ti ti-building w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">All Departments</span>
         </a>
-
-        <a href="{{ route('departments.index') }}"
-           data-tooltip="Sugar Mill Corp."
-           class="nav-link nav-link-idle">
-            <i class="ti ti-building-factory w-5 text-center text-base flex-shrink-0 text-cyan-400"></i>
-            <span class="sidebar-text">Sugar Mill Corp.</span>
-        </a>
-
-        <a href="{{ route('departments.index') }}"
-           data-tooltip="Cane Federation"
-           class="nav-link nav-link-idle">
-            <i class="ti ti-stack-2 w-5 text-center text-base flex-shrink-0 text-violet-400"></i>
-            <span class="sidebar-text">Cane Federation</span>
-        </a>
-
-        <a href="{{ route('departments.index') }}"
-           data-tooltip="Secretariat"
-           class="nav-link nav-link-idle">
-            <i class="ti ti-building-arch w-5 text-center text-base flex-shrink-0 text-rose-400"></i>
-            <span class="sidebar-text">Secretariat</span>
-        </a>
+        @endforelse
 
         <span class="nav-section-label">Tools</span>
 
