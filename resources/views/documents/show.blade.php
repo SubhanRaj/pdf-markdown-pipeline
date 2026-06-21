@@ -18,19 +18,14 @@
     page-subtitle="{{ $document->department->name }}{{ $wing ? ' · ' . Str::title(str_replace('_', ' ', $wing)) : '' }} · {{ $document->section->name }}"
 >
 
-<x-slot:breadcrumb>
-    <a href="{{ route('home') }}">Home</a>
-    <i class="ti ti-chevron-right text-xs"></i>
-    <a href="{{ route('departments.index') }}">Departments</a>
-    <i class="ti ti-chevron-right text-xs"></i>
-    <span>{{ $document->department->levelLabel() }}</span>
-    <i class="ti ti-chevron-right text-xs"></i>
-    <a href="{{ route('departments.show', [$document->department->levelAlias(), $document->department]) }}">{{ $document->department->name }}</a>
-    <i class="ti ti-chevron-right text-xs"></i>
-    <a href="{{ route('departments.sections.show', [$document->department->levelAlias(), $document->department, $document->section]) }}">{{ $document->section->name }}</a>
-    <i class="ti ti-chevron-right text-xs"></i>
-    <span class="truncate max-w-[200px]">{{ $document->title }}</span>
-</x-slot:breadcrumb>
+<x-breadcrumb :items="[
+    ['name' => 'Home',                              'url' => route('home')],
+    ['name' => 'Departments',                       'url' => route('departments.index')],
+    ['name' => $document->department->levelLabel(), 'url' => null],
+    ['name' => $document->department->name,         'url' => route('departments.show', [$document->department->levelAlias(), $document->department])],
+    ['name' => $document->section->name,            'url' => route('departments.sections.show', [$document->department->levelAlias(), $document->department, $document->section])],
+    ['name' => $document->title,                    'url' => null],
+]" />
 
 {{-- ── Document header ──────────────────────────────────────────────────────── --}}
 <div class="flex items-start justify-between gap-4 mb-6">

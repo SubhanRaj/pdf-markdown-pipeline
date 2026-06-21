@@ -4,17 +4,13 @@
     page-subtitle="{{ $department->name }}{{ $section->wing ? ' · ' . str_replace('_', ' ', ucfirst($section->wing)) : '' }}"
 >
 
-<x-slot:breadcrumb>
-    <a href="{{ route('home') }}">Home</a>
-    <i class="ti ti-chevron-right text-xs"></i>
-    <a href="{{ route('departments.index') }}">Departments</a>
-    <i class="ti ti-chevron-right text-xs"></i>
-    <span>{{ $department->levelLabel() }}</span>
-    <i class="ti ti-chevron-right text-xs"></i>
-    <a href="{{ route('departments.show', [$department->levelAlias(), $department]) }}">{{ $department->name }}</a>
-    <i class="ti ti-chevron-right text-xs"></i>
-    <span>{{ $section->name }}</span>
-</x-slot:breadcrumb>
+<x-breadcrumb :items="[
+    ['name' => 'Home',                       'url' => route('home')],
+    ['name' => 'Departments',                'url' => route('departments.index')],
+    ['name' => $department->levelLabel(),    'url' => null],
+    ['name' => $department->name,            'url' => route('departments.show', [$department->levelAlias(), $department])],
+    ['name' => $section->name,               'url' => null],
+]" />
 
 {{-- Data island for JS — use @json() not {{ json_encode() }} to avoid HTML-entity corruption --}}
 <script id="page-data" type="application/json">@json([
