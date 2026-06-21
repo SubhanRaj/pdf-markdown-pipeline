@@ -4,11 +4,10 @@
     page-subtitle="Browse documents across all departments"
 >
 
-<x-slot:breadcrumb>
-    <a href="{{ route('home') }}">Home</a>
-    <i class="ti ti-chevron-right text-xs"></i>
-    <span>All Documents</span>
-</x-slot:breadcrumb>
+<x-breadcrumb :items="[
+    ['name' => 'Home',          'url' => route('home')],
+    ['name' => 'All Documents', 'url' => null],
+]" />
 
 @if($byDepartment->isEmpty())
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center py-20 text-center">
