@@ -70,49 +70,64 @@
             <i class="ti ti-building-estate text-slate-400 dark:text-slate-500"></i>
             Browse by Department
         </h2>
-        <span class="text-xs text-slate-400 dark:text-slate-500">Select a department to browse its document vault</span>
+        <a href="{{ route('departments.index') }}"
+           class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-medium">
+            View all <i class="ti ti-arrow-right text-sm"></i>
+        </a>
     </div>
 
+    @php
+        $deptMeta = [
+            'excise'          => ['icon' => 'ti-building-community', 'color' => 'amber',   'tag' => 'Dept.'],
+            'sugarcane_sugar' => ['icon' => 'ti-leaf',               'color' => 'emerald', 'tag' => 'Dept.'],
+            'sugar_mill_corp' => ['icon' => 'ti-building-factory',   'color' => 'cyan',    'tag' => 'Corp.'],
+            'cane_federation' => ['icon' => 'ti-stack-2',            'color' => 'violet',  'tag' => 'Fed.'],
+            'sugarcane'       => ['icon' => 'ti-plant-2',            'color' => 'green',   'tag' => 'Sectt.'],
+        ];
+        $fallbackPalette = [
+            ['icon' => 'ti-building',        'color' => 'sky',    'tag' => 'Dept.'],
+            ['icon' => 'ti-folder',          'color' => 'pink',   'tag' => 'Dept.'],
+            ['icon' => 'ti-archive',         'color' => 'orange', 'tag' => 'Dept.'],
+            ['icon' => 'ti-files',           'color' => 'teal',   'tag' => 'Dept.'],
+            ['icon' => 'ti-database',        'color' => 'lime',   'tag' => 'Dept.'],
+        ];
+        $hoverMap    = ['amber'=>'hover:border-amber-300 dark:hover:border-amber-700','emerald'=>'hover:border-emerald-300 dark:hover:border-emerald-700','cyan'=>'hover:border-cyan-300 dark:hover:border-cyan-700','violet'=>'hover:border-violet-300 dark:hover:border-violet-700','rose'=>'hover:border-rose-300 dark:hover:border-rose-700','green'=>'hover:border-green-300 dark:hover:border-green-700','sky'=>'hover:border-sky-300 dark:hover:border-sky-700','pink'=>'hover:border-pink-300 dark:hover:border-pink-700','orange'=>'hover:border-orange-300 dark:hover:border-orange-700','teal'=>'hover:border-teal-300 dark:hover:border-teal-700','lime'=>'hover:border-lime-300 dark:hover:border-lime-700'];
+        $iconBgMap   = ['amber'=>'bg-amber-100 dark:bg-amber-900/40 group-hover:bg-amber-200 dark:group-hover:bg-amber-900/60','emerald'=>'bg-emerald-100 dark:bg-emerald-900/40 group-hover:bg-emerald-200 dark:group-hover:bg-emerald-900/60','cyan'=>'bg-cyan-100 dark:bg-cyan-900/40 group-hover:bg-cyan-200 dark:group-hover:bg-cyan-900/60','violet'=>'bg-violet-100 dark:bg-violet-900/40 group-hover:bg-violet-200 dark:group-hover:bg-violet-900/60','rose'=>'bg-rose-100 dark:bg-rose-900/40 group-hover:bg-rose-200 dark:group-hover:bg-rose-900/60','green'=>'bg-green-100 dark:bg-green-900/40 group-hover:bg-green-200 dark:group-hover:bg-green-900/60','sky'=>'bg-sky-100 dark:bg-sky-900/40 group-hover:bg-sky-200 dark:group-hover:bg-sky-900/60','pink'=>'bg-pink-100 dark:bg-pink-900/40 group-hover:bg-pink-200 dark:group-hover:bg-pink-900/60','orange'=>'bg-orange-100 dark:bg-orange-900/40 group-hover:bg-orange-200 dark:group-hover:bg-orange-900/60','teal'=>'bg-teal-100 dark:bg-teal-900/40 group-hover:bg-teal-200 dark:group-hover:bg-teal-900/60','lime'=>'bg-lime-100 dark:bg-lime-900/40 group-hover:bg-lime-200 dark:group-hover:bg-lime-900/60'];
+        $iconColorMap= ['amber'=>'text-amber-600 dark:text-amber-400','emerald'=>'text-emerald-600 dark:text-emerald-400','cyan'=>'text-cyan-600 dark:text-cyan-400','violet'=>'text-violet-600 dark:text-violet-400','rose'=>'text-rose-600 dark:text-rose-400','green'=>'text-green-600 dark:text-green-400','sky'=>'text-sky-600 dark:text-sky-400','pink'=>'text-pink-600 dark:text-pink-400','orange'=>'text-orange-600 dark:text-orange-400','teal'=>'text-teal-600 dark:text-teal-400','lime'=>'text-lime-600 dark:text-lime-400'];
+        $tagMap      = ['amber'=>'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400','emerald'=>'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400','cyan'=>'bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-400','violet'=>'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-400','rose'=>'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-400','green'=>'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400','sky'=>'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-400','pink'=>'bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-400','orange'=>'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400','teal'=>'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-400','lime'=>'bg-lime-100 dark:bg-lime-900/40 text-lime-700 dark:text-lime-400'];
+        $fallbackIdx = 0;
+    @endphp
+
     <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-
+        @forelse ($departments as $dept)
         @php
-            $deptCards = [
-                ['label' => 'Excise Dept.',       'sub' => 'HQ + Secretariat',   'icon' => 'ti-building-community', 'color' => 'amber',   'tag' => 'Dept.',  'slug' => 'excise',     'filter' => fn() => $departments->where('slug', 'excise')->sum('documents_count')],
-                ['label' => 'Sugarcane & Sugar',  'sub' => 'Industries Dept.',    'icon' => 'ti-leaf',               'color' => 'emerald', 'tag' => 'Dept.',  'slug' => 'sugarcane',  'filter' => fn() => $departments->where('slug', 'sugarcane')->sum('documents_count')],
-                ['label' => 'Sugar Mill Corp.',   'sub' => 'UP State Corp.',      'icon' => 'ti-building-factory',   'color' => 'cyan',    'tag' => 'Corp.',  'slug' => null,         'filter' => fn() => 0],
-                ['label' => 'Cane Federation',    'sub' => 'UP Cooperative',      'icon' => 'ti-stack-2',            'color' => 'violet',  'tag' => 'Fed.',   'slug' => null,         'filter' => fn() => 0],
-                ['label' => 'Secretariat',        'sub' => 'JS / DS Wing',        'icon' => 'ti-building-arch',      'color' => 'rose',    'tag' => 'Sectt.', 'slug' => null,         'filter' => fn() => $departments->where('level', 'secretariat_level')->sum('documents_count')],
-            ];
-            $hoverMap = ['amber' => 'hover:border-amber-300 dark:hover:border-amber-700', 'emerald' => 'hover:border-emerald-300 dark:hover:border-emerald-700', 'cyan' => 'hover:border-cyan-300 dark:hover:border-cyan-700', 'violet' => 'hover:border-violet-300 dark:hover:border-violet-700', 'rose' => 'hover:border-rose-300 dark:hover:border-rose-700'];
-            $iconBgMap = ['amber' => 'bg-amber-100 dark:bg-amber-900/40 group-hover:bg-amber-200 dark:group-hover:bg-amber-900/60', 'emerald' => 'bg-emerald-100 dark:bg-emerald-900/40 group-hover:bg-emerald-200 dark:group-hover:bg-emerald-900/60', 'cyan' => 'bg-cyan-100 dark:bg-cyan-900/40 group-hover:bg-cyan-200 dark:group-hover:bg-cyan-900/60', 'violet' => 'bg-violet-100 dark:bg-violet-900/40 group-hover:bg-violet-200 dark:group-hover:bg-violet-900/60', 'rose' => 'bg-rose-100 dark:bg-rose-900/40 group-hover:bg-rose-200 dark:group-hover:bg-rose-900/60'];
-            $iconColorMap = ['amber' => 'text-amber-600 dark:text-amber-400', 'emerald' => 'text-emerald-600 dark:text-emerald-400', 'cyan' => 'text-cyan-600 dark:text-cyan-400', 'violet' => 'text-violet-600 dark:text-violet-400', 'rose' => 'text-rose-600 dark:text-rose-400'];
-            $tagMap = ['amber' => 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400', 'emerald' => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400', 'cyan' => 'bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-400', 'violet' => 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-400', 'rose' => 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-400'];
+            if (isset($deptMeta[$dept->slug])) {
+                $m = $deptMeta[$dept->slug];
+            } else {
+                $m = $fallbackPalette[$fallbackIdx % count($fallbackPalette)];
+                $fallbackIdx++;
+            }
+            $col = $m['color'];
         @endphp
-
-        @foreach($deptCards as $card)
-        @php
-            $matchedDept = $card['slug']
-                ? $departments->first(fn ($d) => $d->slug === $card['slug'])
-                : null;
-            $cardHref = $matchedDept
-                ? route('departments.show', $matchedDept)
-                : route('departments.index');
-        @endphp
-        <a href="{{ $cardHref }}" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 {{ $hoverMap[$card['color']] }} hover:shadow-md hover:-translate-y-0.5 transition-all group">
-            <div class="w-10 h-10 rounded-lg {{ $iconBgMap[$card['color']] }} flex items-center justify-center mb-3 transition-colors">
-                <i class="ti {{ $card['icon'] }} text-xl {{ $iconColorMap[$card['color']] }}"></i>
+        <a href="{{ route('departments.show', $dept) }}"
+           class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 {{ $hoverMap[$col] }} hover:shadow-md hover:-translate-y-0.5 transition-all group">
+            <div class="w-10 h-10 rounded-lg {{ $iconBgMap[$col] }} flex items-center justify-center mb-3 transition-colors">
+                <i class="ti {{ $m['icon'] }} text-xl {{ $iconColorMap[$col] }}"></i>
             </div>
-            <p class="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">{{ $card['label'] }}</p>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ $card['sub'] }}</p>
+            <p class="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">{{ $dept->name }}</p>
+            <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ ucfirst(str_replace('_', ' ', $dept->level)) }}</p>
             <div class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
                 <span class="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
-                    <i class="ti ti-file"></i> {{ ($card['filter'])() }} docs
+                    <i class="ti ti-file"></i> {{ $dept->documents_count }} docs
                 </span>
-                <span class="text-xs {{ $tagMap[$card['color']] }} px-1.5 py-0.5 rounded font-medium">{{ $card['tag'] }}</span>
+                <span class="text-xs {{ $tagMap[$col] }} px-1.5 py-0.5 rounded font-medium">{{ $m['tag'] }}</span>
             </div>
         </a>
-        @endforeach
-
+        @empty
+        <div class="col-span-full text-center py-8 text-slate-400 dark:text-slate-500 text-sm">
+            No departments yet. <a href="{{ route('departments.create') }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">Create one</a>.
+        </div>
+        @endforelse
     </div>
 </div>
 
