@@ -175,7 +175,7 @@
                 <span class="text-xs text-slate-400 dark:text-slate-500 flex-shrink-0 hidden lg:block">
                     {{ $doc->created_at->diffForHumans() }}
                 </span>
-                <a href="{{ route('documents.show', $doc) }}"
+                <a href="{{ route('documents.show', [$doc->department, $doc->section, $doc]) }}"
                    class="flex-shrink-0 text-slate-300 dark:text-slate-600 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
                     <i class="ti ti-arrow-right text-base"></i>
                 </a>

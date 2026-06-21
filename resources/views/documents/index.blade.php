@@ -110,7 +110,7 @@
                 </div>
 
                 {{-- Actions --}}
-                <a href="{{ route('documents.show', $doc) }}"
+                <a href="{{ route('documents.show', [$doc->department, $doc->section, $doc]) }}"
                    class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all"
                    title="View">
                     <i class="ti ti-eye text-base"></i>
