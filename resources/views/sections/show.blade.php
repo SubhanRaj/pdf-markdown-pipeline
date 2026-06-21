@@ -389,9 +389,8 @@
             if (fileInput.files[0]) formData.append('file', fileInput.files[0]);
 
             const res = await fetch(page.storeUrl, {
-                method:   'POST',
-                redirect: 'manual', // never silently follow redirects — handle them explicitly
-                headers:  {
+                method:  'POST',
+                headers: {
                     'Accept':           'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-CSRF-TOKEN':     page.csrfToken,
@@ -399,16 +398,11 @@
                 body: formData,
             });
 
-            // Opaque redirect = session expired / unauthenticated (auth middleware redirected to login)
-            if (res.type === 'opaqueredirect' || res.status === 0) {
-                window.location.href = '/login';
-                return;
-            }
-
-            // Guard: ensure we got JSON back before parsing
+            // Guard: ensure we got JSON before parsing (catches 419 session expiry etc.)
             const contentType = res.headers.get('Content-Type') || '';
             if (!contentType.includes('application/json')) {
                 if (res.status === 419) throw new Error('Session expired — please refresh and try again.');
+                if (res.redirected) { window.location.href = res.url; return; }
                 throw new Error('Unexpected server response (HTTP ' + res.status + '). Please refresh and retry.');
             }
 

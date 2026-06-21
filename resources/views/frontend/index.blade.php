@@ -7,7 +7,7 @@
 {{-- ── Stat cards ── --}}
 <div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
 
-    <div class="stat-card">
+    <a href="{{ route('documents.index') }}" class="stat-card">
         <div class="stat-icon bg-slate-100 dark:bg-slate-700">
             <i class="ti ti-files text-slate-600 dark:text-slate-300"></i>
         </div>
@@ -18,7 +18,7 @@
                 <i class="ti ti-database text-xs"></i> All departments
             </p>
         </div>
-    </div>
+    </a>
 
     <div class="stat-card">
         <div class="stat-icon bg-emerald-50 dark:bg-emerald-900/30">
