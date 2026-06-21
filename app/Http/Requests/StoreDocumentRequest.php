@@ -4,7 +4,9 @@ namespace App\Http\Requests;
 
 use App\Models\Document;
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
 
 class StoreDocumentRequest extends FormRequest
 {
@@ -64,6 +66,15 @@ class StoreDocumentRequest extends FormRequest
             'document_type' => ['required', 'string', "in:{$validTypes}"],
             'file'          => ['required', 'file', "mimetypes:{$acceptedMimes}", 'max:51200'], // 50 MB
         ];
+    }
+
+    // Always return JSON for validation failures — this endpoint is AJAX-only
+    protected function failedValidation(Validator $validator): never
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'The given data was invalid.',
+            'errors'  => $validator->errors(),
+        ], 422));
     }
 
     public function messages(): array

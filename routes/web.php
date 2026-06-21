@@ -20,13 +20,16 @@ Route::get('/', [FrontendController::class, 'dashboard'])->name('home');
 
 // Documents — read-only browse is public
 Route::prefix('documents')->name('documents.')->group(function () {
-    Route::get('/',           [DocumentController::class, 'index'])->name('index');
-    Route::get('/{document}', [DocumentController::class, 'show'])->name('show');
+    Route::get('/',              [DocumentController::class, 'index'])->name('index');
+    Route::get('/{document}',    [DocumentController::class, 'show'])->name('show');
+    Route::get('/{document}/pdf',[DocumentController::class, 'pdf'])->name('pdf');
 });
 
 // Departments & sections — read-only public
 Route::prefix('departments')->name('departments.')->group(function () {
-    Route::get('/',             [DepartmentController::class, 'index'])->name('index');
+    Route::get('/',        [DepartmentController::class, 'index'])->name('index');
+    // /create must be before /{department} to prevent wildcard collision
+    Route::get('/create',  [DepartmentController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
     Route::get('/{department}', [DepartmentController::class, 'show'])->name('show');
 
     Route::prefix('/{department}/sections')->name('sections.')->group(function () {
@@ -54,7 +57,6 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
 
     // Departments — mutations
     Route::prefix('departments')->name('departments.')->group(function () {
-        Route::get('/create',            [DepartmentController::class, 'create'])->name('create');
         Route::post('/',                 [DepartmentController::class, 'store'])->name('store');
         Route::get('/{department}/edit', [DepartmentController::class, 'edit'])->name('edit');
         Route::patch('/{department}',    [DepartmentController::class, 'update'])->name('update');

@@ -19,12 +19,17 @@ class DocumentController extends Controller
 {
     public function index(): View
     {
-        $documents = Document::with(['department', 'section', 'user:id,name'])
-            ->where('status', 'verified')
-            ->orderByDesc('updated_at')
-            ->paginate(30);
+        $query = Document::with(['department', 'section', 'user:id,name'])
+            ->orderByDesc('created_at');
 
-        return view('documents.index', compact('documents'));
+        if (! auth()->check()) {
+            $query->where('status', 'verified');
+        }
+
+        // Group by department for the tabbed listing
+        $byDepartment = $query->get()->groupBy('department_id');
+
+        return view('documents.index', compact('byDepartment'));
     }
 
     public function show(Document $document): View
@@ -33,11 +38,29 @@ class DocumentController extends Controller
         return view('documents.show', compact('document'));
     }
 
-    public function store(StoreDocumentRequest $request): JsonResponse|RedirectResponse
+    public function pdf(Document $document): \Symfony\Component\HttpFoundation\StreamedResponse|\Illuminate\Http\RedirectResponse
     {
-        $validated = $request->validated();
-        $ajax      = $request->expectsJson();
+        // Guests may only access verified documents
+        if (! auth()->check() && $document->status !== 'verified') {
+            abort(403);
+        }
 
+        if (! $document->original_pdf_path || ! Storage::disk('local')->exists($document->original_pdf_path)) {
+            abort(404, 'PDF file not found.');
+        }
+
+        $filename = $document->original_filename ?: 'document.pdf';
+
+        return Storage::disk('local')->response(
+            $document->original_pdf_path,
+            $filename,
+            ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
+        );
+    }
+
+    public function store(StoreDocumentRequest $request): JsonResponse
+    {
+        $validated  = $request->validated();
         $section    = Section::with('department')->findOrFail($validated['section_id']);
         $department = $section->department;
 
@@ -55,10 +78,7 @@ class DocumentController extends Controller
         $pdfPath = $request->file('file')->storeAs("uploads/{$uuid}", 'original.pdf', 'local');
 
         if (! $pdfPath) {
-            flash()->error('File could not be saved. Please try again.');
-            return $ajax
-                ? response()->json(['message' => 'File could not be saved. Please try again.'], 500)
-                : back()->withInput();
+            return response()->json(['message' => 'File could not be saved. Please try again.'], 500);
         }
 
         try {
@@ -92,9 +112,7 @@ class DocumentController extends Controller
             flash()->success("\"{$validated['title']}\" uploaded successfully. Queued for extraction.");
             $redirectUrl = route('departments.sections.show', [$department, $section]);
 
-            return $ajax
-                ? response()->json(['redirect' => $redirectUrl])
-                : redirect($redirectUrl);
+            return response()->json(['redirect' => $redirectUrl]);
 
         } catch (\Throwable $e) {
             // DB failed — clean up the uploaded file so we don't orphan it
@@ -105,10 +123,7 @@ class DocumentController extends Controller
                 'error'      => $e->getMessage(),
             ]);
 
-            flash()->error('Upload failed. Please try again.');
-            return $ajax
-                ? response()->json(['message' => 'Upload failed. Please try again.'], 500)
-                : back()->withInput();
+            return response()->json(['message' => 'Upload failed. Please try again.'], 500);
         }
     }
 

@@ -11,6 +11,10 @@ class DocumentStatusHistory extends Model
 
     const CREATED_AT = 'created_at';
 
+    protected $casts = [
+        'created_at' => 'datetime',
+    ];
+
     protected $fillable = [
         'document_id',
         'actor_id',

@@ -1,7 +1,7 @@
 @php
     $exciseDept = \App\Models\Department::where('slug', 'excise')
         ->where('level', 'department_level')
-        ->first(['id']);
+        ->first(['id', 'slug']);
 @endphp
 <aside id="sidebar" class="sidebar-expanded bg-slate-950 flex flex-col flex-shrink-0 overflow-hidden">
 
