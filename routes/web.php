@@ -20,9 +20,10 @@ Route::get('/', [FrontendController::class, 'dashboard'])->name('home');
 
 // Documents — read-only browse is public
 Route::prefix('documents')->name('documents.')->group(function () {
-    Route::get('/',              [DocumentController::class, 'index'])->name('index');
-    Route::get('/{document}',    [DocumentController::class, 'show'])->name('show');
-    Route::get('/{document}/pdf',[DocumentController::class, 'pdf'])->name('pdf');
+    Route::get('/', [DocumentController::class, 'index'])->name('index');
+    // Hierarchical document URLs: /documents/{department}/{section}/{document}
+    Route::get('/{department}/{section}/{document}',     [DocumentController::class, 'show'])->name('show');
+    Route::get('/{department}/{section}/{document}/pdf', [DocumentController::class, 'pdf'])->name('pdf');
 });
 
 // Departments & sections — read-only public
@@ -46,13 +47,11 @@ Route::prefix('departments')->name('departments.')->group(function () {
 Route::middleware(['auth', 'throttle:mutations'])->group(function () {
 
     // Documents — mutations
-    // Note: /upload must be before /{document} to avoid wildcard collision
     Route::prefix('documents')->name('documents.')->group(function () {
-        Route::get('/upload',            [DocumentController::class, 'create'])->name('create');
-        Route::post('/',                 [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads'); // tighter: 10/min
-        Route::get('/{document}/review', [DocumentController::class, 'edit'])->name('edit');
-        Route::patch('/{document}',      [DocumentController::class, 'update'])->name('update');
-        Route::delete('/{document}',     [DocumentController::class, 'destroy'])->name('destroy');
+        Route::post('/', [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads');
+        Route::get('/{department}/{section}/{document}/review', [DocumentController::class, 'edit'])->name('edit');
+        Route::patch('/{department}/{section}/{document}',      [DocumentController::class, 'update'])->name('update');
+        Route::delete('/{department}/{section}/{document}',     [DocumentController::class, 'destroy'])->name('destroy');
     });
 
     // Departments — mutations

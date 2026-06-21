@@ -9,7 +9,7 @@
         'red'    => 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
     ];
     $statusClass = $statusColors[$statusMeta['color']] ?? $statusColors['slate'];
-    $wing = $document->section->wing;
+    $wing = $section->wing;
 @endphp
 
 <x-layout
@@ -66,12 +66,12 @@
     @auth
     @if(auth()->user()->isAdmin())
     <div class="flex items-center gap-2 flex-shrink-0">
-        <a href="{{ route('documents.edit', $document) }}"
+        <a href="{{ route('documents.edit', [$department, $section, $document]) }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
             <span class="hidden sm:inline">Review</span>
         </a>
-        <form method="POST" action="{{ route('documents.destroy', $document) }}"
+        <form method="POST" action="{{ route('documents.destroy', [$department, $section, $document]) }}"
               onsubmit="return confirm('Permanently delete this document? This cannot be undone.')">
             @csrf @method('DELETE')
             <button type="submit"
@@ -116,12 +116,12 @@
                     <i class="ti ti-file-type-pdf text-sm text-red-400"></i>
                     <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Original Document</span>
                 </div>
-                <a href="{{ route('documents.pdf', $document) }}" target="_blank"
+                <a href="{{ route('documents.pdf', [$department, $section, $document]) }}" target="_blank"
                    class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
                     Open in new tab <i class="ti ti-external-link text-xs"></i>
                 </a>
             </div>
-            <iframe src="{{ route('documents.pdf', $document) }}"
+            <iframe src="{{ route('documents.pdf', [$department, $section, $document]) }}"
                     class="w-full border-0"
                     style="height: 75vh;"
                     title="{{ $document->title }}">

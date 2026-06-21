@@ -17,6 +17,7 @@ return new class extends Migration
             $table->foreignId('section_id')->constrained()->restrictOnDelete();
             $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
             $table->string('title');
+            $table->string('slug'); // url-safe, unique within section
             $table->string('document_type'); // go | policy | notice | court_order | service_code | other
             $table->string('original_filename');
             $table->string('original_pdf_path');
@@ -25,6 +26,7 @@ return new class extends Migration
             // uploaded | processing | ocr_pending | review | verified | failed
             $table->string('status')->default('uploaded');
             $table->json('metadata')->nullable();
+            $table->unique(['section_id', 'slug']);
             $table->timestamps();
             $table->softDeletes();
         });

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 
 class Document extends Model
 {
@@ -31,11 +32,38 @@ class Document extends Model
         'failed'      => ['label' => 'Failed',      'color' => 'red'],
     ];
 
+    public function getRouteKeyName(): string
+    {
+        return 'slug';
+    }
+
+    // Generates a slug from title, suffixing a counter if it already exists in the same section.
+    public static function uniqueSlugForSection(string $title, int $sectionId, ?int $exceptId = null): string
+    {
+        $base = Str::slug($title);
+        $slug = $base;
+        $i    = 2;
+
+        while (
+            static::where('section_id', $sectionId)
+                ->where('slug', $slug)
+                ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+                ->withTrashed()
+                ->exists()
+        ) {
+            $slug = "{$base}-{$i}";
+            $i++;
+        }
+
+        return $slug;
+    }
+
     protected $fillable = [
         'department_id',
         'section_id',
         'user_id',
         'title',
+        'slug',
         'document_type',
         'original_filename',
         'original_pdf_path',
