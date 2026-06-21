@@ -35,7 +35,7 @@ class DepartmentController extends Controller
             });
 
             flash()->success("Department \"{$request->name}\" created.");
-            return redirect()->route('department.index');
+            return redirect()->route('departments.index');
         } catch (\Throwable $e) {
             Log::error('DepartmentController@store failed', ['error' => $e->getMessage()]);
             flash()->error('Failed to create department. Please try again.');
@@ -43,7 +43,7 @@ class DepartmentController extends Controller
         }
     }
 
-    public function show(Department $department): View
+    public function show(string $level, Department $department): View
     {
         $department->loadCount(['sections', 'documents']);
         $sections = $department->sections()->withCount('documents')->orderBy('name')->get();
@@ -51,18 +51,18 @@ class DepartmentController extends Controller
         return view('department.show', compact('department', 'sections'));
     }
 
-    public function edit(Department $department): View
+    public function edit(string $level, Department $department): View
     {
         return view('department.edit', compact('department'));
     }
 
-    public function update(UpdateDepartmentRequest $request, Department $department): RedirectResponse
+    public function update(UpdateDepartmentRequest $request, string $level, Department $department): RedirectResponse
     {
         try {
             DB::transaction(fn () => $department->update($request->validated()));
 
             flash()->success("Department \"{$department->name}\" updated.");
-            return redirect()->route('department.show', $department);
+            return redirect()->route('departments.show', [$department->levelAlias(), $department]);
         } catch (\Throwable $e) {
             Log::error('DepartmentController@update failed', [
                 'dept_id' => $department->id,
@@ -73,13 +73,13 @@ class DepartmentController extends Controller
         }
     }
 
-    public function destroy(Department $department): RedirectResponse
+    public function destroy(string $level, Department $department): RedirectResponse
     {
         try {
             DB::transaction(fn () => $department->delete());
 
             flash()->success("Department \"{$department->name}\" deleted.");
-            return redirect()->route('department.index');
+            return redirect()->route('departments.index');
         } catch (\Throwable $e) {
             Log::error('DepartmentController@destroy failed', [
                 'dept_id' => $department->id,

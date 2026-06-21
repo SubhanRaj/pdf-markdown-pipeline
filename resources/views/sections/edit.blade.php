@@ -7,13 +7,14 @@
 <x-breadcrumb :items="[
     ['name' => 'Home', 'url' => route('home')],
     ['name' => 'Departments', 'url' => route('departments.index')],
-    ['name' => $department->name, 'url' => route('departments.show', $department)],
-    ['name' => $section->name, 'url' => route('departments.sections.show', [$department, $section])],
+    ['name' => $department->levelLabel(), 'url' => null],
+    ['name' => $department->name, 'url' => route('departments.show', [$department->levelAlias(), $department])],
+    ['name' => $section->name, 'url' => route('departments.sections.show', [$department->levelAlias(), $department, $section])],
     ['name' => 'Edit', 'url' => null],
 ]" />
 
 <form id="sectionForm" method="POST"
-      action="{{ route('departments.sections.update', [$department, $section]) }}"
+      action="{{ route('departments.sections.update', [$department->levelAlias(), $department, $section]) }}"
       novalidate class="max-w-2xl">
     @csrf
     @method('PATCH')
@@ -74,13 +75,13 @@
         </div>
 
         <div class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 rounded-b-xl flex items-center justify-between">
-            <a href="{{ route('departments.show', $department) }}"
+            <a href="{{ route('departments.show', [$department->levelAlias(), $department]) }}"
                class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1">
                 <i class="ti ti-arrow-left"></i> Back
             </a>
             <div class="flex items-center gap-3">
                 <form method="POST"
-                      action="{{ route('departments.sections.destroy', [$department, $section]) }}"
+                      action="{{ route('departments.sections.destroy', [$department->levelAlias(), $department, $section]) }}"
                       onsubmit="return confirm('Delete \'{{ addslashes($section->name) }}\'?')">
                     @csrf @method('DELETE')
                     <button type="submit"

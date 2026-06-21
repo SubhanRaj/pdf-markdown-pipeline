@@ -13,7 +13,7 @@ use Illuminate\View\View;
 
 class SectionController extends Controller
 {
-    public function index(Department $department): View
+    public function index(string $level, Department $department): View
     {
         $sections = $department->sections()
             ->withCount('documents')
@@ -24,12 +24,12 @@ class SectionController extends Controller
         return view('sections.index', compact('department', 'sections'));
     }
 
-    public function create(Department $department): View
+    public function create(string $level, Department $department): View
     {
         return view('sections.create', compact('department'));
     }
 
-    public function store(StoreSectionRequest $request, Department $department): RedirectResponse
+    public function store(StoreSectionRequest $request, string $level, Department $department): RedirectResponse
     {
         try {
             DB::transaction(function () use ($request, $department) {
@@ -37,7 +37,7 @@ class SectionController extends Controller
             });
 
             flash()->success("Section \"{$request->name}\" created.");
-            return redirect()->route('departments.show', $department);
+            return redirect()->route('departments.show', [$department->levelAlias(), $department]);
         } catch (\Throwable $e) {
             Log::error('SectionController@store failed', [
                 'dept_id' => $department->id,
@@ -48,7 +48,7 @@ class SectionController extends Controller
         }
     }
 
-    public function show(Department $department, Section $section): View
+    public function show(string $level, Department $department, Section $section): View
     {
         $documentsQuery = $section->documents()
             ->with('user:id,name')
@@ -63,18 +63,18 @@ class SectionController extends Controller
         return view('sections.show', compact('department', 'section', 'documents'));
     }
 
-    public function edit(Department $department, Section $section): View
+    public function edit(string $level, Department $department, Section $section): View
     {
         return view('sections.edit', compact('department', 'section'));
     }
 
-    public function update(UpdateSectionRequest $request, Department $department, Section $section): RedirectResponse
+    public function update(UpdateSectionRequest $request, string $level, Department $department, Section $section): RedirectResponse
     {
         try {
             DB::transaction(fn () => $section->update($request->validated()));
 
             flash()->success("Section \"{$section->name}\" updated.");
-            return redirect()->route('departments.show', $department);
+            return redirect()->route('departments.show', [$department->levelAlias(), $department]);
         } catch (\Throwable $e) {
             Log::error('SectionController@update failed', [
                 'section_id' => $section->id,
@@ -85,13 +85,13 @@ class SectionController extends Controller
         }
     }
 
-    public function destroy(Department $department, Section $section): RedirectResponse
+    public function destroy(string $level, Department $department, Section $section): RedirectResponse
     {
         try {
             DB::transaction(fn () => $section->delete());
 
             flash()->success("Section \"{$section->name}\" deleted.");
-            return redirect()->route('departments.show', $department);
+            return redirect()->route('departments.show', [$department->levelAlias(), $department]);
         } catch (\Throwable $e) {
             Log::error('SectionController@destroy failed', [
                 'section_id' => $section->id,

@@ -9,7 +9,9 @@
     <i class="ti ti-chevron-right text-xs"></i>
     <a href="{{ route('departments.index') }}">Departments</a>
     <i class="ti ti-chevron-right text-xs"></i>
-    <a href="{{ route('departments.show', $department) }}">{{ $department->name }}</a>
+    <span>{{ $department->levelLabel() }}</span>
+    <i class="ti ti-chevron-right text-xs"></i>
+    <a href="{{ route('departments.show', [$department->levelAlias(), $department]) }}">{{ $department->name }}</a>
     <i class="ti ti-chevron-right text-xs"></i>
     <span>{{ $section->name }}</span>
 </x-slot:breadcrumb>
@@ -29,10 +31,10 @@
         <div>
             <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">{{ $section->name }}</h2>
             <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                <a href="{{ route('departments.show', $department) }}" class="text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{{ $department->name }}</a>
+                <a href="{{ route('departments.show', [$department->levelAlias(), $department]) }}" class="text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{{ $department->name }}</a>
                 @if($section->wing)
                     <span class="text-slate-300 dark:text-slate-600">·</span>
-                    <a href="{{ route('departments.show', $department) }}" class="text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{{ Str::title(str_replace('_', ' ', $section->wing)) }}</a>
+                    <a href="{{ route('departments.show', [$department->levelAlias(), $department]) }}" class="text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{{ Str::title(str_replace('_', ' ', $section->wing)) }}</a>
                 @endif
                 <span class="text-slate-300 dark:text-slate-600">·</span>
                 <span class="text-xs text-slate-400 dark:text-slate-500">{{ $documents->total() }} {{ Str::plural('document', $documents->total()) }}</span>
@@ -67,7 +69,7 @@
         </button>
         @endauth
         @auth @if(auth()->user()->isAdmin())
-        <a href="{{ route('departments.sections.edit', [$department, $section]) }}"
+        <a href="{{ route('departments.sections.edit', [$department->levelAlias(), $department, $section]) }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
         </a>
@@ -273,14 +275,14 @@
 
             {{-- Actions --}}
             <div class="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                <a href="{{ route('documents.show', [$doc->department, $doc->section, $doc]) }}"
+                <a href="{{ route('documents.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]) }}"
                    class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all"
                    title="View">
                     <i class="ti ti-eye text-base"></i>
                 </a>
                 @auth
                 @if(auth()->user()->isAdmin())
-                <form method="POST" action="{{ route('documents.destroy', [$doc->department, $doc->section, $doc]) }}"
+                <form method="POST" action="{{ route('documents.destroy', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]) }}"
                       onsubmit="return confirm('Delete this document? This cannot be undone.')">
                     @csrf @method('DELETE')
                     <button type="submit"

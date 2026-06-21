@@ -74,7 +74,7 @@ Core tables are migrated and in use. Structural columns are minimal; evolving fi
 
 - **`departments`** — name, slug, level (`secretariat_level` / `department_level`). Unique on `(slug, level)`. Soft-deleted.
 - **`sections`** — belongs to a department; carries an optional `wing` (e.g. `joint_secretary_wing`, `headquarter`). Unique on `(department_id, wing, slug)`. Soft-deleted.
-- **`documents`** — one row per ingested file. FK to department + section + uploader. Status machine: `uploaded → processing → ocr_pending → review → verified | failed`. Stores `original_pdf_path`, `markdown_path`, `vault_path` (set post-verification), and a JSON `metadata` column.
+- **`documents`** — one row per ingested file. FK to department + section + uploader. Status machine: `uploaded → processing → ocr_pending → review → verified | failed`. Stores `original_pdf_path` and `markdown_path` (both on the `public` disk, inside the vault directory), `vault_path` (directory portion), and a JSON `metadata` column. File naming: `{slug}_{YmdHis}.pdf` / `.md`.
 - **`document_status_histories`** — append-only audit log of every status transition, with actor and optional note.
 - **`users`** — standard Fortify users table with `is_admin` boolean. Public registration disabled.
 
@@ -86,12 +86,15 @@ Active development. The core upload and browse loop is now working end-to-end.
 - Database schema migrated: `departments`, `sections`, `documents` (with `title` + `document_type`), `document_status_histories`, `users`
 - Full CRUD controllers and Form Requests for Documents, Departments, Sections, and admin User Management — all with DB transactions, try/catch, and `$request->validated()` throughout
 - Section page doubles as the public file browser and authenticated upload point — no separate upload route needed
-- File upload: accepts PDF, Word, Excel, PowerPoint, ODT, all image formats, RTF, TXT, CSV — validated against actual magic bytes (`mimetypes:` rule, not extension); stored privately at `uploads/{uuid}/original.pdf`; vault directory auto-created; status history written atomically
+- File upload: accepts PDF, Word, Excel, PowerPoint, ODT, all image formats, RTF, TXT, CSV — validated against actual magic bytes (`mimetypes:` rule, not extension); stored on the `public` disk directly inside the vault directory as `{slug}_{YmdHis}.pdf`; status history written atomically
 - Rate limiting: login brute-force (5/min per email+IP), general mutation cap (60/min/user), upload cap (10/min/user) — all named limiters, not inline throttle values
 - Sidebar context-aware: guests see Browse Vault + All Departments; authenticated users see Browse Vault + Manage (admin also sees Users)
 - Vault paths displayed as human-readable breadcrumbs (department name / wing / section name) — raw slugs removed from UI
 - Dashboard recent-document feed is auth-aware: guests see only `verified` documents; authenticated users see all statuses
 - Dashboard department cards now link directly to `departments.show` (resolved at render from the already-loaded collection) with `departments.index` fallback — no placeholder `href="#"` links remain
 - Dashboard document feed shows the human document title and document-type label instead of raw filename
+- Storage consolidated: all files (PDF + future Markdown) go directly into the vault directory on the `public` disk — no separate `uploads/{uuid}/` staging folder; filenames are slug-based with a timestamp suffix
+- Level-aware department routing: `{level}` URL segment (`dept` / `sectt`) added before `{department}` in all routes so departments sharing a slug across levels (e.g. Excise at both `department_level` and `secretariat_level`) resolve independently; breadcrumbs now show the level label
+- Browse Vault sidebar and dashboard department cards are fully dynamic — driven by DB records, no hardcoded links
 
 **Next up:** queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.

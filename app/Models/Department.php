@@ -19,6 +19,18 @@ class Department extends Model
         return 'slug';
     }
 
+    /** URL segment alias used in route helpers, e.g. route('departments.show', [$dept->levelAlias(), $dept]) */
+    public function levelAlias(): string
+    {
+        return $this->level === 'secretariat_level' ? 'sectt' : 'dept';
+    }
+
+    /** Human-readable level label for breadcrumbs and UI */
+    public function levelLabel(): string
+    {
+        return $this->level === 'secretariat_level' ? 'Secretariat' : 'Department';
+    }
+
     public function sections(): HasMany
     {
         return $this->hasMany(Section::class);

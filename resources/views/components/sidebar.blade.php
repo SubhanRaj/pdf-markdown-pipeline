@@ -51,9 +51,9 @@
                 'color' => $fallbackColors[$i % count($fallbackColors)],
             ];
             $isActive  = request()->routeIs('departments.show', 'departments.sections.*', 'documents.*')
-                         && request()->route('department')?->slug === $dept->slug;
+                         && request()->route('department')?->is($dept);
         @endphp
-        <a href="{{ route('departments.show', $dept) }}"
+        <a href="{{ route('departments.show', [$dept->levelAlias(), $dept]) }}"
            data-tooltip="{{ $dept->name }}"
            class="nav-link {{ $isActive ? 'nav-link-active' : 'nav-link-idle' }}">
             <i class="ti {{ $meta['icon'] }} w-5 text-center text-base flex-shrink-0 {{ $meta['color'] }}"></i>

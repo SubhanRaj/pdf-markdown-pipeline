@@ -7,12 +7,13 @@
 <x-breadcrumb :items="[
     ['name' => 'Home', 'url' => route('home')],
     ['name' => 'Departments', 'url' => route('departments.index')],
-    ['name' => $department->name, 'url' => route('departments.show', $department)],
+    ['name' => $department->levelLabel(), 'url' => null],
+    ['name' => $department->name, 'url' => route('departments.show', [$department->levelAlias(), $department])],
     ['name' => 'Add Section', 'url' => null],
 ]" />
 
 <form id="sectionForm" method="POST"
-      action="{{ route('departments.sections.store', $department) }}"
+      action="{{ route('departments.sections.store', [$department->levelAlias(), $department]) }}"
       novalidate class="max-w-2xl">
     @csrf
 
@@ -75,7 +76,7 @@
         </div>
 
         <div class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 rounded-b-xl flex items-center justify-between">
-            <a href="{{ route('departments.show', $department) }}"
+            <a href="{{ route('departments.show', [$department->levelAlias(), $department]) }}"
                class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1">
                 <i class="ti ti-arrow-left"></i> Back
             </a>

@@ -145,17 +145,25 @@ Standard Laravel/Fortify users table with `is_admin` boolean. Public registratio
 
 Routes have **no global prefix** — resources sit at the root. All models use `getRouteKeyName()` returning `'slug'` — IDs never appear in URLs.
 
+**`{level}` URL segment** — departments share slugs across levels (e.g. `excise` exists at both `department_level` and `secretariat_level`). A `{level}` alias is inserted before `{department}` in every department/section/document URL to disambiguate:
+- `dept` → `department_level`
+- `sectt` → `secretariat_level`
+
+`Route::bind('department', ...)` in `AppServiceProvider::configureRouteBindings()` reads `request()->route('level')`, converts the alias to the DB value, and queries `WHERE slug = ? AND level = ?`. Controller method signatures do **not** need a `$level` parameter — Laravel ignores unmatched route segments.
+
+`Department::levelAlias()` returns the URL alias for use in route helpers: `route('departments.show', [$dept->levelAlias(), $dept])`. `Department::levelLabel()` returns the human label (`'Department'` / `'Secretariat'`) for breadcrumbs.
+
 | Resource | Public | Auth-protected mutations |
 |---|---|---|
 | Documents index | `GET /documents` | — |
-| Document show | `GET /documents/{department}/{section}/{document}` | — |
-| Document PDF stream | `GET /documents/{department}/{section}/{document}/pdf` | — |
+| Document show | `GET /documents/{level}/{department}/{section}/{document}` | — |
+| Document PDF stream | `GET /documents/{level}/{department}/{section}/{document}/pdf` | — |
 | Document mutations | — | `POST /documents`, `GET …/{document}/review`, `PATCH …/{document}`, `DELETE …/{document}` |
-| Departments | `GET /departments`, `GET /departments/create`*, `GET /departments/{department}` | `POST /departments`, edit/patch/delete |
-| Sections | `GET /departments/{department}/sections`, `GET …/sections/create`*, `GET …/sections/{section}` | `POST`, edit/patch/delete |
+| Departments | `GET /departments`, `GET /departments/create`*, `GET /departments/{level}/{department}` | `POST /departments`, edit/patch/delete |
+| Sections | `GET /departments/{level}/{department}/sections`, `GET …/sections/create`*, `GET …/sections/{section}` | `POST`, edit/patch/delete |
 | Admin users | — | `GET/POST /admin/users`, `GET /admin/users/{user}`, edit/patch/delete |
 
-\* `/create` routes live in the public group with inline `->middleware(['auth', 'throttle:mutations'])` — they MUST be registered before the `/{wildcard}` route in the same group or Laravel will try to model-bind `"create"` as a slug and 404.
+\* `/create` routes need no special ordering now — they have only one path segment after the prefix, so they never conflict with `/{level}/{department}` (two segments).
 
 Route names follow `resource.action` (e.g. `documents.show`, `departments.sections.show`, `admin.users.create`).
 
@@ -164,6 +172,8 @@ Route names follow `resource.action` (e.g. `documents.show`, `departments.sectio
 `Department`, `Section`, and `Document` all override `getRouteKeyName()` to return `'slug'`. Route helpers accept model instances — Laravel calls `getRouteKey()` automatically. Never pass `->id` manually to a route helper for these models.
 
 `Document::uniqueSlugForSection($title, $sectionId)` — generates a slug from the title, querying `withTrashed()` to avoid reusing slugs of soft-deleted documents. Appends `-2`, `-3` etc. on collision.
+
+**Level-aware department binding** — `departments` has a unique constraint on `(slug, level)`, meaning the same slug (e.g. `excise`) can exist at both `department_level` and `secretariat_level`. A custom `Route::bind('department', ...)` in `AppServiceProvider::configureRouteBindings()` scopes lookups to `WHERE slug = ? AND level = ?`, reading level from the `{level}` URL segment. Controller methods **must** declare `string $level` as their first parameter (before `Department $department`) or Laravel will inject the raw `"dept"` / `"sectt"` string into `$department` and throw a `TypeError`.
 
 ### Document upload flow
 
@@ -224,7 +234,7 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 4. **Single disk (`public`), path-convention silos** — all document files (PDF + Markdown) live on the `public` disk (`storage/app/public/`), symlinked to `public/storage/` via `php artisan storage:link`. Department/section isolation is enforced at the model/policy layer against the vault path convention. There is no separate staging/uploads folder — files go straight into their vault directory.
 5. **Schema flexibility over premature normalization** — JSON `metadata` column absorbs new fields; promote to real columns only once a field has proven stable across iterations.
 6. **No district/field-office granularity** in this phase — explicitly descoped.
-7. **Slug-based URLs for all resources** — `Department`, `Section`, `Document` all use `getRouteKeyName() = 'slug'`. IDs must never appear in public URLs. Document URLs are hierarchical: `/documents/{dept_slug}/{section_slug}/{doc_slug}`.
+7. **Slug-based URLs with level disambiguation** — `Department`, `Section`, `Document` all use `getRouteKeyName() = 'slug'`. IDs never appear in public URLs. A `{level}` alias (`dept` / `sectt`) precedes `{department}` in every department/section/document URL so that departments sharing a slug across levels resolve correctly. Document URLs: `/documents/{level}/{dept_slug}/{section_slug}/{doc_slug}`. Always pass `[$dept->levelAlias(), $dept]` to route helpers — never just `$dept` alone for department-containing routes.
 8. **`POST /documents` is AJAX-only** — always returns JSON regardless of `Accept` header. `StoreDocumentRequest::failedValidation()` overrides the default redirect to throw `HttpResponseException` with 422 JSON. The JS `fetch` call always sends `Accept: application/json` + `X-CSRF-TOKEN` header + `X-Requested-With: XMLHttpRequest`.
 9. **PDF served via controller route** — `DocumentController@pdf` streams from the `public` disk with `Content-Disposition: inline`. Guests see 403 on non-verified documents. The `/pdf` route is the canonical access path; always link via it rather than constructing raw `Storage::url()` links, since direct storage URLs bypass the auth gate.
 
