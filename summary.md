@@ -121,3 +121,54 @@ The zero-documents empty state CTA was changed from "Convert your first PDF" (wh
 **Document feed display**
 
 Recent-document rows now show `$doc->title` (the human-readable document title set at upload) instead of `$doc->original_filename`. A document-type label is also appended alongside the department and section name in the subtitle row, using the `Document::DOCUMENT_TYPES` constant for display.
+
+---
+
+## M7 — Slug-Based URLs, Section Module, Document Views & Upload Fix
+
+### Slug-based routing (all models)
+
+`Department`, `Section`, and `Document` models all now override `getRouteKeyName()` to return `'slug'`. IDs no longer appear in any public URL. The sidebar's excise-dept DB lookup was updated to select `['id', 'slug']` — previously only `['id']` was fetched, which caused `UrlGenerationException` once `getRouteKeyName()` changed.
+
+### Route ordering — static before wildcard
+
+Any static path segment (e.g. `/create`, `/upload`) that sits next to a `/{wildcard}` route **must** be registered before the wildcard, or Laravel matches the string `"create"` as a model slug and 404s. Fixed for:
+- `GET /departments/create` — moved into the public group with inline `->middleware(['auth', 'throttle:mutations'])` before `GET /departments/{department}`
+- `GET /departments/{department}/sections/create` — same fix before `GET …/sections/{section}`
+
+This is the canonical pattern for all future static+wildcard pairings in this codebase.
+
+### Document slug column
+
+`slug` column added to `documents` table (in-place migration edit per CLAUDE.md convention). Unique constraint on `(section_id, slug)`. `Document::uniqueSlugForSection($title, $sectionId)` auto-generates a URL-safe slug from the title, querying `withTrashed()` to avoid reusing slugs of soft-deleted docs, appending `-2`/`-3` etc. on collision.
+
+### Hierarchical document URLs
+
+Document routes changed from flat `/documents/{document}` to `/documents/{department}/{section}/{document}`, mirroring the vault path hierarchy. All three segments are slug-bound. All views and route helpers updated accordingly.
+
+### Section module
+
+`SectionController` built with full CRUD. `sections/create.blade.php`, `sections/edit.blade.php`, and `sections/show.blade.php` implemented. Show page is the dual-purpose file browser + upload modal. Sections are nested under departments in both URLs and route names (`departments.sections.*`).
+
+### Document views
+
+- **`documents/show`** — hierarchical breadcrumb (Home → Departments → Dept → Section → Title), inline PDF embed (iframe, 75vh) via controller-streamed route, extracted Markdown rendered below once available, metadata + status history sidebar (auth only), admin Review/Delete.
+- **`documents/index`** — tabbed by department with document count badges; auth users see all statuses, guests see verified only.
+
+### PDF streaming
+
+`GET /documents/{department}/{section}/{document}/pdf` — `DocumentController@pdf` streams the file from the `local` disk via `Storage::disk('local')->response()` with `Content-Disposition: inline`. Guests blocked (403) on non-verified documents. File is never served from `public` disk.
+
+### Upload AJAX fix — always JSON
+
+`POST /documents` is now an AJAX-only endpoint that always returns JSON, regardless of `Accept` header:
+- `DocumentController@store` return type changed to `JsonResponse` only — no dual `$ajax ? json : redirect` branching.
+- `StoreDocumentRequest::failedValidation()` overridden to throw `HttpResponseException` with 422 JSON body, bypassing Laravel's default redirect on validation failure.
+- JS `fetch` sends `Accept: application/json` + `X-CSRF-TOKEN` header + `X-Requested-With: XMLHttpRequest`.
+- File input outside the `<form>` element (left column of two-column modal) — `new FormData(form)` does NOT capture it. File is explicitly appended via `formData.append('file', fileInput.files[0])`.
+- Form has `method="POST"` and `action` as hard fallback to prevent GET submission if JS fails.
+- JS init block wrapped in `try/catch` so a JSON parse error doesn't silently leave the form unprotected.
+
+### `DocumentStatusHistory` cast fix
+
+`$timestamps = false` on the model disabled auto-casting, leaving `created_at` as a raw string. Added `protected $casts = ['created_at' => 'datetime']` so Carbon methods work correctly.
