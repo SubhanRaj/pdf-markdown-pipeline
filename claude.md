@@ -359,6 +359,13 @@ try {
 - Store uploaded files outside the webroot: `Storage::disk('local')` at `uploads/{uuid}/filename`. Never store to `public` disk.
 - File I/O happens **before** the DB transaction. On transaction failure, delete the orphaned file in the `catch` block.
 
+### Forms and mutations — no native GET/POST submissions
+- **Never allow a form to submit natively via GET or POST.** All mutations that originate from a modal or AJAX flow must use `fetch()` with `method: 'POST'` and `Accept: application/json` + `X-CSRF-TOKEN` headers.
+- Always add `method="POST"` and `action="..."` to every `<form>` as a hard fallback — so that if JS fails, the request at minimum goes to the right endpoint via POST (never GET), preventing credentials and sensitive params from appearing in the URL.
+- The file input in upload forms must have `name="file"` so `new FormData(form)` captures it automatically. Do not use `formData.set('file', ...)` as a workaround for a missing `name` attribute.
+- Always wrap the JS init block (the IIFE that attaches event listeners) in a `try/catch` so that a parse or runtime error during setup does not silently leave forms unprotected.
+- Controllers that serve both AJAX and non-AJAX callers must use `$request->expectsJson()` to switch between `response()->json(...)` and `redirect(...)`.
+
 ### General
 - Never log passwords, tokens, or full request bodies — always `$request->except(['password', 'password_confirmation'])`.
 - Sensitive config (DB credentials, mail passwords) belongs in `.env` only — never hardcoded.
