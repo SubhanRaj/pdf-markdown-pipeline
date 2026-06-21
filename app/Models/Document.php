@@ -15,12 +15,13 @@ class Document extends Model
     use HasFactory, SoftDeletes;
 
     public const DOCUMENT_TYPES = [
-        'go'           => 'Government Order',
-        'policy'       => 'Policy',
-        'notice'       => 'Notice',
-        'court_order'  => 'Court Order',
-        'service_code' => 'Service Code',
-        'other'        => 'Other',
+        'go'             => 'Government Order',
+        'policy'         => 'Policy',
+        'notice'         => 'Notice',
+        'court_order'    => 'Court Order',
+        'service_code'   => 'Service Code',
+        'rule_amendment' => 'Rule / Amendment',
+        'other'          => 'Other',
     ];
 
     public const STATUSES = [
@@ -37,7 +38,7 @@ class Document extends Model
         return 'slug';
     }
 
-    // Generates a slug from title, suffixing a counter if it already exists in the same section.
+    /** Slug unique within a section (section-based documents). */
     public static function uniqueSlugForSection(string $title, int $sectionId, ?int $exceptId = null): string
     {
         $base = Str::slug($title);
@@ -58,9 +59,31 @@ class Document extends Model
         return $slug;
     }
 
+    /** Slug unique within a rule set (rule-amendment documents). */
+    public static function uniqueSlugForRuleSet(string $title, int $ruleSetId, ?int $exceptId = null): string
+    {
+        $base = Str::slug($title);
+        $slug = $base;
+        $i    = 2;
+
+        while (
+            static::where('rule_set_id', $ruleSetId)
+                ->where('slug', $slug)
+                ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+                ->withTrashed()
+                ->exists()
+        ) {
+            $slug = "{$base}-{$i}";
+            $i++;
+        }
+
+        return $slug;
+    }
+
     protected $fillable = [
         'department_id',
         'section_id',
+        'rule_set_id',
         'user_id',
         'title',
         'slug',
@@ -85,6 +108,11 @@ class Document extends Model
     public function section(): BelongsTo
     {
         return $this->belongsTo(Section::class);
+    }
+
+    public function ruleSet(): BelongsTo
+    {
+        return $this->belongsTo(RuleSet::class);
     }
 
     public function user(): BelongsTo

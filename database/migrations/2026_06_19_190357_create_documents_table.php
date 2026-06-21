@@ -14,11 +14,11 @@ return new class extends Migration
         Schema::create('documents', function (Blueprint $table) {
             $table->id();
             $table->foreignId('department_id')->constrained()->restrictOnDelete();
-            $table->foreignId('section_id')->constrained()->restrictOnDelete();
+            $table->foreignId('section_id')->nullable()->constrained()->restrictOnDelete(); // nullable: rule-amendment docs use rule_set_id instead
             $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
             $table->string('title');
             $table->string('slug'); // url-safe, unique within section
-            $table->string('document_type'); // go | policy | notice | court_order | service_code | other
+            $table->string('document_type'); // go | policy | notice | court_order | service_code | rule_amendment | other
             $table->string('original_filename');
             $table->string('original_pdf_path');
             $table->string('markdown_path')->nullable();

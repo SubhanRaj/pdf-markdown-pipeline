@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\Department;
+use App\Models\RuleSet;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -24,6 +25,14 @@ class AppServiceProvider extends ServiceProvider
         // Resolves {department} scoped by the {level} URL alias so that slugs
         // shared across levels (e.g. "excise" at dept + secretariat) always
         // resolve to the correct record.
+        // Resolves {rule_set} scoped to the current {department} so slugs are unique per dept.
+        Route::bind('rule_set', function (string $slug) {
+            $dept = request()->route('department');
+            return RuleSet::where('slug', $slug)
+                ->where('department_id', $dept->id)
+                ->firstOrFail();
+        });
+
         Route::bind('department', function (string $slug) {
             $alias = request()->route('level');
             $level = match($alias) {

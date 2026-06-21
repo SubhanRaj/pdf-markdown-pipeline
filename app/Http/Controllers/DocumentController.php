@@ -7,6 +7,7 @@ use App\Http\Requests\UpdateDocumentRequest;
 use App\Models\Department;
 use App\Models\Document;
 use App\Models\DocumentStatusHistory;
+use App\Models\RuleSet;
 use App\Models\Section;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -19,7 +20,7 @@ class DocumentController extends Controller
 {
     public function index(): View
     {
-        $query = Document::with(['department', 'section', 'user:id,name'])
+        $query = Document::with(['department', 'section', 'ruleSet', 'user:id,name'])
             ->orderByDesc('created_at');
 
         if (! auth()->check()) {
@@ -58,23 +59,41 @@ class DocumentController extends Controller
 
     public function store(StoreDocumentRequest $request): JsonResponse
     {
-        $validated  = $request->validated();
-        $section    = Section::with('department')->findOrFail($validated['section_id']);
-        $department = $section->department;
+        $validated = $request->validated();
 
-        $vaultDir = implode('/', array_filter([
-            'document_vault',
-            $department->level,
-            $department->slug,
-            $section->wing,
-            $section->slug,
-        ]));
+        // ── Resolve context: section-based upload vs rule-set amendment upload ──
+        if (! empty($validated['rule_set_id'])) {
+            $ruleSet    = RuleSet::with('department')->findOrFail($validated['rule_set_id']);
+            $department = $ruleSet->department;
+            $section    = null;
 
-        // Slug is generated before the transaction so the filename is known before file I/O
-        $slug      = Document::uniqueSlugForSection($validated['title'], $section->id);
+            $vaultDir = implode('/', [
+                'document_vault',
+                $department->level,
+                $department->slug,
+                'rules',
+                $ruleSet->slug,
+            ]);
+
+            $slug = Document::uniqueSlugForRuleSet($validated['title'], $ruleSet->id);
+        } else {
+            $section    = Section::with('department')->findOrFail($validated['section_id']);
+            $department = $section->department;
+            $ruleSet    = null;
+
+            $vaultDir = implode('/', array_filter([
+                'document_vault',
+                $department->level,
+                $department->slug,
+                $section->wing,
+                $section->slug,
+            ]));
+
+            $slug = Document::uniqueSlugForSection($validated['title'], $section->id);
+        }
+
         $timestamp = now()->format('YmdHis');
-        $pdfName   = "{$slug}_{$timestamp}.pdf";
-        $pdfPath   = $request->file('file')->storeAs($vaultDir, $pdfName, 'public');
+        $pdfPath   = $request->file('file')->storeAs($vaultDir, "{$slug}_{$timestamp}.pdf", 'public');
 
         if (! $pdfPath) {
             return response()->json(['message' => 'File could not be saved. Please try again.'], 500);
@@ -83,10 +102,11 @@ class DocumentController extends Controller
         try {
             $document = null;
 
-            DB::transaction(function () use ($validated, $section, $department, $vaultDir, $pdfPath, $slug, $request, &$document) {
+            DB::transaction(function () use ($validated, $section, $ruleSet, $department, $vaultDir, $pdfPath, $slug, $request, &$document) {
                 $document = Document::create([
                     'department_id'     => $department->id,
-                    'section_id'        => $section->id,
+                    'section_id'        => $section?->id,
+                    'rule_set_id'       => $ruleSet?->id,
                     'user_id'           => $request->user()->id,
                     'title'             => $validated['title'],
                     'slug'              => $slug,
@@ -107,7 +127,10 @@ class DocumentController extends Controller
             });
 
             flash()->success("\"{$validated['title']}\" uploaded successfully.");
-            $redirectUrl = route('departments.sections.show', [$department->levelAlias(), $department, $section]);
+
+            $redirectUrl = $ruleSet
+                ? route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet])
+                : route('departments.sections.show', [$department->levelAlias(), $department, $section]);
 
             return response()->json(['redirect' => $redirectUrl]);
 
@@ -115,8 +138,9 @@ class DocumentController extends Controller
             Storage::disk('public')->delete($pdfPath);
 
             Log::error('DocumentController@store failed', [
-                'section_id' => $validated['section_id'],
-                'error'      => $e->getMessage(),
+                'section_id'  => $validated['section_id'] ?? null,
+                'rule_set_id' => $validated['rule_set_id'] ?? null,
+                'error'       => $e->getMessage(),
             ]);
 
             return response()->json(['message' => 'Upload failed. Please try again.'], 500);
@@ -143,6 +167,61 @@ class DocumentController extends Controller
             return redirect()->route('departments.sections.show', [$department->levelAlias(), $department, $section]);
         } catch (\Throwable $e) {
             Log::error('DocumentController@destroy failed', [
+                'document_id' => $document->id,
+                'error'       => $e->getMessage(),
+            ]);
+            flash()->error('Failed to delete document. Please try again.');
+            return back();
+        }
+    }
+
+    // ── Rule-set document variants ─────────────────────────────────────────────
+
+    public function showRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): View
+    {
+        $document->load(['user:id,name', 'statusHistory.actor:id,name']);
+        return view('documents.show', compact('document', 'department', 'ruleSet'));
+    }
+
+    public function pdfRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        if (! auth()->check() && $document->status !== 'verified') {
+            abort(403);
+        }
+
+        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
+            abort(404, 'PDF file not found.');
+        }
+
+        $filename = $document->original_filename ?: 'document.pdf';
+
+        return Storage::disk('public')->response(
+            $document->original_pdf_path,
+            $filename,
+            ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
+        );
+    }
+
+    public function editRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): View
+    {
+        return view('documents.edit', compact('document', 'department', 'ruleSet'));
+    }
+
+    public function updateRuleSetDoc(UpdateDocumentRequest $request, string $level, Department $department, RuleSet $ruleSet, Document $document): RedirectResponse
+    {
+        flash()->info('Review workflow coming soon.');
+        return redirect()->route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
+    }
+
+    public function destroyRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): RedirectResponse
+    {
+        try {
+            DB::transaction(fn () => $document->delete());
+
+            flash()->success('Document deleted.');
+            return redirect()->route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@destroyRuleSetDoc failed', [
                 'document_id' => $document->id,
                 'error'       => $e->getMessage(),
             ]);

@@ -40,4 +40,9 @@ class Department extends Model
     {
         return $this->hasMany(Document::class);
     }
+
+    public function ruleSets(): HasMany
+    {
+        return $this->hasMany(RuleSet::class)->orderBy('name');
+    }
 }

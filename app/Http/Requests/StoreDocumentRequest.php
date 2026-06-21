@@ -61,7 +61,9 @@ class StoreDocumentRequest extends FormRequest
         $acceptedMimes  = implode(',', self::ACCEPTED_MIMETYPES);
 
         return [
-            'section_id'    => ['required', 'integer', 'exists:sections,id'],
+            // One of section_id or rule_set_id must be provided — not both
+            'section_id'    => ['required_without:rule_set_id', 'nullable', 'integer', 'exists:sections,id'],
+            'rule_set_id'   => ['required_without:section_id',  'nullable', 'integer', 'exists:rule_sets,id'],
             'title'         => ['required', 'string', 'max:255', 'regex:/^[\p{L}\p{N}\s\-_.,()\/\#\&]+$/u'],
             'document_type' => ['required', 'string', "in:{$validTypes}"],
             'file'          => ['required', 'file', "mimetypes:{$acceptedMimes}", 'max:51200'], // 50 MB
@@ -80,10 +82,12 @@ class StoreDocumentRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'title.regex'         => 'Title contains invalid characters.',
-            'document_type.in'    => 'Please select a valid document type.',
-            'file.mimetypes'      => 'Unsupported file type. Accepted: PDF, Word, Excel, PowerPoint, ODT, images (JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC), RTF, TXT, CSV.',
-            'file.max'            => 'File size must not exceed 50 MB.',
+            'section_id.required_without'  => 'A section or rule set must be selected.',
+            'rule_set_id.required_without' => 'A section or rule set must be selected.',
+            'title.regex'                  => 'Title contains invalid characters.',
+            'document_type.in'             => 'Please select a valid document type.',
+            'file.mimetypes'               => 'Unsupported file type. Accepted: PDF, Word, Excel, PowerPoint, ODT, images (JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC), RTF, TXT, CSV.',
+            'file.max'                     => 'File size must not exceed 50 MB.',
         ];
     }
 }
