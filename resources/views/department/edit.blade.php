@@ -7,11 +7,12 @@
 <x-breadcrumb :items="[
     ['name' => 'Home', 'url' => route('home')],
     ['name' => 'Departments', 'url' => route('departments.index')],
-    ['name' => $department->name, 'url' => route('departments.show', $department)],
+    ['name' => $department->levelLabel(), 'url' => null],
+    ['name' => $department->name, 'url' => route('departments.show', [$department->levelAlias(), $department])],
     ['name' => 'Edit', 'url' => null],
 ]" />
 
-<form id="deptForm" method="POST" action="{{ route('departments.update', $department) }}" novalidate class="max-w-2xl">
+<form id="deptForm" method="POST" action="{{ route('departments.update', [$department->levelAlias(), $department]) }}" novalidate class="max-w-2xl">
     @csrf
     @method('PATCH')
 
@@ -62,12 +63,12 @@
         </div>
 
         <div class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 rounded-b-xl flex items-center justify-between">
-            <a href="{{ route('departments.show', $department) }}"
+            <a href="{{ route('departments.show', [$department->levelAlias(), $department]) }}"
                class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1">
                 <i class="ti ti-arrow-left"></i> Back
             </a>
             <div class="flex items-center gap-3">
-                <form method="POST" action="{{ route('departments.destroy', $department) }}"
+                <form method="POST" action="{{ route('departments.destroy', [$department->levelAlias(), $department]) }}"
                       onsubmit="return confirm('Delete {{ addslashes($department->name) }}? This cannot be undone.')">
                     @csrf @method('DELETE')
                     <button type="submit"

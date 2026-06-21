@@ -31,13 +31,13 @@ class DocumentController extends Controller
         return view('documents.index', compact('byDepartment'));
     }
 
-    public function show(Department $department, Section $section, Document $document): View
+    public function show(string $level, Department $department, Section $section, Document $document): View
     {
         $document->load(['user:id,name', 'statusHistory.actor:id,name']);
         return view('documents.show', compact('document', 'department', 'section'));
     }
 
-    public function pdf(Department $department, Section $section, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    public function pdf(string $level, Department $department, Section $section, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
         if (! auth()->check() && $document->status !== 'verified') {
             abort(403);
@@ -107,7 +107,7 @@ class DocumentController extends Controller
             });
 
             flash()->success("\"{$validated['title']}\" uploaded successfully.");
-            $redirectUrl = route('departments.sections.show', [$department, $section]);
+            $redirectUrl = route('departments.sections.show', [$department->levelAlias(), $department, $section]);
 
             return response()->json(['redirect' => $redirectUrl]);
 
@@ -123,24 +123,24 @@ class DocumentController extends Controller
         }
     }
 
-    public function edit(Department $department, Section $section, Document $document): View
+    public function edit(string $level, Department $department, Section $section, Document $document): View
     {
         return view('documents.edit', compact('document', 'department', 'section'));
     }
 
-    public function update(UpdateDocumentRequest $request, Department $department, Section $section, Document $document): RedirectResponse
+    public function update(UpdateDocumentRequest $request, string $level, Department $department, Section $section, Document $document): RedirectResponse
     {
         flash()->info('Review workflow coming soon.');
-        return redirect()->route('departments.sections.show', [$department, $section]);
+        return redirect()->route('departments.sections.show', [$department->levelAlias(), $department, $section]);
     }
 
-    public function destroy(Department $department, Section $section, Document $document): RedirectResponse
+    public function destroy(string $level, Department $department, Section $section, Document $document): RedirectResponse
     {
         try {
             DB::transaction(fn () => $document->delete());
 
             flash()->success('Document deleted.');
-            return redirect()->route('departments.sections.show', [$department, $section]);
+            return redirect()->route('departments.sections.show', [$department->levelAlias(), $department, $section]);
         } catch (\Throwable $e) {
             Log::error('DocumentController@destroy failed', [
                 'document_id' => $document->id,

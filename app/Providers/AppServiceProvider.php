@@ -2,9 +2,11 @@
 
 namespace App\Providers;
 
+use App\Models\Department;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -14,6 +16,25 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureRateLimiters();
+        $this->configureRouteBindings();
+    }
+
+    private function configureRouteBindings(): void
+    {
+        // Resolves {department} scoped by the {level} URL alias so that slugs
+        // shared across levels (e.g. "excise" at dept + secretariat) always
+        // resolve to the correct record.
+        Route::bind('department', function (string $slug) {
+            $alias = request()->route('level');
+            $level = match($alias) {
+                'sectt' => 'secretariat_level',
+                default => 'department_level',
+            };
+
+            return Department::where('slug', $slug)
+                ->where('level', $level)
+                ->firstOrFail();
+        });
     }
 
     private function configureRateLimiters(): void

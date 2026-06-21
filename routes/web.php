@@ -19,23 +19,24 @@ Route::get('/admin', function () {
 Route::get('/', [FrontendController::class, 'dashboard'])->name('home');
 
 // Documents — read-only browse is public
+// Hierarchical URLs: /documents/{level}/{department}/{section}/{document}
+// {level} = 'dept' (department_level) | 'sectt' (secretariat_level)
 Route::prefix('documents')->name('documents.')->group(function () {
     Route::get('/', [DocumentController::class, 'index'])->name('index');
-    // Hierarchical document URLs: /documents/{department}/{section}/{document}
-    Route::get('/{department}/{section}/{document}',     [DocumentController::class, 'show'])->name('show');
-    Route::get('/{department}/{section}/{document}/pdf', [DocumentController::class, 'pdf'])->name('pdf');
+    Route::get('/{level}/{department}/{section}/{document}',     [DocumentController::class, 'show'])->name('show');
+    Route::get('/{level}/{department}/{section}/{document}/pdf', [DocumentController::class, 'pdf'])->name('pdf');
 });
 
 // Departments & sections — read-only public
+// {level} = 'dept' | 'sectt' disambiguates departments that share a slug across levels
 Route::prefix('departments')->name('departments.')->group(function () {
     Route::get('/',        [DepartmentController::class, 'index'])->name('index');
-    // /create must be before /{department} to prevent wildcard collision
+    // /create must be before /{level}/{department} — no collision risk since /create has only one segment
     Route::get('/create',  [DepartmentController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
-    Route::get('/{department}', [DepartmentController::class, 'show'])->name('show');
+    Route::get('/{level}/{department}', [DepartmentController::class, 'show'])->name('show');
 
-    Route::prefix('/{department}/sections')->name('sections.')->group(function () {
+    Route::prefix('/{level}/{department}/sections')->name('sections.')->group(function () {
         Route::get('/',          [SectionController::class, 'index'])->name('index');
-        // /create must be registered before /{section} to prevent wildcard collision
         Route::get('/create',    [SectionController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
         Route::get('/{section}', [SectionController::class, 'show'])->name('show');
     });
@@ -49,20 +50,20 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
     // Documents — mutations
     Route::prefix('documents')->name('documents.')->group(function () {
         Route::post('/', [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads');
-        Route::get('/{department}/{section}/{document}/review', [DocumentController::class, 'edit'])->name('edit');
-        Route::patch('/{department}/{section}/{document}',      [DocumentController::class, 'update'])->name('update');
-        Route::delete('/{department}/{section}/{document}',     [DocumentController::class, 'destroy'])->name('destroy');
+        Route::get('/{level}/{department}/{section}/{document}/review', [DocumentController::class, 'edit'])->name('edit');
+        Route::patch('/{level}/{department}/{section}/{document}',      [DocumentController::class, 'update'])->name('update');
+        Route::delete('/{level}/{department}/{section}/{document}',     [DocumentController::class, 'destroy'])->name('destroy');
     });
 
     // Departments — mutations
     Route::prefix('departments')->name('departments.')->group(function () {
-        Route::post('/',                 [DepartmentController::class, 'store'])->name('store');
-        Route::get('/{department}/edit', [DepartmentController::class, 'edit'])->name('edit');
-        Route::patch('/{department}',    [DepartmentController::class, 'update'])->name('update');
-        Route::delete('/{department}',   [DepartmentController::class, 'destroy'])->name('destroy');
+        Route::post('/',                        [DepartmentController::class, 'store'])->name('store');
+        Route::get('/{level}/{department}/edit', [DepartmentController::class, 'edit'])->name('edit');
+        Route::patch('/{level}/{department}',    [DepartmentController::class, 'update'])->name('update');
+        Route::delete('/{level}/{department}',   [DepartmentController::class, 'destroy'])->name('destroy');
 
         // Sections — mutations
-        Route::prefix('/{department}/sections')->name('sections.')->group(function () {
+        Route::prefix('/{level}/{department}/sections')->name('sections.')->group(function () {
             Route::post('/',               [SectionController::class, 'store'])->name('store');
             Route::get('/{section}/edit',  [SectionController::class, 'edit'])->name('edit');
             Route::patch('/{section}',     [SectionController::class, 'update'])->name('update');

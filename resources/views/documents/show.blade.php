@@ -23,9 +23,11 @@
     <i class="ti ti-chevron-right text-xs"></i>
     <a href="{{ route('departments.index') }}">Departments</a>
     <i class="ti ti-chevron-right text-xs"></i>
-    <a href="{{ route('departments.show', $document->department) }}">{{ $document->department->name }}</a>
+    <span>{{ $document->department->levelLabel() }}</span>
     <i class="ti ti-chevron-right text-xs"></i>
-    <a href="{{ route('departments.sections.show', [$document->department, $document->section]) }}">{{ $document->section->name }}</a>
+    <a href="{{ route('departments.show', [$document->department->levelAlias(), $document->department]) }}">{{ $document->department->name }}</a>
+    <i class="ti ti-chevron-right text-xs"></i>
+    <a href="{{ route('departments.sections.show', [$document->department->levelAlias(), $document->department, $document->section]) }}">{{ $document->section->name }}</a>
     <i class="ti ti-chevron-right text-xs"></i>
     <span class="truncate max-w-[200px]">{{ $document->title }}</span>
 </x-slot:breadcrumb>
@@ -66,12 +68,12 @@
     @auth
     @if(auth()->user()->isAdmin())
     <div class="flex items-center gap-2 flex-shrink-0">
-        <a href="{{ route('documents.edit', [$department, $section, $document]) }}"
+        <a href="{{ route('documents.edit', [$department->levelAlias(), $department, $section, $document]) }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
             <span class="hidden sm:inline">Review</span>
         </a>
-        <form method="POST" action="{{ route('documents.destroy', [$department, $section, $document]) }}"
+        <form method="POST" action="{{ route('documents.destroy', [$department->levelAlias(), $department, $section, $document]) }}"
               onsubmit="return confirm('Permanently delete this document? This cannot be undone.')">
             @csrf @method('DELETE')
             <button type="submit"
@@ -116,12 +118,12 @@
                     <i class="ti ti-file-type-pdf text-sm text-red-400"></i>
                     <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Original Document</span>
                 </div>
-                <a href="{{ route('documents.pdf', [$department, $section, $document]) }}" target="_blank"
+                <a href="{{ route('documents.pdf', [$department->levelAlias(), $department, $section, $document]) }}" target="_blank"
                    class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
                     Open in new tab <i class="ti ti-external-link text-xs"></i>
                 </a>
             </div>
-            <iframe src="{{ route('documents.pdf', [$department, $section, $document]) }}"
+            <iframe src="{{ route('documents.pdf', [$department->levelAlias(), $department, $section, $document]) }}"
                     class="w-full border-0"
                     style="height: 75vh;"
                     title="{{ $document->title }}">
@@ -155,7 +157,7 @@
                 <div>
                     <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">Department</dt>
                     <dd>
-                        <a href="{{ route('departments.show', $document->department) }}"
+                        <a href="{{ route('departments.show', [$document->department->levelAlias(), $document->department]) }}"
                            class="text-indigo-600 dark:text-indigo-400 hover:underline text-sm">
                             {{ $document->department->name }}
                         </a>
@@ -170,7 +172,7 @@
                 <div>
                     <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">Section</dt>
                     <dd>
-                        <a href="{{ route('departments.sections.show', [$document->department, $document->section]) }}"
+                        <a href="{{ route('departments.sections.show', [$document->department->levelAlias(), $document->department, $document->section]) }}"
                            class="text-indigo-600 dark:text-indigo-400 hover:underline text-sm">
                             {{ $document->section->name }}
                         </a>

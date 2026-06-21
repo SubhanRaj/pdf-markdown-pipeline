@@ -74,7 +74,7 @@
         @foreach($depts as $i => $dept)
         @php $c = $deptColors[$i % count($deptColors)]; @endphp
 
-        <a href="{{ route('departments.show', $dept) }}"
+        <a href="{{ route('departments.show', [$dept->levelAlias(), $dept]) }}"
            class="group bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 p-5 flex flex-col gap-4 transition-all hover:shadow-md">
 
             {{-- Icon --}}

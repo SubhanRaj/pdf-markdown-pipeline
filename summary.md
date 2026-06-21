@@ -209,3 +209,26 @@ storage/app/public/document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{sl
 - **Existing data**: 1 document migrated via tinker — file copied from `private/uploads/{uuid}/original.pdf` to new vault path, DB record updated.
 
 **Why**: Single storage location for PDF + future Markdown makes the vault a proper file repository. Slug-named files are human-readable in the filesystem. No wasted UUID directories. Aligns storage layout with the logical document hierarchy already expressed in the DB.
+
+---
+
+## M10 — Level-Aware Department Routing
+
+**Problem**: `departments` has a unique constraint on `(slug, level)`, allowing the same slug (e.g. `excise`) at both `department_level` and `secretariat_level`. Route model binding queried only by slug and always resolved `department_level` first — Excise Secretariat was unreachable, clicking it opened Excise Department.
+
+**Fix**: Added `{level}` as a URL alias segment (`dept` = `department_level`, `sectt` = `secretariat_level`) before `{department}` in every department, section, and document route.
+
+**URL changes:**
+- `/departments/{department}` → `/departments/{level}/{department}`
+- `/departments/{department}/sections/{section}` → `/departments/{level}/{department}/sections/{section}`
+- `/documents/{department}/{section}/{document}` → `/documents/{level}/{department}/{section}/{document}`
+
+**Key implementation details:**
+- `Route::bind('department', ...)` in `AppServiceProvider::configureRouteBindings()` reads `request()->route('level')`, maps alias → DB level value, and queries `WHERE slug = ? AND level = ?`.
+- Controller methods that have `{level}` in their route **must** declare `string $level` as the first parameter before the model arguments, or Laravel injects the raw alias string into the model parameter and throws a `TypeError`. (Discovered: Laravel resolves route params by name-match order — undeclared params are passed positionally.)
+- `Department::levelAlias()` → `'dept'` or `'sectt'` — used in all `route()` helpers as the first array element.
+- `Department::levelLabel()` → `'Department'` or `'Secretariat'` — used in breadcrumbs.
+- All route helpers updated to `route('departments.show', [$dept->levelAlias(), $dept])` pattern across all controllers, views, and components.
+- Sidebar active-link check updated from slug comparison to `->is($dept)` (primary key) to survive slug collisions.
+- Breadcrumbs now show the level label as a step: `Home > Departments > Department > Excise Department > Section`.
+- **Also fixed**: pre-existing typos in `DepartmentController` (`'department.index'`, `'department.show'` → `'departments.index'`, `'departments.show'`) that were silently redirecting to `/login` via the fallback route.

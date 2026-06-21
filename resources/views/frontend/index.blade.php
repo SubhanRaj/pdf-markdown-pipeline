@@ -109,7 +109,7 @@
             }
             $col = $m['color'];
         @endphp
-        <a href="{{ route('departments.show', $dept) }}"
+        <a href="{{ route('departments.show', [$dept->levelAlias(), $dept]) }}"
            class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 {{ $hoverMap[$col] }} hover:shadow-md hover:-translate-y-0.5 transition-all group">
             <div class="w-10 h-10 rounded-lg {{ $iconBgMap[$col] }} flex items-center justify-center mb-3 transition-colors">
                 <i class="ti {{ $m['icon'] }} text-xl {{ $iconColorMap[$col] }}"></i>
@@ -190,7 +190,7 @@
                 <span class="text-xs text-slate-400 dark:text-slate-500 flex-shrink-0 hidden lg:block">
                     {{ $doc->created_at->diffForHumans() }}
                 </span>
-                <a href="{{ route('documents.show', [$doc->department, $doc->section, $doc]) }}"
+                <a href="{{ route('documents.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]) }}"
                    class="flex-shrink-0 text-slate-300 dark:text-slate-600 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
                     <i class="ti ti-arrow-right text-base"></i>
                 </a>
