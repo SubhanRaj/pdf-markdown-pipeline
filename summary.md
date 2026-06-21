@@ -172,3 +172,40 @@ Document routes changed from flat `/documents/{document}` to `/documents/{depart
 ### `DocumentStatusHistory` cast fix
 
 `$timestamps = false` on the model disabled auto-casting, leaving `created_at` as a raw string. Added `protected $casts = ['created_at' => 'datetime']` so Carbon methods work correctly.
+
+---
+
+## M8 — Dynamic Sidebar Browse Vault
+
+**Browse Vault section made fully dynamic.**
+
+Previously, sidebar department links were hardcoded in `sidebar.blade.php` — adding a new department required a manual sidebar edit, and non-Excise entries pointed to `departments.index` instead of the actual dept page.
+
+`sidebar.blade.php` now queries all `Department` records (ordered by level, then name) and renders each as a `departments.show` link. A `$deptMeta` map (slug → icon + color) provides distinct icons for known departments; any slug not in the map falls back to a cycling palette of icons/colors. The active-link highlight checks both `routeIs()` and the current route's `{department}` slug parameter so the correct entry highlights when browsing that dept's sections or documents.
+
+**Slug key convention:** map keys use underscores to match DB slugs (e.g. `sugarcane_sugar`, `sugar_mill_corp`, `cane_federation`). This was the root cause of the initial icon regression — the map was written with hyphens before the actual DB slugs were verified.
+
+---
+
+## M9 — Storage Consolidation: Vault-First, Public Disk, Slug-Named Files
+
+**What changed:** Eliminated the separate `uploads/{uuid}/original.pdf` staging pattern. All document files now go directly into the vault directory on the `public` disk, using the document slug as the filename.
+
+**New file path convention:**
+```
+storage/app/public/document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.pdf
+storage/app/public/document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.md   ← future markdown
+```
+
+**Key changes:**
+
+- **Disk**: `local` (`storage/app/private/`) → `public` (`storage/app/public/`). Symlink created via `php artisan storage:link`.
+- **Filename**: `{slug}_{YmdHis}.pdf` instead of `original.pdf` inside a UUID folder. Slug is generated before file I/O so the filename is determined before the file is written. Collision prevention: `uniqueSlugForSection` appends `-2`/`-3` on title collision; the timestamp suffix prevents any remaining overwrites.
+- **`original_pdf_path`**: now the full relative vault path (e.g. `document_vault/department_level/excise/headquarter/accounts_section/beer-retail-2021_20260621143022.pdf`).
+- **`vault_path`**: directory only (unchanged semantics, used by extraction jobs to know where to write `.md`).
+- **Markdown**: will be stored in the same directory with the same base name and `.md` extension. `show.blade.php` markdown check updated from `file_exists(storage_path('app/...'))` to `Storage::disk('public')->exists(...)`.
+- **PDF streaming**: `DocumentController@pdf` updated to `Storage::disk('public')`. Auth gate (403 for guests on non-verified docs) unchanged — always link to `/pdf` route, never raw storage URL.
+- **Cleanup on failure**: `Storage::disk('public')->delete($pdfPath)` (single file delete) instead of `deleteDirectory("uploads/{uuid}")`.
+- **Existing data**: 1 document migrated via tinker — file copied from `private/uploads/{uuid}/original.pdf` to new vault path, DB record updated.
+
+**Why**: Single storage location for PDF + future Markdown makes the vault a proper file repository. Slug-named files are human-readable in the filesystem. No wasted UUID directories. Aligns storage layout with the logical document hierarchy already expressed in the DB.

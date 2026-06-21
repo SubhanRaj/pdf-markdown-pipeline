@@ -109,7 +109,7 @@
     {{-- ── Main: markdown content or placeholder ───────────────────────────── --}}
     <div class="lg:col-span-2 space-y-4">
 
-        {{-- PDF viewer — always shown; served via /documents/{id}/pdf which streams from local disk --}}
+        {{-- PDF viewer — always shown; served via /documents/{id}/pdf which streams from public disk --}}
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
             <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
                 <div class="flex items-center gap-2">
@@ -129,14 +129,14 @@
         </div>
 
         {{-- Extracted markdown — shown below PDF once extraction is complete --}}
-        @if($document->markdown_path && file_exists(storage_path('app/' . $document->markdown_path)))
+        @if($document->markdown_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($document->markdown_path))
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
             <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center gap-2">
                 <i class="ti ti-markdown text-sm text-slate-400"></i>
                 <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Extracted Content</span>
             </div>
             <div class="px-6 py-5 prose prose-sm dark:prose-invert max-w-none text-slate-700 dark:text-slate-300">
-                {!! \Parsedown::instance()->setSafeMode(true)->text(file_get_contents(storage_path('app/' . $document->markdown_path))) !!}
+                {!! \Parsedown::instance()->setSafeMode(true)->text(\Illuminate\Support\Facades\Storage::disk('public')->get($document->markdown_path)) !!}
             </div>
         </div>
         @endif

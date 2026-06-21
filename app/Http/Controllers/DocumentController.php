@@ -13,7 +13,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class DocumentController extends Controller
@@ -44,13 +43,13 @@ class DocumentController extends Controller
             abort(403);
         }
 
-        if (! $document->original_pdf_path || ! Storage::disk('local')->exists($document->original_pdf_path)) {
+        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
             abort(404, 'PDF file not found.');
         }
 
         $filename = $document->original_filename ?: 'document.pdf';
 
-        return Storage::disk('local')->response(
+        return Storage::disk('public')->response(
             $document->original_pdf_path,
             $filename,
             ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
@@ -71,8 +70,11 @@ class DocumentController extends Controller
             $section->slug,
         ]));
 
-        $uuid    = (string) Str::uuid();
-        $pdfPath = $request->file('file')->storeAs("uploads/{$uuid}", 'original.pdf', 'local');
+        // Slug is generated before the transaction so the filename is known before file I/O
+        $slug      = Document::uniqueSlugForSection($validated['title'], $section->id);
+        $timestamp = now()->format('YmdHis');
+        $pdfName   = "{$slug}_{$timestamp}.pdf";
+        $pdfPath   = $request->file('file')->storeAs($vaultDir, $pdfName, 'public');
 
         if (! $pdfPath) {
             return response()->json(['message' => 'File could not be saved. Please try again.'], 500);
@@ -81,11 +83,7 @@ class DocumentController extends Controller
         try {
             $document = null;
 
-            DB::transaction(function () use ($validated, $section, $department, $vaultDir, $pdfPath, $request, &$document) {
-                Storage::disk('local')->makeDirectory($vaultDir);
-
-                $slug = Document::uniqueSlugForSection($validated['title'], $section->id);
-
+            DB::transaction(function () use ($validated, $section, $department, $vaultDir, $pdfPath, $slug, $request, &$document) {
                 $document = Document::create([
                     'department_id'     => $department->id,
                     'section_id'        => $section->id,
@@ -114,7 +112,7 @@ class DocumentController extends Controller
             return response()->json(['redirect' => $redirectUrl]);
 
         } catch (\Throwable $e) {
-            Storage::disk('local')->deleteDirectory("uploads/{$uuid}");
+            Storage::disk('public')->delete($pdfPath);
 
             Log::error('DocumentController@store failed', [
                 'section_id' => $validated['section_id'],

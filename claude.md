@@ -106,7 +106,7 @@ Unique constraint: `(department_id, wing, slug)`.
 | `slug` | string | URL-safe; auto-generated from title at upload; unique per section (suffixed `-2`, `-3` on collision) |
 | `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `other` |
 | `original_filename` | string | |
-| `original_pdf_path` | string | stored at `uploads/{uuid}/original.pdf` on local disk |
+| `original_pdf_path` | string | full relative path on `public` disk, e.g. `document_vault/department_level/excise/headquarter/accounts_section/{slug}_{YmdHis}.pdf` |
 | `markdown_path` | string nullable | set after extraction job completes |
 | `vault_path` | string nullable | vault directory path; set at upload, file placed on verification |
 | `status` | string | `uploaded` → `processing` → `ocr_pending` → `review` → `verified` \| `failed` |
@@ -169,16 +169,20 @@ Route names follow `resource.action` (e.g. `documents.show`, `departments.sectio
 
 Upload is initiated from the section show page (`departments.sections.show`) via a modal. The form POSTs to `POST /documents` via AJAX (`fetch`). The `POST /documents` endpoint is **AJAX-only** and always returns JSON — `StoreDocumentRequest::failedValidation()` is overridden to throw `HttpResponseException` with a 422 JSON body so validation errors never return a redirect. On the server:
 
-1. Slug generated: `Document::uniqueSlugForSection($title, $section->id)`
+1. Slug generated: `Document::uniqueSlugForSection($title, $section->id)` — done **before** file I/O so the filename is known upfront
 2. Vault directory computed: `document_vault/{dept.level}/{dept.slug}/{section.wing?}/{section.slug}`
-3. PDF stored to `uploads/{uuid}/original.pdf` on the local disk (before the DB transaction)
-4. DB transaction: `Document::create()` + `DocumentStatusHistory::create()` atomically
-5. On transaction failure: uploaded PDF deleted as best-effort cleanup
+3. PDF stored directly to vault directory on the **`public` disk** as `{slug}_{YmdHis}.pdf` (e.g. `beer-retail-2021-19th-amendment_20260621143022.pdf`)
+4. DB transaction: `Document::create()` + `DocumentStatusHistory::create()` atomically; `original_pdf_path` = full relative path, `vault_path` = directory only
+5. On transaction failure: uploaded PDF deleted as best-effort cleanup (`Storage::disk('public')->delete($pdfPath)`)
 6. On success: JSON `{'redirect': section_url}` returned; JS navigates
+
+**No separate `uploads/` staging folder** — files go straight into the vault directory. No UUID folders. Filename collision is prevented by the slug uniqueness guarantee (slug suffix `-2`, `-3`) plus the timestamp suffix.
+
+**Converted Markdown** lands in the same vault directory with the same base filename and `.md` extension (e.g. `beer-retail-2021-19th-amendment_20260621143022.md`). The `markdown_path` column stores the full relative path on the `public` disk.
 
 ### PDF streaming
 
-`GET /documents/{department}/{section}/{document}/pdf` — served by `DocumentController@pdf`. Streams directly from the `local` disk via `Storage::disk('local')->response(...)` with `Content-Disposition: inline`. Guests blocked from non-verified documents (403). Never stored to `public` disk.
+`GET /documents/{department}/{section}/{document}/pdf` — served by `DocumentController@pdf`. Streams from the **`public` disk** via `Storage::disk('public')->response(...)` with `Content-Disposition: inline`. Guests blocked from non-verified documents (403). The `/pdf` route is the primary access path — direct `storage/` URLs bypass the auth gate, so always link via this route.
 
 ### Document views
 
@@ -193,7 +197,7 @@ Upload is initiated from the section show page (`departments.sections.show`) via
 | Authenticated | Browse Vault + Manage → Departments |
 | Admin | Browse Vault + Manage → Departments + Users |
 
-Excise Department vault link: DB lookup in sidebar component selecting `['id', 'slug']` — both columns required since `getRouteKeyName()` now uses `slug`.
+**Browse Vault is fully dynamic** — `sidebar.blade.php` queries all `Department` records ordered by level then name and renders each as a nav link pointing to `departments.show`. Icon and color are resolved from a slug → `[icon, color]` map (`$deptMeta`) defined at the top of the component; unknown slugs fall back to a cycling palette. Adding a new department via the UI automatically adds it to the sidebar — no manual sidebar edits needed. Slug keys in `$deptMeta` use underscores (matching the DB slug convention), e.g. `sugarcane_sugar`, `sugar_mill_corp`.
 
 ### Rate limiting
 
@@ -217,12 +221,12 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 1. **Queue driver:** `database`, not Redis — no extra service to manage on a local single-box deployment.
 2. **Text extraction:** `innobrain/markitdown` Composer package, `MARKITDOWN_USE_VENV_PACKAGE=true` — the package manages its own Python venv, so no hand-rolled subprocess/venv bridge is needed.
 3. **OCR is conditional, not default** — only runs when markitdown returns near-empty/low-confidence text, to avoid wasting time OCR'ing native-text PDFs.
-4. **Single disk, path-convention silos** — not multiple Laravel filesystem disks. Department/section isolation is enforced at the model/policy layer against the vault path convention above.
+4. **Single disk (`public`), path-convention silos** — all document files (PDF + Markdown) live on the `public` disk (`storage/app/public/`), symlinked to `public/storage/` via `php artisan storage:link`. Department/section isolation is enforced at the model/policy layer against the vault path convention. There is no separate staging/uploads folder — files go straight into their vault directory.
 5. **Schema flexibility over premature normalization** — JSON `metadata` column absorbs new fields; promote to real columns only once a field has proven stable across iterations.
 6. **No district/field-office granularity** in this phase — explicitly descoped.
 7. **Slug-based URLs for all resources** — `Department`, `Section`, `Document` all use `getRouteKeyName() = 'slug'`. IDs must never appear in public URLs. Document URLs are hierarchical: `/documents/{dept_slug}/{section_slug}/{doc_slug}`.
 8. **`POST /documents` is AJAX-only** — always returns JSON regardless of `Accept` header. `StoreDocumentRequest::failedValidation()` overrides the default redirect to throw `HttpResponseException` with 422 JSON. The JS `fetch` call always sends `Accept: application/json` + `X-CSRF-TOKEN` header + `X-Requested-With: XMLHttpRequest`.
-9. **PDF served via controller, never public disk** — `DocumentController@pdf` streams from `local` disk with `Content-Disposition: inline`. Guests see 403 on non-verified documents.
+9. **PDF served via controller route** — `DocumentController@pdf` streams from the `public` disk with `Content-Disposition: inline`. Guests see 403 on non-verified documents. The `/pdf` route is the canonical access path; always link via it rather than constructing raw `Storage::url()` links, since direct storage URLs bypass the auth gate.
 
 ## Frontend architecture
 
@@ -383,7 +387,7 @@ try {
 ### File uploads
 - Always use `mimetypes:` validation (magic-byte check via PHP Fileinfo), never `mimes:` (extension-only).
 - Reference `StoreDocumentRequest::ACCEPTED_MIMETYPES` for the canonical list of accepted types — do not duplicate it.
-- Store uploaded files outside the webroot: `Storage::disk('local')` at `uploads/{uuid}/filename`. Never store to `public` disk.
+- Store uploaded files on `Storage::disk('public')` directly inside the vault directory at `document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.pdf`. No staging/UUID folder. File I/O happens **before** the DB transaction; on transaction failure, delete the file in the `catch` block.
 - File I/O happens **before** the DB transaction. On transaction failure, delete the orphaned file in the `catch` block.
 
 ### Forms and mutations — no native GET/POST submissions
