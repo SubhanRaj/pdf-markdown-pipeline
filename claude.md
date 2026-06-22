@@ -193,8 +193,8 @@ Standard Laravel/Fortify users table with `is_admin` boolean. Public registratio
 | Dashboard | `FrontendController` | Public landing page with document stats; auth-aware recent feed |
 | Documents | `DocumentController` | Full CRUD; AJAX-only store (handles both section and rule-set uploads); PDF stream; hierarchical URLs; slug generation; rule-set doc methods; soft-delete with reason; trash/restore/force-delete |
 | Departments | `DepartmentController` | Full CRUD; slug-based route model binding; loads rule sets for show page |
-| Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + upload modal |
-| Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; upload modal on show page pre-selects `rule_amendment` type |
+| Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + multi-file upload modal |
+| Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; multi-file upload modal on show page pre-selects `rule_amendment` type |
 | Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see `visibility = 'public'` docs only; results capped at 50 docs + 20 sections + 20 rule sets |
 | User management | `Admin\UserManagementController` | Admin-only; account creation, role toggle, self-delete guard |
 
@@ -247,7 +247,9 @@ All check `withTrashed()` and append `-2`, `-3` on collision.
 
 Upload is initiated from a section show page or rule set show page via a modal. The form POSTs to `POST /documents` via AJAX (`fetch`). The endpoint is **AJAX-only** and always returns JSON — `StoreDocumentRequest::failedValidation()` throws `HttpResponseException` with 422 JSON.
 
-**Section-based upload:**
+**Multi-file upload** — both modals support selecting multiple files at once (drag-and-drop or file picker with `multiple` attribute). Files are uploaded sequentially — one `fetch` per file, not in parallel — so the server never receives concurrent writes from the same session. Each file gets its own editable title input (pre-filled from the filename) in a scrollable queue panel on the left side of the modal. Document type and visibility are shared across the whole batch and set once in the right panel. Status badges on each queue row update in real time (`Pending → Uploading… → ✓ Done / ✗ error message`). After all files are processed: if all succeeded, redirect to the section/rule-set page; if some failed, show "N uploaded, M failed" with a "Go to page" button (navigates with the successful ones) or "Retry" if all failed. There is no server-side batching — `POST /documents` remains a single-document endpoint; the JS loop is the only batching layer.
+
+**Section-based upload (per file):**
 1. Slug: `Document::uniqueSlugForSection($title, $section->id)`
 2. Vault dir: `document_vault/{dept.level}/{dept.slug}/{section.wing?}/{section.slug}`
 3. File stored: `{vaultDir}/{slug}_{YmdHis}.pdf` on `public` disk
@@ -255,13 +257,13 @@ Upload is initiated from a section show page or rule set show page via a modal. 
 5. On failure: delete orphaned PDF; return 500 JSON
 6. On success: JSON `{'redirect': sections_url}`
 
-**Rule-set-based upload:**
+**Rule-set-based upload (per file):**
 1. Slug: `Document::uniqueSlugForRuleSet($title, $ruleSet->id)`
 2. Vault dir: `document_vault/{dept.level}/{dept.slug}/rules/{ruleSet.slug}`
 3. Same file/DB/error flow as above
 4. On success: JSON `{'redirect': rule_set_url}`
 
-`StoreDocumentRequest` — `section_id` and `rule_set_id` are `required_without:` each other. Exactly one must be provided.
+`StoreDocumentRequest` — `section_id` and `rule_set_id` are `required_without:` each other. Exactly one must be provided. Each fetch in the JS loop builds its own `FormData` with the per-file title and the shared type/visibility/context-id — `FormData(form)` is **not** used because the file input is outside the `<form>` element (left vs right column layout).
 
 **Converted Markdown** lands in the same vault directory, same base filename, `.md` extension. `markdown_path` stores the full relative path on `public` disk.
 
@@ -578,7 +580,7 @@ try {
 ### Forms and mutations — no native GET/POST submissions
 - **Never allow a form to submit natively via GET or POST.** All mutations that originate from a modal or AJAX flow must use `fetch()` with `method: 'POST'` and `Accept: application/json` + `X-CSRF-TOKEN` headers.
 - Always add `method="POST"` and `action="..."` to every `<form>` as a hard fallback — so that if JS fails, the request at minimum goes to the right endpoint via POST (never GET), preventing credentials and sensitive params from appearing in the URL.
-- The file input in upload forms must have `name="file"` so `new FormData(form)` captures it automatically. Do not use `formData.set('file', ...)` as a workaround for a missing `name` attribute.
+- The file input in upload forms must have `name="file"`. For multi-file upload modals the JS loop builds `FormData` manually (`fd.append('file', item.file)`) because the file input lives in a different column from the `<form>` element — `new FormData(form)` would not capture it. Do not change this to `new FormData(form)` without moving the input inside the form.
 - Always wrap the JS init block (the IIFE that attaches event listeners) in a `try/catch` so that a parse or runtime error during setup does not silently leave forms unprotected.
 - Controllers that serve both AJAX and non-AJAX callers must use `$request->expectsJson()` to switch between `response()->json(...)` and `redirect(...)`.
 
