@@ -20,9 +20,9 @@ class FrontendController extends Controller
 
         $departments = Department::withCount('documents')->orderBy('name')->get();
 
-        // Guests see only verified documents in the recent feed
+        // Guests see only public documents in the recent feed
         $recentDocuments = Document::with(['department', 'section', 'ruleSet'])
-            ->when(! auth()->check(), fn ($q) => $q->where('status', 'verified'))
+            ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
             ->latest()
             ->limit(8)
             ->get();

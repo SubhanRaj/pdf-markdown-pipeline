@@ -67,6 +67,15 @@
                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
                     {{ \App\Models\Document::DOCUMENT_TYPES[$document->document_type] ?? $document->document_type }}
                 </span>
+                @if($document->visibility === 'authenticated')
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                    <i class="ti ti-lock text-[10px]"></i> Authenticated Only
+                </span>
+                @else
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                    <i class="ti ti-world text-[10px]"></i> Public
+                </span>
+                @endif
                 <span class="text-slate-300 dark:text-slate-600">·</span>
                 <span class="text-xs text-slate-400 dark:text-slate-500">{{ $document->created_at->format('d M Y') }}</span>
                 @if($document->user)

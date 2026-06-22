@@ -25,7 +25,7 @@ class DocumentController extends Controller
             ->orderByDesc('created_at');
 
         if (! auth()->check()) {
-            $query->where('status', 'verified');
+            $query->where('visibility', 'public');
         }
 
         $byDepartment = $query->get()->groupBy('department_id');
@@ -41,7 +41,7 @@ class DocumentController extends Controller
 
     public function pdf(string $level, Department $department, Section $section, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && $document->status !== 'verified') {
+        if (! auth()->check() && $document->visibility !== 'public') {
             abort(403);
         }
 
@@ -116,6 +116,7 @@ class DocumentController extends Controller
                     'original_pdf_path' => $pdfPath,
                     'vault_path'        => $vaultDir,
                     'status'            => 'uploaded',
+                    'visibility'        => $validated['visibility'] ?? 'public',
                 ]);
 
                 DocumentStatusHistory::create([
@@ -268,7 +269,7 @@ class DocumentController extends Controller
 
     public function pdfRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && $document->status !== 'verified') {
+        if (! auth()->check() && $document->visibility !== 'public') {
             abort(403);
         }
 
