@@ -49,6 +49,7 @@ class StoreDocumentRequest extends FormRequest
         $this->merge([
             'title'         => strip_tags(trim($this->title ?? '')),
             'document_type' => strtolower(trim($this->document_type ?? '')),
+            'visibility'    => strtolower(trim($this->visibility ?? 'public')),
         ]);
     }
 
@@ -66,6 +67,7 @@ class StoreDocumentRequest extends FormRequest
             'rule_set_id'   => ['required_without:section_id',  'nullable', 'integer', 'exists:rule_sets,id'],
             'title'         => ['required', 'string', 'max:255', 'regex:/^[\p{L}\p{N}\s\-_.,()\/\#\&]+$/u'],
             'document_type' => ['required', 'string', "in:{$validTypes}"],
+            'visibility'    => ['nullable', 'string', 'in:public,authenticated'],
             'file'          => ['required', 'file', "mimetypes:{$acceptedMimes}", 'max:51200'], // 50 MB
         ];
     }

@@ -34,9 +34,9 @@ class SearchController extends Controller
                 ->whereHas('ruleSet', fn ($r) => $r->where('name', 'LIKE', $term))
             );
 
-        // Guests only see verified documents
+        // Guests only see public documents
         if (! auth()->check()) {
-            $documentsQuery->where('status', 'verified');
+            $documentsQuery->where('visibility', 'public');
         }
 
         $documents = $documentsQuery

@@ -131,6 +131,28 @@
                         <p id="err-type" class="field-err-msg" style="display:none"></p>
                     </div>
 
+                    {{-- Visibility --}}
+                    <div>
+                        <label class="field-label">Visibility</label>
+                        <div class="flex gap-3 mt-1">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="visibility" value="public" checked
+                                       class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                                    <i class="ti ti-world text-sm text-green-500"></i> Public
+                                </span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="visibility" value="authenticated"
+                                       class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                                    <i class="ti ti-lock text-sm text-amber-500"></i> Authenticated Only
+                                </span>
+                            </label>
+                        </div>
+                        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Public documents are visible to all visitors. Authenticated Only restricts access to logged-in users.</p>
+                    </div>
+
                     <p id="err-file" class="field-err-msg" style="display:none"></p>
 
                     <div class="bg-slate-50 dark:bg-slate-800/60 rounded-lg px-4 py-3">

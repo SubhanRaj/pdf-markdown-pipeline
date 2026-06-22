@@ -55,7 +55,7 @@ class SectionController extends Controller
             ->orderByDesc('created_at');
 
         if (! auth()->check()) {
-            $documentsQuery->where('status', 'verified');
+            $documentsQuery->where('visibility', 'public');
         }
 
         $documents = $documentsQuery->paginate(20)->withQueryString();

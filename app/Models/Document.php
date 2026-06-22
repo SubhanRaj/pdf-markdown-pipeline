@@ -24,6 +24,11 @@ class Document extends Model
         'other'          => 'Other',
     ];
 
+    public const VISIBILITY = [
+        'public'        => 'Public',
+        'authenticated' => 'Authenticated Only',
+    ];
+
     public const STATUSES = [
         'uploaded'    => ['label' => 'Uploaded',    'color' => 'slate'],
         'processing'  => ['label' => 'Processing',  'color' => 'blue'],
@@ -93,6 +98,7 @@ class Document extends Model
         'markdown_path',
         'vault_path',
         'status',
+        'visibility',
         'metadata',
     ];
 
