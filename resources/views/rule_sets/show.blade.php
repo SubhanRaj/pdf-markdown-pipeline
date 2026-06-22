@@ -79,28 +79,30 @@
 
         <div class="flex flex-col lg:flex-row flex-1 min-h-0">
 
-            {{-- Left: file drop --}}
-            <div class="lg:w-1/2 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-700 flex flex-col">
+            {{-- Left: file drop + queue --}}
+            <div class="lg:w-1/2 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-700 flex flex-col p-4 gap-3">
                 <div id="drop-zone"
                      onclick="document.getElementById('doc-file').click()"
                      style="cursor:pointer"
-                     class="m-4 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors flex flex-col items-center justify-center gap-2 py-8 px-4 text-center">
-                    <i class="ti ti-cloud-upload text-3xl text-slate-300 dark:text-slate-600"></i>
-                    <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Click or drag a file here</p>
-                    <p class="text-xs text-slate-400 dark:text-slate-500">PDF · Word · Excel · Images · max 50 MB</p>
-                    <input type="file" id="doc-file" name="file"
+                     class="rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors flex flex-col items-center justify-center gap-1.5 py-5 px-4 text-center flex-shrink-0">
+                    <i class="ti ti-cloud-upload text-2xl text-slate-300 dark:text-slate-600"></i>
+                    <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Click or drag files here</p>
+                    <p class="text-xs text-slate-400 dark:text-slate-500">PDF · Word · Excel · Images · max 50 MB each · multiple files supported</p>
+                    <input type="file" id="doc-file" name="file" multiple
                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif,.svg"
                            style="display:none">
                 </div>
-                <div id="preview-wrap" style="display:none" class="px-4 pb-4">
-                    <div class="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
-                        <i class="ti ti-file-description text-2xl text-indigo-500 dark:text-indigo-400 flex-shrink-0"></i>
-                        <div class="min-w-0">
-                            <p id="preview-filename" class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate"></p>
-                            <p id="preview-filesize" class="text-xs text-slate-400 dark:text-slate-500 mt-0.5"></p>
-                        </div>
+                <div id="file-queue-wrap" class="flex-1 overflow-hidden flex flex-col min-h-0" style="display:none">
+                    <div class="flex items-center justify-between mb-1.5 flex-shrink-0">
+                        <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                            Queue &nbsp;<span id="queue-count" class="text-indigo-500 font-bold normal-case">0</span>
+                        </p>
+                        <button type="button" id="btn-clear-queue"
+                                class="text-xs text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors">Clear all</button>
                     </div>
+                    <div id="file-queue" class="overflow-y-auto flex flex-col gap-1.5" style="max-height:240px"></div>
                 </div>
+                <p id="queue-empty-hint" class="text-xs text-slate-400 dark:text-slate-500 text-center py-1">Select one or more files above — each gets its own title</p>
             </div>
 
             {{-- Right: form fields --}}
@@ -110,15 +112,6 @@
                       novalidate enctype="multipart/form-data" class="flex flex-col gap-4 flex-1">
                     @csrf
                     <input type="hidden" name="rule_set_id" value="{{ $ruleSet->id }}">
-
-                    <div>
-                        <label for="doc-title" class="field-label">Title / Reference <span class="text-red-500">*</span></label>
-                        <input type="text" id="doc-title" name="title"
-                               class="field-input"
-                               placeholder="e.g. Amendment No. 3 – 2024"
-                               maxlength="255" autocomplete="off">
-                        <p id="err-title" class="field-err-msg" style="display:none"></p>
-                    </div>
 
                     <div>
                         <label for="doc-type" class="field-label">Document Type <span class="text-red-500">*</span></label>
@@ -152,8 +145,6 @@
                         </div>
                         <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Public documents are visible to all visitors. Authenticated Only restricts access to logged-in users.</p>
                     </div>
-
-                    <p id="err-file" class="field-err-msg" style="display:none"></p>
 
                     <div class="bg-slate-50 dark:bg-slate-800/60 rounded-lg px-4 py-3">
                         <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">Saving to</p>
@@ -280,41 +271,43 @@
         page = JSON.parse(document.getElementById('page-data').textContent);
     } catch (e) { console.error('page-data parse failed', e); return; }
 
-    const form       = document.getElementById('upload-form');
-    const fileInput  = document.getElementById('doc-file');
-    const dropZone   = document.getElementById('drop-zone');
-    const typeSelect = document.getElementById('doc-type');
-    const titleInput = document.getElementById('doc-title');
-    const btnSubmit  = document.getElementById('btn-submit');
-    const btnLabel   = document.getElementById('btn-submit-label');
-    const status     = document.getElementById('upload-status');
+    const form         = document.getElementById('upload-form');
+    const fileInput    = document.getElementById('doc-file');
+    const dropZone     = document.getElementById('drop-zone');
+    const typeSelect   = document.getElementById('doc-type');
+    const btnSubmit    = document.getElementById('btn-submit');
+    const btnLabel     = document.getElementById('btn-submit-label');
+    const statusEl     = document.getElementById('upload-status');
+    const queueWrap    = document.getElementById('file-queue-wrap');
+    const queueList    = document.getElementById('file-queue');
+    const queueCountEl = document.getElementById('queue-count');
+    const queueHint    = document.getElementById('queue-empty-hint');
+    const btnClear     = document.getElementById('btn-clear-queue');
 
-    function handleFile(file) {
-        if (!file) return;
-        clearErr('err-file');
-        document.getElementById('preview-filename').textContent = file.name;
-        document.getElementById('preview-filesize').textContent = (file.size / 1048576).toFixed(1) + ' MB';
-        document.getElementById('preview-wrap').style.display = 'block';
-        if (!titleInput.value.trim()) {
-            titleInput.value = file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
-        }
+    let uploadFiles = [];
+    let isUploading = false;
+
+    function fileToTitle(name) {
+        return name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
     }
 
-    fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
+    function badgeClass(state) {
+        const base = 'queue-status flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium ';
+        const map = {
+            pending:   'bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500',
+            uploading: 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400',
+            done:      'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
+            error:     'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+        };
+        return base + (map[state] || map.pending);
+    }
 
-    dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.borderColor = '#6366f1'; });
-    dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = ''; });
-    dropZone.addEventListener('drop', e => {
-        e.preventDefault();
-        dropZone.style.borderColor = '';
-        const file = e.dataTransfer.files[0];
-        if (file) {
-            const dt = new DataTransfer();
-            dt.items.add(file);
-            fileInput.files = dt.files;
-            handleFile(file);
-        }
-    });
+    function setRowStatus(item, state, msg) {
+        item.statusBadge.className = badgeClass(state);
+        const labels = { pending: 'Pending', uploading: 'Uploading…', done: '✓ Done' };
+        item.statusBadge.textContent = state === 'error' ? ('✗ ' + (msg || 'Error')) : (labels[state] || state);
+        if (state === 'done') item.row.style.opacity = '0.6';
+    }
 
     function showErr(id, msg) {
         const el = document.getElementById(id);
@@ -325,61 +318,185 @@
         if (el) el.style.display = 'none';
     }
 
+    function syncUI() {
+        const n = uploadFiles.length;
+        queueCountEl.textContent = n;
+        queueWrap.style.display = n ? 'flex' : 'none';
+        queueHint.style.display = n ? 'none' : 'block';
+        btnLabel.textContent = n > 1 ? `Upload ${n} files` : 'Upload';
+        btnSubmit.disabled = n === 0 || isUploading;
+    }
+
+    function addFiles(files) {
+        Array.from(files).forEach(file => {
+            const row = document.createElement('div');
+            row.className = 'queue-row flex items-start gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700';
+
+            const icon = document.createElement('i');
+            icon.className = 'ti ti-file-text text-slate-400 dark:text-slate-500 flex-shrink-0 text-sm mt-1.5';
+
+            const meta = document.createElement('div');
+            meta.className = 'flex-1 min-w-0 flex flex-col gap-0.5';
+
+            const titleInput = document.createElement('input');
+            titleInput.type = 'text';
+            titleInput.className = 'w-full text-xs font-medium text-slate-700 dark:text-slate-200 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-indigo-400 outline-none pb-0.5';
+            titleInput.value = fileToTitle(file.name);
+            titleInput.placeholder = 'Document title';
+            titleInput.maxLength = 255;
+
+            const sizeLine = document.createElement('p');
+            sizeLine.className = 'text-[10px] text-slate-400 dark:text-slate-500 truncate';
+            sizeLine.textContent = (file.size / 1048576).toFixed(1) + ' MB · ' + file.name;
+
+            meta.appendChild(titleInput);
+            meta.appendChild(sizeLine);
+
+            const statusBadge = document.createElement('span');
+            statusBadge.className = badgeClass('pending');
+            statusBadge.textContent = 'Pending';
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'flex-shrink-0 text-slate-300 dark:text-slate-600 hover:text-red-400 transition-colors mt-1';
+            removeBtn.innerHTML = '<i class="ti ti-x text-xs"></i>';
+
+            row.appendChild(icon);
+            row.appendChild(meta);
+            row.appendChild(statusBadge);
+            row.appendChild(removeBtn);
+            queueList.appendChild(row);
+
+            const item = { file, titleInput, statusBadge, row };
+            uploadFiles.push(item);
+            removeBtn.addEventListener('click', () => {
+                if (isUploading) return;
+                row.remove();
+                uploadFiles.splice(uploadFiles.indexOf(item), 1);
+                syncUI();
+            });
+        });
+        syncUI();
+    }
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) addFiles(fileInput.files);
+        fileInput.value = '';
+    });
+
+    dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.borderColor = '#6366f1'; });
+    dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = ''; });
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.style.borderColor = '';
+        if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+    });
+
+    btnClear.addEventListener('click', () => {
+        if (isUploading) return;
+        uploadFiles = [];
+        queueList.innerHTML = '';
+        syncUI();
+    });
+
     form.addEventListener('submit', async e => {
         e.preventDefault();
+        if (isUploading || uploadFiles.length === 0) return;
 
-        let ok = true;
-        if (!titleInput.value.trim()) { showErr('err-title', 'Title is required.');      ok = false; } else clearErr('err-title');
-        if (!typeSelect.value)        { showErr('err-type',  'Select a document type.'); ok = false; } else clearErr('err-type');
-        if (!fileInput.files[0])      { showErr('err-file',  'Please select a file.');   ok = false; } else clearErr('err-file');
-        if (!ok) return;
-
-        btnSubmit.disabled = true;
-        btnLabel.textContent = 'Uploading…';
-        status.textContent = '';
-
-        try {
-            const formData = new FormData(form);
-            if (fileInput.files[0]) formData.append('file', fileInput.files[0]);
-
-            const res = await fetch(page.storeUrl, {
-                method:  'POST',
-                headers: {
-                    'Accept':           'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'X-CSRF-TOKEN':     page.csrfToken,
-                },
-                body: formData,
-            });
-
-            const contentType = res.headers.get('Content-Type') || '';
-            if (!contentType.includes('application/json')) {
-                if (res.status === 419) throw new Error('Session expired — please refresh and try again.');
-                if (res.redirected) { window.location.href = res.url; return; }
-                throw new Error('Unexpected server response (HTTP ' + res.status + '). Please refresh and retry.');
-            }
-
-            const json = await res.json();
-
-            if (res.status === 422) {
-                const map = { title: 'err-title', document_type: 'err-type', file: 'err-file' };
-                Object.entries(json.errors || {}).forEach(([field, msgs]) => {
-                    if (map[field]) showErr(map[field], msgs[0]);
-                });
-                return;
-            }
-
-            if (!res.ok) throw new Error(json.message || 'Upload failed (HTTP ' + res.status + ')');
-
-            window.location.href = json.redirect || window.location.href;
-
-        } catch (err) {
-            status.textContent = err.message;
-            console.error('Upload error:', err);
-        } finally {
-            btnSubmit.disabled = false;
-            btnLabel.textContent = 'Upload';
+        clearErr('err-type');
+        if (!typeSelect.value) {
+            showErr('err-type', 'Select a document type before uploading.');
+            return;
         }
+
+        const type         = typeSelect.value;
+        const visibility   = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+        const contextInput = form.querySelector('[name="rule_set_id"]');
+
+        isUploading = true;
+        btnSubmit.disabled = true;
+        statusEl.textContent = '';
+        btnSubmit.onclick = null;
+
+        let doneCount = 0, errorCount = 0, lastRedirect = null;
+
+        for (let i = 0; i < uploadFiles.length; i++) {
+            const item = uploadFiles[i];
+            const title = item.titleInput.value.trim();
+
+            if (!title) {
+                setRowStatus(item, 'error', 'Title required');
+                errorCount++;
+                continue;
+            }
+
+            setRowStatus(item, 'uploading');
+            statusEl.textContent = `Uploading ${i + 1} of ${uploadFiles.length}…`;
+
+            try {
+                const fd = new FormData();
+                fd.append('_token', page.csrfToken);
+                if (contextInput) fd.append(contextInput.name, contextInput.value);
+                fd.append('title', title);
+                fd.append('document_type', type);
+                fd.append('visibility', visibility);
+                fd.append('file', item.file);
+
+                const res = await fetch(page.storeUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept':           'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN':     page.csrfToken,
+                    },
+                    body: fd,
+                });
+
+                const ct = res.headers.get('Content-Type') || '';
+                if (!ct.includes('application/json')) {
+                    if (res.status === 419) throw new Error('Session expired — refresh and try again');
+                    throw new Error('HTTP ' + res.status);
+                }
+
+                const json = await res.json();
+                if (!res.ok) {
+                    const msg = json.errors
+                        ? Object.values(json.errors).flat()[0]
+                        : (json.message || 'Upload failed');
+                    setRowStatus(item, 'error', msg);
+                    errorCount++;
+                    continue;
+                }
+
+                setRowStatus(item, 'done');
+                doneCount++;
+                lastRedirect = json.redirect;
+
+            } catch (err) {
+                setRowStatus(item, 'error', err.message);
+                errorCount++;
+                console.error('Upload error:', item.file.name, err);
+            }
+        }
+
+        isUploading = false;
+
+        if (errorCount === 0 && lastRedirect) {
+            window.location.href = lastRedirect;
+            return;
+        }
+
+        if (doneCount > 0 && lastRedirect) {
+            statusEl.textContent = `${doneCount} uploaded, ${errorCount} failed — fix errors or continue.`;
+            btnSubmit.disabled = false;
+            btnLabel.textContent = 'Go to page';
+            btnSubmit.onclick = ev => { ev.preventDefault(); window.location.href = lastRedirect; };
+        } else {
+            statusEl.textContent = `${doneCount} uploaded, ${errorCount} failed.`;
+            btnSubmit.disabled = false;
+            btnLabel.textContent = errorCount > 0 ? `Retry (${errorCount} failed)` : 'Upload';
+        }
+        syncUI();
     });
 })();
 </script>
