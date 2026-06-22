@@ -182,7 +182,8 @@ Unique constraint: `(department_id, slug)`.
 | `original_pdf_path` | string | Full relative path on `public` disk |
 | `markdown_path` | string nullable | Set after extraction job completes |
 | `vault_path` | string nullable | Vault directory; set at upload |
-| `status` | string | `uploaded → processing → ocr_pending → review → verified \| failed` |
+| `status` | string | `uploaded → processing → ocr_pending → review → verified \| failed` — pipeline state only |
+| `visibility` | string | `public` (default) \| `authenticated` — guest access gate, independent of status |
 | `metadata` | json nullable | GO number, subject, dates, etc. |
 | timestamps + softDeletes | | |
 
@@ -238,5 +239,6 @@ Active development. The core upload, browse, and rule-set flows are working end-
 
 - Basic search: `GET /search?q=` across document titles, section names, and rule set names/descriptions — results split into three typed blocks (Documents / Sections / Rule Sets); guests see verified docs only; header search bar wired to this route; Search link added to sidebar
 - Two-stage document deletion: soft-delete with mandatory reason (stored in status history audit log) → trash view (`GET /documents/trash`) with restore and permanent-delete actions; permanent delete removes files from disk before hard-deleting the DB record; SweetAlert2 used for all confirmations
+- Document visibility control: `public` (default, visible to all guests) vs `authenticated` (logged-in users only); decoupled from the processing-status pipeline so documents can be public immediately on upload without waiting for the review/verified workflow; visibility selector in upload modals; badge on document show page
 
 **Next up:** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.
