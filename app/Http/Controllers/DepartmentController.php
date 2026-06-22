@@ -14,7 +14,13 @@ class DepartmentController extends Controller
 {
     public function index(): View
     {
-        $departments = Department::withCount(['sections', 'documents'])
+        $isGuest = ! auth()->check();
+        $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
+
+        $departments = Department::withCount([
+            'sections',
+            'documents' => $visibilityScope,
+        ])
             ->orderBy('level')
             ->orderBy('name')
             ->get();
@@ -45,9 +51,23 @@ class DepartmentController extends Controller
 
     public function show(string $level, Department $department): View
     {
-        $department->loadCount(['sections', 'documents']);
-        $sections = $department->sections()->withCount('documents')->orderBy('name')->get();
-        $ruleSets = $department->ruleSets()->withCount('documents')->orderBy('name')->get();
+        $isGuest = ! auth()->check();
+        $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
+
+        $department->loadCount([
+            'sections',
+            'documents' => $visibilityScope,
+        ]);
+
+        $sections = $department->sections()
+            ->withCount(['documents' => $visibilityScope])
+            ->orderBy('name')
+            ->get();
+
+        $ruleSets = $department->ruleSets()
+            ->withCount(['documents' => $visibilityScope])
+            ->orderBy('name')
+            ->get();
 
         return view('department.show', compact('department', 'sections', 'ruleSets'));
     }

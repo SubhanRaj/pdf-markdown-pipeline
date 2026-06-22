@@ -47,7 +47,7 @@ class RuleSetController extends Controller
     {
         $documents = $ruleSet->documents()
             ->with('user:id,name')
-            ->when(! auth()->check(), fn ($q) => $q->where('status', 'verified'))
+            ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
             ->orderBy('created_at')
             ->paginate(30)
             ->withQueryString();

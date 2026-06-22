@@ -195,7 +195,7 @@ Standard Laravel/Fortify users table with `is_admin` boolean. Public registratio
 | Departments | `DepartmentController` | Full CRUD; slug-based route model binding; loads rule sets for show page |
 | Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + upload modal |
 | Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; upload modal on show page pre-selects `rule_amendment` type |
-| Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see verified docs only; results capped at 50 docs + 20 sections + 20 rule sets |
+| Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see `visibility = 'public'` docs only; results capped at 50 docs + 20 sections + 20 rule sets |
 | User management | `Admin\UserManagementController` | Admin-only; account creation, role toggle, self-delete guard |
 
 ### Route map
@@ -282,7 +282,12 @@ Documents carry a `visibility` column independent of the processing-status workf
 | `public` (default) | All visitors, including unauthenticated guests |
 | `authenticated` | Logged-in users only |
 
-**Guest gate** — every public-facing query (`DocumentController@index/show/pdf`, `SectionController@show`, `FrontendController@dashboard`, `SearchController@index`) filters on `visibility = 'public'` for unauthenticated requests. The old `status = 'verified'` gate has been removed entirely.
+**Guest gate** — every public-facing query filters on `visibility = 'public'` for unauthenticated requests. The old `status = 'verified'` gate has been removed entirely. Applies to:
+- `DocumentController@index/show/pdf` and `@showRuleSetDoc/@pdfRuleSetDoc` — `show` and `showRuleSetDoc` abort(403) if the document's visibility is `authenticated` and the user is a guest
+- `SectionController@index/show` and `RuleSetController@show` — `withCount('documents')` and list queries are scoped to `visibility = 'public'` for guests
+- `DepartmentController@index/show` — `withCount('documents')` on department, section, and rule-set rows scoped per auth state
+- `FrontendController@dashboard` — stat counts (`total`, `uploaded`, `verified`) are scoped to public-only for guests; pipeline-only stats (`review`, `processing`, `failed`) return 0 to guests
+- `SearchController@index` — filters on `visibility = 'public'` for guests
 
 **Upload modals** — both section and rule-set upload modals include a visibility radio selector (defaults to Public). The `StoreDocumentRequest` validates and passes the value through to `Document::create()`.
 
@@ -299,7 +304,7 @@ Documents carry a `visibility` column independent of the processing-status workf
 
 `GET /search?q=` → `SearchController@index` → `search/index.blade.php`. Public route, no auth required.
 
-**Query scope:** LIKE `%q%` on `documents.title`; also surfaces documents whose `section.name` or `rule_set.name` matches. Separate LIKE queries on `sections.name` and `rule_sets.name` + `description`. Guests see only `status = verified` documents.
+**Query scope:** LIKE `%q%` on `documents.title`; also surfaces documents whose `section.name` or `rule_set.name` matches. Separate LIKE queries on `sections.name` and `rule_sets.name` + `description`. Guests see only `visibility = 'public'` documents.
 
 **Result ordering:** documents with a direct title match float first (via `CASE WHEN` `orderByRaw`), then by `created_at DESC`. Capped at 50 documents, 20 sections, 20 rule sets.
 
@@ -323,7 +328,23 @@ Deletion is a two-stage process — soft-delete to trash, then optional permanen
 **Trash view (`GET /documents/trash` → `documents.trash`):**
 - Auth-only. Shows all soft-deleted documents ordered by `deleted_at DESC`.
 - Each row displays: title, department, section/rule-set, deletion timestamp, actor, and the reason from the status history entry with `to_status = 'deleted'`.
+- Each row has three actions: **View** (slide-over drawer), **Restore**, and **Delete Forever** (admin-only).
 - Sidebar: "Trash" link (`ti-trash` icon) visible to all authenticated users. "All Documents" active-state check excludes `documents.trash` so it doesn't highlight incorrectly.
+
+**Trash document slide-over drawer:**
+- Opened by the "View" button on each row. A right-side panel slides in without leaving the trash page.
+- Shows: title, department/context, document type, status badge, visibility badge, uploader + upload date, deletion reason, deleted-by + deleted-at.
+- Embeds the PDF inline via `<iframe>` — PDF is served through `GET /documents/trash/{id}/pdf` → `DocumentController@trashedPdf`, which uses `Document::onlyTrashed()->findOrFail($id)` and streams from the `public` disk. Route lives inside the `auth` middleware group — no raw `Storage::url()` links are used.
+- For non-PDF uploads (or missing files) a "No PDF file attached" fallback is shown.
+- Footer contains Restore and Delete Forever buttons with the same Swal2 confirmations as the row-level buttons.
+- Drawer data is prepared server-side in `DocumentController@trash` as `$trashData` (a mapped collection) and passed to the view as a JSON data island (`<script id="trash-docs" type="application/json">`). The mapping must stay in the controller — Blade's parser mis-handles multi-line `fn()` arrow functions with bracket expressions inside `@json(...)`.
+- Closes on backdrop click or Escape key.
+
+**Trashed PDF route (`GET /documents/trash/{id}/pdf` → `documents.trashed.pdf`):**
+- Auth-only. Resolves via `Document::onlyTrashed()->findOrFail($id)`. Streams the PDF with `Content-Disposition: inline`. Aborts 404 if the file is missing from disk.
+
+**Soft delete from list views:**
+- The delete button on `rule_sets/show` and `sections/show` document rows uses a `<button class="doc-delete-btn" data-action="..." data-title="...">` — no `<form>` is rendered inline. A JS handler fires a Swal2 modal that prompts for a reason, then dynamically builds and submits a hidden DELETE form. `Swal.escapeHtml` does not exist in Swal2 — use a local `esc()` helper for HTML-escaping user data in modal HTML.
 
 **Restore (`POST /documents/trash/{id}/restore` → `documents.restore`):**
 - Auth-only. Resolves the document via `Document::withTrashed()->findOrFail($id)` (numeric ID — slug binding doesn't work on soft-deleted records).
