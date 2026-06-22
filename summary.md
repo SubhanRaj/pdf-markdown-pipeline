@@ -358,3 +358,47 @@ Replaced the native `window.confirm()` one-step delete pattern with a two-stage 
 ### SweetAlert2 (`sweetalert2@11`)
 
 Added to `head.blade.php` via jsDelivr — available globally on all pages. All destructive confirmations migrated from `window.confirm()` / `onsubmit` checks to `Swal.fire()`. Dark mode respected via `document.documentElement.classList.contains('dark')`. All JS init blocks wrapped in `try/catch`.
+
+---
+
+## M14 — Document Visibility Control (Public vs Authenticated-Only)
+
+Decoupled access control from the processing-status workflow. The old pattern of `status = 'verified'` as the guest gate was a proxy and blocked public access to legitimately uploaded documents that hadn't been reviewed yet. Visibility is now an explicit, independent field.
+
+### Design decision
+
+The processing status (`uploaded → processing → ocr_pending → review → verified | failed`) tracks the **document conversion pipeline**. It has nothing to do with who should be able to read the document. A policy GO uploaded today should be publicly accessible immediately if the uploader marks it so — it doesn't need to go through OCR and human review before citizens can download the PDF.
+
+Conversely, departmental proceedings, dandaadesh, trial documents, and internal circulars should only be visible to logged-in departmental users — regardless of their processing status.
+
+### New column: `documents.visibility`
+
+| Value | Meaning |
+|---|---|
+| `public` (default) | Visible to all visitors, including unauthenticated guests |
+| `authenticated` | Restricted to logged-in users only |
+
+Migration: `2026_06_22_065143_add_visibility_to_documents_table.php` — adds `string visibility default 'public'`. All existing rows default to `public`.
+
+### Changes across the codebase
+
+**Model** — `Document::VISIBILITY` constant added; `'visibility'` added to `$fillable`.
+
+**`StoreDocumentRequest`** — `visibility` field added: `nullable|in:public,authenticated`, defaults to `'public'` in `prepareForValidation()`.
+
+**`DocumentController@store`** — passes `$validated['visibility']` to `Document::create()`.
+
+**Guest gate replaced in all five locations:**
+
+| File | Old condition | New condition |
+|---|---|---|
+| `DocumentController@index` | `status = 'verified'` | `visibility = 'public'` |
+| `DocumentController@show` + `@pdf` | `$doc->status !== 'verified'` | `$doc->visibility !== 'public'` |
+| `DocumentController@showRuleSetDoc` + `@pdfRuleSetDoc` | same | same |
+| `SectionController@show` | `status = 'verified'` | `visibility = 'public'` |
+| `FrontendController@dashboard` | `status = 'verified'` | `visibility = 'public'` |
+| `SearchController@index` | `status = 'verified'` | `visibility = 'public'` |
+
+**Upload modals** (`sections/show.blade.php`, `rule_sets/show.blade.php`) — visibility radio group added below the document type selector. Default: Public. Options: 🌐 Public / 🔒 Authenticated Only. Helper text explains the distinction.
+
+**`documents/show.blade.php`** — visibility badge in document header: green globe for Public, amber lock for Authenticated Only.

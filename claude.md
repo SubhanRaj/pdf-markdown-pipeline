@@ -161,6 +161,7 @@ Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueS
 | `markdown_path` | string nullable | set after extraction job completes |
 | `vault_path` | string nullable | vault directory path; set at upload |
 | `status` | string | `uploaded` → `processing` → `ocr_pending` → `review` → `verified` \| `failed` |
+| `visibility` | string | `public` (default) \| `authenticated` — controls guest access independently of status |
 | `metadata` | json nullable | GO number, subject, dates, etc. |
 | `timestamps` + `softDeletes` | | |
 
@@ -183,7 +184,7 @@ Both check `withTrashed()` and append `-2`, `-3` on collision.
 ### `users`
 Standard Laravel/Fortify users table with `is_admin` boolean. Public registration disabled — admin-created only.
 
-## What's built (as of 2026-06-22)
+## What's built (as of 2026-06-22, updated)
 
 ### Modules / controllers
 
@@ -272,9 +273,26 @@ Rule-set docs: `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` → `D
 
 Both stream from the `public` disk via `Storage::disk('public')->response(...)` with `Content-Disposition: inline`. Guests blocked (403) on non-verified documents. Always link via these routes — raw `Storage::url()` links bypass the auth gate.
 
+### Document visibility
+
+Documents carry a `visibility` column independent of the processing-status workflow:
+
+| Value | Who can access |
+|---|---|
+| `public` (default) | All visitors, including unauthenticated guests |
+| `authenticated` | Logged-in users only |
+
+**Guest gate** — every public-facing query (`DocumentController@index/show/pdf`, `SectionController@show`, `FrontendController@dashboard`, `SearchController@index`) filters on `visibility = 'public'` for unauthenticated requests. The old `status = 'verified'` gate has been removed entirely.
+
+**Upload modals** — both section and rule-set upload modals include a visibility radio selector (defaults to Public). The `StoreDocumentRequest` validates and passes the value through to `Document::create()`.
+
+**`documents/show`** — green "Public" or amber "Authenticated Only" badge shown in the document header.
+
+**Key distinction:** `status` tracks the conversion pipeline (`uploaded → processing → review → verified`); `visibility` controls read access. A document can be `public` while still `uploaded` (guests can download the original PDF immediately), or `authenticated` while `verified` (internal-only even after full processing).
+
 ### Document views
 
-- **`documents/show`** — context-aware: receives either `$section` (section doc) or `$ruleSet` (rule-set doc). A `$isRuleSetDoc` flag switches breadcrumbs, page subtitle, vault path display, and all route helpers (PDF, edit, destroy) without duplicating the template. The "Section / Rule Set" metadata label also adapts.
+- **`documents/show`** — context-aware: receives either `$section` (section doc) or `$ruleSet` (rule-set doc). A `$isRuleSetDoc` flag switches breadcrumbs, page subtitle, vault path display, and all route helpers (PDF, edit, destroy) without duplicating the template. The "Section / Rule Set" metadata label also adapts. Visibility badge shown in header.
 - **`documents/index`** — tabbed by department; renders both section and rule-set documents; row links branch on `$doc->section ? documents.show : documents.rules.show`.
 
 ### Search
@@ -370,6 +388,7 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 11. **Rule-set slug is immutable after creation** — `UpdateRuleSetRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths.
 12. **Two-stage document deletion** — `DELETE /documents/…` soft-deletes only (sets `deleted_at`). Physical files are never removed at this stage. Permanent file+record removal requires a second explicit action from the trash view (`DELETE /documents/trash/{id}`). This preserves recoverability and the full audit trail until an admin consciously decides to purge. The deletion reason is always captured and stored in `document_status_histories` before the soft-delete occurs.
 13. **SweetAlert2 for all confirmations** — all destructive-action confirmations use `Swal.fire()` (loaded globally via jsDelivr `sweetalert2@11`). Never use `window.confirm()` or inline `onsubmit` confirm checks. Respect dark mode by passing `background` and `color` based on `document.documentElement.classList.contains('dark')`.
+14. **`visibility` is the sole guest access gate** — the old `status = 'verified'` filter for guests has been removed. Access control for unauthenticated users is now exclusively determined by `documents.visibility` (`public` | `authenticated`). The `status` column tracks only the conversion pipeline state and must never be used as an access gate. When writing any query that serves public-facing views, filter on `visibility = 'public'` for guests — never on `status`.
 
 ## Frontend architecture
 
