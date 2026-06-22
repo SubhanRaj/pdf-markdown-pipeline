@@ -182,7 +182,7 @@ Both check `withTrashed()` and append `-2`, `-3` on collision.
 | `created_at` | timestamp | append-only — no `updated_at` |
 
 ### `users`
-Standard Laravel/Fortify users table with `is_admin` boolean. Public registration disabled — admin-created only.
+Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings), `department_id` (FK, nullable), `section_id` (FK, nullable). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
 
 ## What's built (as of 2026-06-22, updated)
 
@@ -196,7 +196,7 @@ Standard Laravel/Fortify users table with `is_admin` boolean. Public registratio
 | Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + multi-file upload modal |
 | Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; multi-file upload modal on show page pre-selects `rule_amendment` type |
 | Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see `visibility = 'public'` docs only; results capped at 50 docs + 20 sections + 20 rule sets |
-| User management | `Admin\UserManagementController` | Admin-only; account creation, role toggle, self-delete guard |
+| User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins |
 
 ### Route map
 
@@ -226,9 +226,10 @@ Controller method signatures **must** declare `string $level` as their first par
 | Departments | `GET /departments`, `GET /departments/{level}/{dept}` | `POST /departments`, edit/patch/delete |
 | Sections | `GET /departments/{level}/{dept}/sections/{section}` | `POST`, edit/patch/delete |
 | Rule sets | `GET /departments/{level}/{dept}/rules/{rule_set}` | `POST /departments/{level}/{dept}/rules`, edit/patch/delete |
-| Admin users | — | `GET/POST /admin/users`, edit/patch/delete |
+| Admin users | — | `GET/POST /admin/users`, edit/patch/delete — **admin-only via `IsAdmin` middleware** |
+| Profile (self-edit) | — | `GET /profile/edit`, `PATCH /profile` — any authenticated user, own record only |
 
-Route names: `documents.show`, `documents.rules.show`, `departments.sections.show`, `departments.rules.show`, `admin.users.create`, etc.
+Route names: `documents.show`, `documents.rules.show`, `departments.sections.show`, `departments.rules.show`, `admin.users.create`, `profile.edit`, `profile.update`.
 
 ### Slug-based routing (all models)
 
@@ -369,6 +370,40 @@ Deletion is a two-stage process — soft-delete to trash, then optional permanen
 - **`rule_sets/edit`** — same, pre-populated; slug is read-only (set at creation, never changed).
 - **`rule_sets/show`** — header with description, upload amendment modal (hidden for guests; pre-selects `rule_amendment` type; sends `rule_set_id`), amendment/document timeline list with status badges and auth-gated view/delete actions.
 
+### User management & profile
+
+**Security model** — two distinct access tiers enforced at the route layer, not just in Form Requests:
+
+| Tier | Routes | Middleware | What's accessible |
+|---|---|---|---|
+| Admin CRUD | `admin.*` | `auth` + `is_admin` | Full user list, create, show, edit any user, delete, role/privilege assignment |
+| Self-edit profile | `profile.*` | `auth` | Own name/username/email/mobile/post/password only — no role or privilege fields |
+
+`admin.*` routes are gated by `IsAdmin` middleware (`app/Http/Middleware/IsAdmin.php`, alias `is_admin`, registered in `bootstrap/app.php`). This was the critical fix: previously only `auth` middleware was applied, allowing any authenticated user to list all accounts, access the create form, and delete other users.
+
+**Form Requests:**
+- `StoreUserRequest` — `authorize()` requires `isAdmin()`; validates all user fields including role.
+- `UpdateUserRequest` — `authorize()` requires `isAdmin()`; validates all fields including role/privileges/dept/section. Used only by `admin.users.update`.
+- `UpdateProfileRequest` — `authorize()` requires any authenticated user (`$this->user() !== null`); validates name/username/email/mobile/post/password only. Scopes `unique` checks to `auth()->user()->id`. No role, privilege, department, or section fields — those cannot be self-assigned.
+
+**Views:**
+- `admin/users/index.blade.php` — paginated user table (admin-only).
+- `admin/users/create.blade.php` — account creation form with full role/privilege/dept/section fields (admin-only).
+- `admin/users/edit.blade.php` — full edit form including role, privileges, department, section (admin-only route).
+- `admin/users/show.blade.php` — read-only user profile card (admin-only).
+- `profile/edit.blade.php` — self-edit form: name/username/email/mobile/post/password. Role, department, and section shown as read-only display values. No role or privilege inputs rendered. JS validation identical to admin edit (same regex ruleset, password strength meter, toggle visibility).
+
+**Controller methods:**
+- `UserManagementController@editProfile` — resolves `auth()->user()`, passes to `profile.edit` view with departments/sections for display.
+- `UserManagementController@updateProfile` — uses `UpdateProfileRequest`; updates only the allowed fields; never touches role/privileges/dept/section.
+- `UserManagementController@destroy` — self-delete guard uses `auth()->id()` (not `auth()->user()->id`) to avoid the nullable dereference.
+
+**Previously identified vulnerabilities (now fixed):**
+1. All `admin.*` routes had only `auth` middleware — any logged-in user could view the full user list, access the create form, and delete other accounts. Fixed by adding `is_admin` middleware to the entire `admin.*` group.
+2. `UpdateUserRequest::authorize()` was the only admin gate for updates — the GET routes (index, create, show, edit) had no gate at all. Fixed by middleware.
+3. `destroy` had a self-delete guard but no admin check — any authenticated user could delete any other user's account. Fixed by middleware.
+4. No self-edit path existed for non-admin users — attempting to use `admin.users.edit` on own record with non-admin credentials would 403 on save even though the GET succeeded. Fixed by adding dedicated `profile.*` routes.
+
 ### Sidebar auth states
 
 | State | Sections shown |
@@ -376,6 +411,8 @@ Deletion is a two-stage process — soft-delete to trash, then optional permanen
 | Guest | Browse Vault + Departments (→ `departments.index`) |
 | Authenticated | Browse Vault + Manage → Departments |
 | Admin | Browse Vault + Manage → Departments + Users |
+
+**Sidebar user strip (bottom)** — the avatar initial and display name are clickable links for all authenticated users. Admins are linked to `admin.users.edit` (their own record); non-admins are linked to `profile.edit`. Guests see a static "G" avatar with a login icon.
 
 **Browse Vault is fully dynamic** — `sidebar.blade.php` queries all `Department` records ordered by level then name. Icon and color resolved from a `$deptMeta` slug → `[icon, color]` map; unknown slugs fall back to a cycling palette. Slug keys use underscores (matching DB slugs), e.g. `sugarcane_sugar`.
 
@@ -559,10 +596,13 @@ try {
 
 ### Auth & access control
 - Mutations (POST/PATCH/DELETE) are always behind `middleware('auth')` — no exceptions.
-- Admin-only routes live under the `admin.*` name prefix and additionally check `$user->isAdmin()` inside the Form Request's `authorize()` method.
+- Admin-only routes are gated by **both** `middleware('is_admin')` on the route group AND `$user->isAdmin()` in each Form Request's `authorize()`. Defense in depth — never rely on Form Request alone for route-level access control.
+- `IsAdmin` middleware (`app/Http/Middleware/IsAdmin.php`) is registered as the `is_admin` alias in `bootstrap/app.php`. It aborts 403 for any non-admin. Applied to the entire `admin.*` route group.
 - Use `$request->user()?->isAdmin()` (nullable-safe) in `authorize()` — never assume the user is logged in inside a Form Request.
-- Self-deletion must be blocked explicitly in controllers (see `UserManagementController@destroy`).
+- Self-deletion must be blocked explicitly in controllers (see `UserManagementController@destroy` using `auth()->id()`).
 - Fortify's public registration is **disabled** — accounts are admin-created only.
+- **Profile self-edit** (`GET /profile/edit`, `PATCH /profile`) — any authenticated user may edit their own name, username, email, mobile, post, and password. Role, privileges, department, and section are read-only (admin-assigned). Validated by `UpdateProfileRequest` which scopes uniqueness checks to `auth()->user()->id` and has no role/privilege fields. The `admin.users.edit` / `admin.users.update` routes are strictly admin-only and must not be used for self-editing by non-admins.
+- Sidebar avatar and name are clickable links: admins → `admin.users.edit` for their own record; non-admins → `profile.edit`.
 
 ### Rate limiting
 - All auth mutation route groups carry `throttle:mutations` middleware (60/min/user).

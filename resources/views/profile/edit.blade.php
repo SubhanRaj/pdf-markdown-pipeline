@@ -1,28 +1,27 @@
 <x-layout
-    title="Edit User"
-    page-title="Edit User"
-    page-subtitle="Update account details for {{ $user->name }}"
+    title="My Profile"
+    page-title="My Profile"
+    page-subtitle="Update your account details and password"
 >
 
 <x-breadcrumb :items="[
     ['name' => 'Home', 'url' => route('home')],
-    ['name' => 'Users', 'url' => route('admin.users.index')],
-    ['name' => 'Edit · ' . $user->name, 'url' => null],
+    ['name' => 'My Profile', 'url' => null],
 ]" />
 
 <form
-    id="editUserForm"
+    id="profileForm"
     method="POST"
-    action="{{ route('admin.users.update', $user) }}"
+    action="{{ route('profile.update') }}"
     novalidate
-    class="max-w-5xl"
+    class="max-w-3xl"
 >
     @csrf
     @method('PATCH')
 
     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700">
 
-        {{-- ── Section: Identity ── --}}
+        {{-- ── Identity ── --}}
         <div class="px-6 py-5">
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
                 <i class="ti ti-user text-slate-400 dark:text-slate-500"></i> Identity
@@ -77,10 +76,42 @@
                     @error('mobile') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
 
+                <div class="col-span-2">
+                    <label for="post" class="field-label">Post / Designation</label>
+                    <input id="post" name="post" type="text"
+                        value="{{ old('post', $user->post) }}"
+                        placeholder="e.g. Section Officer"
+                        class="field-input @error('post') field-error @enderror"
+                        data-rule="post">
+                    @error('post') <p class="field-err-msg">{{ $message }}</p> @enderror
+                </div>
+
             </div>
         </div>
 
-        {{-- ── Section: Password ── --}}
+        {{-- ── Role & Department (read-only) ── --}}
+        <div class="px-6 py-5">
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
+                <i class="ti ti-shield-check text-slate-400 dark:text-slate-500"></i> Role & Assignment
+                <span class="text-xs font-normal text-slate-400 dark:text-slate-500">(set by administrator)</span>
+            </h3>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <p class="field-label">Role</p>
+                    <p class="text-sm text-slate-700 dark:text-slate-200 font-medium mt-1">{{ ucfirst($user->role) }}</p>
+                </div>
+                <div>
+                    <p class="field-label">Department</p>
+                    <p class="text-sm text-slate-700 dark:text-slate-200 font-medium mt-1">{{ $user->department?->name ?? '—' }}</p>
+                </div>
+                <div>
+                    <p class="field-label">Section</p>
+                    <p class="text-sm text-slate-700 dark:text-slate-200 font-medium mt-1">{{ $user->section?->name ?? '—' }}</p>
+                </div>
+            </div>
+        </div>
+
+        {{-- ── Password ── --}}
         <div class="px-6 py-5">
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                 <i class="ti ti-lock text-slate-400 dark:text-slate-500"></i> Password
@@ -133,101 +164,11 @@
             </div>
         </div>
 
-        {{-- ── Section: Role & Assignment ── --}}
-        <div class="px-6 py-5">
-            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
-                <i class="ti ti-shield-check text-slate-400 dark:text-slate-500"></i> Role & Assignment
-            </h3>
-            <div class="grid grid-cols-2 gap-4">
-
-                <div class="col-span-2 sm:col-span-1">
-                    <label for="post" class="field-label">Post / Designation</label>
-                    <input id="post" name="post" type="text"
-                        value="{{ old('post', $user->post) }}"
-                        placeholder="e.g. Section Officer"
-                        class="field-input @error('post') field-error @enderror"
-                        data-rule="post">
-                    @error('post') <p class="field-err-msg">{{ $message }}</p> @enderror
-                </div>
-
-                <div class="col-span-2 sm:col-span-1">
-                    <label for="role" class="field-label">Role <span class="text-red-500">*</span></label>
-                    <select id="role" name="role"
-                        class="field-input @error('role') field-error @enderror" required>
-                        <option value="">— Select role —</option>
-                        @foreach(['admin' => 'Admin — Full access', 'operator' => 'Operator — Upload & convert', 'viewer' => 'Viewer — Read only'] as $val => $label)
-                        <option value="{{ $val }}" {{ old('role', $user->role) === $val ? 'selected' : '' }}>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                    @error('role') <p class="field-err-msg">{{ $message }}</p> @enderror
-                </div>
-
-                <div class="col-span-2 sm:col-span-1">
-                    <label for="department_id" class="field-label">Department</label>
-                    <select id="department_id" name="department_id"
-                        class="field-input @error('department_id') field-error @enderror"
-                        onchange="filterSections(this.value)">
-                        <option value="">— None —</option>
-                        @foreach($departments as $dept)
-                        <option value="{{ $dept->id }}"
-                            {{ old('department_id', $user->department_id) == $dept->id ? 'selected' : '' }}>
-                            {{ $dept->name }} ({{ $dept->level === 'secretariat_level' ? 'Secretariat' : 'Department' }})
-                        </option>
-                        @endforeach
-                    </select>
-                    @error('department_id') <p class="field-err-msg">{{ $message }}</p> @enderror
-                </div>
-
-                <div class="col-span-2 sm:col-span-1">
-                    <label for="section_id" class="field-label">Section</label>
-                    <select id="section_id" name="section_id"
-                        class="field-input @error('section_id') field-error @enderror">
-                        <option value="">— None —</option>
-                        @foreach($sections as $sec)
-                        <option value="{{ $sec->id }}"
-                            data-dept="{{ $sec->department_id }}"
-                            {{ old('section_id', $user->section_id) == $sec->id ? 'selected' : '' }}>
-                            {{ $sec->name }}
-                        </option>
-                        @endforeach
-                    </select>
-                    @error('section_id') <p class="field-err-msg">{{ $message }}</p> @enderror
-                </div>
-
-            </div>
-
-            <div class="mt-4">
-                <label class="field-label">Granular Privileges</label>
-                <p class="text-xs text-slate-400 dark:text-slate-500 mb-2">Applies on top of role. Admin always has all. Leave empty to use role defaults.</p>
-                @php
-                    $allPrivileges = [
-                        'documents.upload'   => 'Upload documents',
-                        'documents.delete'   => 'Delete documents',
-                        'documents.verify'   => 'Verify / approve',
-                        'documents.convert'  => 'Convert PDF',
-                        'departments.manage' => 'Manage departments',
-                        'users.manage'       => 'Manage users',
-                    ];
-                    $userPrivileges = old('privileges', $user->privileges ?? []);
-                @endphp
-                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    @foreach($allPrivileges as $key => $label)
-                    <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer select-none">
-                        <input type="checkbox" name="privileges[]" value="{{ $key }}"
-                            {{ in_array($key, $userPrivileges) ? 'checked' : '' }}
-                            class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-400">
-                        {{ $label }}
-                    </label>
-                    @endforeach
-                </div>
-            </div>
-        </div>
-
-        {{-- ── Footer actions ── --}}
+        {{-- ── Footer ── --}}
         <div class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 rounded-b-xl flex items-center justify-between">
-            <a href="{{ route('admin.users.index') }}"
+            <a href="{{ route('home') }}"
                class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1">
-                <i class="ti ti-arrow-left"></i> Back to Users
+                <i class="ti ti-arrow-left"></i> Back to Home
             </a>
             <button type="submit" id="submitBtn"
                 class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors">
@@ -240,10 +181,8 @@
 </form>
 
 @push('scripts')
-<script id="sections-data" type="application/json">@json($sections->keyBy('id'))</script>
 <script>
 (function () {
-
     const RULES = {
         name:     { pattern: /^[\p{L}\s'\-\.]{2,100}$/u, msg: 'Name must be 2–100 letters only (spaces, hyphens, dots allowed).' },
         username: { pattern: /^[a-zA-Z0-9_]{3,30}$/, msg: 'Username: 3–30 chars, letters/numbers/underscores only.' },
@@ -262,8 +201,8 @@
     };
 
     const strChecks = [(v) => v.length >= 8, (v) => /[A-Z]/.test(v) && /[a-z]/.test(v), (v) => /\d/.test(v), (v) => /[@$!%*?&\#^()\[\]{}|;:,.<>?\/\\`~"'\-_=+]/.test(v)];
-    const strColors  = ['bg-red-400', 'bg-amber-400', 'bg-yellow-400', 'bg-emerald-500'];
-    const strLabels  = ['Weak', 'Fair', 'Good', 'Strong'];
+    const strColors = ['bg-red-400', 'bg-amber-400', 'bg-yellow-400', 'bg-emerald-500'];
+    const strLabels = ['Weak', 'Fair', 'Good', 'Strong'];
 
     function updateStrength(val) {
         const score = strChecks.filter(fn => fn(val)).length;
@@ -315,11 +254,9 @@
         });
     });
 
-    document.getElementById('editUserForm').addEventListener('submit', function (e) {
+    document.getElementById('profileForm').addEventListener('submit', function (e) {
         const fields = Object.keys(RULES);
         const valid  = fields.map(validateField).every(Boolean);
-        const role = document.getElementById('role').value;
-        if (!role) { e.preventDefault(); document.getElementById('role').focus(); return; }
         if (!valid) {
             e.preventDefault();
             const firstError = document.querySelector('.field-error');
@@ -328,25 +265,12 @@
         }
     });
 
-    window.filterSections = function (deptId) {
-        const select  = document.getElementById('section_id');
-        const options = select.querySelectorAll('option[data-dept]');
-        options.forEach(opt => {
-            opt.hidden   = deptId && opt.dataset.dept !== deptId;
-            opt.disabled = deptId && opt.dataset.dept !== deptId;
-        });
-        if (deptId) select.value = '';
-    };
-
     window.toggleField = function (fieldId, iconId) {
-        const el = document.getElementById(fieldId);
+        const el   = document.getElementById(fieldId);
         const icon = document.getElementById(iconId);
-        el.type = el.type === 'password' ? 'text' : 'password';
+        el.type    = el.type === 'password' ? 'text' : 'password';
         icon.className = el.type === 'password' ? 'ti ti-eye text-sm' : 'ti ti-eye-off text-sm';
     };
-
-    const deptSel = document.getElementById('department_id');
-    if (deptSel.value) filterSections(deptSel.value);
 
 })();
 </script>
