@@ -1,0 +1,65 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Document;
+use App\Models\RuleSet;
+use App\Models\Section;
+use Illuminate\Http\Request;
+
+class SearchController extends Controller
+{
+    public function index(Request $request)
+    {
+        $q = trim($request->string('q'));
+
+        if ($q === '') {
+            return view('search.index', [
+                'q'         => '',
+                'documents' => collect(),
+                'sections'  => collect(),
+                'ruleSets'  => collect(),
+            ]);
+        }
+
+        $term = "%{$q}%";
+
+        // Documents — title match
+        $documentsQuery = Document::with(['department', 'section', 'ruleSet'])
+            ->where('title', 'LIKE', $term)
+            ->orWhere(fn ($sub) => $sub
+                ->whereHas('section',  fn ($s) => $s->where('name', 'LIKE', $term))
+            )
+            ->orWhere(fn ($sub) => $sub
+                ->whereHas('ruleSet', fn ($r) => $r->where('name', 'LIKE', $term))
+            );
+
+        // Guests only see verified documents
+        if (! auth()->check()) {
+            $documentsQuery->where('status', 'verified');
+        }
+
+        $documents = $documentsQuery
+            ->orderByRaw("CASE WHEN title LIKE ? THEN 0 ELSE 1 END", [$term])
+            ->orderBy('created_at', 'desc')
+            ->limit(50)
+            ->get();
+
+        // Sections — name match
+        $sections = Section::with('department')
+            ->where('name', 'LIKE', $term)
+            ->orderBy('name')
+            ->limit(20)
+            ->get();
+
+        // Rule sets — name or description match
+        $ruleSets = RuleSet::with('department')
+            ->where('name', 'LIKE', $term)
+            ->orWhere('description', 'LIKE', $term)
+            ->orderBy('name')
+            ->limit(20)
+            ->get();
+
+        return view('search.index', compact('q', 'documents', 'sections', 'ruleSets'));
+    }
+}

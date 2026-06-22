@@ -5,6 +5,7 @@ use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\FrontendController;
 use App\Http\Controllers\RuleSetController;
+use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SectionController;
 use Illuminate\Support\Facades\Route;
 
@@ -18,6 +19,8 @@ Route::get('/admin', function () {
 // ── Public ────────────────────────────────────────────────────────────────────
 
 Route::get('/', [FrontendController::class, 'dashboard'])->name('home');
+
+Route::get('/search', [SearchController::class, 'index'])->name('search.index');
 
 // Documents — read-only browse is public
 // Hierarchical URLs: /documents/{level}/{department}/{section}/{document}

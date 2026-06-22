@@ -42,6 +42,13 @@
             <span class="sidebar-text">All Documents</span>
         </a>
 
+        <a href="{{ route('search.index') }}"
+           data-tooltip="Search"
+           class="nav-link {{ request()->routeIs('search.*') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-search w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">Search</span>
+        </a>
+
         <span class="nav-section-label">Browse Vault</span>
 
         @forelse ($sidebarDepts as $i => $dept)
