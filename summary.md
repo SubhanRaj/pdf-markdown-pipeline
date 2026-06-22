@@ -317,3 +317,44 @@ Results layout:
 4. **Documents block** — reuses `documents/index` row design (status icon, title, dept · section/rule set · type badge · status badge · date; hover eye link)
 5. **Sections block** — sky-accented rows; shows wing; links to `departments.sections.show`
 6. **Rule Sets block** — violet-accented rows; shows description excerpt; links to `departments.rules.show`
+
+---
+
+## M13 — Two-Stage Document Deletion, Trash View & SweetAlert2
+
+Replaced the native `window.confirm()` one-step delete pattern with a two-stage soft-delete → permanent-delete workflow backed by an audit trail.
+
+### Delete with reason
+
+- Delete button on `documents/show` triggers a SweetAlert2 modal requesting a mandatory deletion reason (5–500 chars).
+- `DeleteDocumentRequest` validates the reason (`required|string|min:5|max:500`); `authorize()` enforces admin-only.
+- Inside `DB::transaction`: inserts a `DocumentStatusHistory` row (`to_status = 'deleted'`, `note` = reason, `actor_id` = current user) **before** calling `$document->delete()` (soft-delete).
+- Both `DocumentController@destroy` (section docs) and `@destroyRuleSetDoc` (rule-set docs) updated to accept `DeleteDocumentRequest`.
+
+### Trash view (`GET /documents/trash` → `documents.trash`)
+
+- Auth-only. Queries `Document::onlyTrashed()`, eager-loads `statusHistory` filtered to `to_status = 'deleted'` with the actor relationship.
+- Each row: title, department, section/rule-set context, document type, deletion reason and timestamp, actor name.
+- New view: `resources/views/documents/trash.blade.php`.
+
+### Restore (`POST /documents/trash/{id}/restore` → `documents.restore`)
+
+- Auth-only. Resolves via `Document::withTrashed()->findOrFail($id)` (numeric ID — slug binding doesn't cover soft-deleted records).
+- Calls `$document->restore()`, then logs a history entry (`from_status = 'deleted'`, `to_status` = the pre-existing status column value, note = 'Restored from trash.').
+- SweetAlert2 confirmation before submit.
+
+### Permanent delete (`DELETE /documents/trash/{id}` → `documents.force-destroy`)
+
+- Admin-only (controller-level `isAdmin()` gate). Resolves via `withTrashed()->findOrFail()`.
+- Inside transaction: `Storage::disk('public')->delete($original_pdf_path)` and `->delete($markdown_path)` if set, then `$document->forceDelete()`.
+- `document_status_histories` cascade-delete automatically.
+- SweetAlert2 confirmation with red confirm button and explicit "cannot be undone" text.
+
+### Sidebar update
+
+- "Trash" nav link (`ti-trash` icon) added between Search and Browse Vault — visible to all authenticated users.
+- "All Documents" active-state check updated to exclude `documents.trash`, `documents.restore`, `documents.force-destroy` so it doesn't highlight incorrectly when on the trash page.
+
+### SweetAlert2 (`sweetalert2@11`)
+
+Added to `head.blade.php` via jsDelivr — available globally on all pages. All destructive confirmations migrated from `window.confirm()` / `onsubmit` checks to `Swal.fire()`. Dark mode respected via `document.documentElement.classList.contains('dark')`. All JS init blocks wrapped in `try/catch`.

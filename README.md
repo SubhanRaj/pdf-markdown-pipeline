@@ -216,6 +216,7 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | Section document PDF | `GET /documents/{level}/{dept}/{section}/{doc}/pdf` | — |
 | Rule-set document | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}` | PATCH, DELETE |
 | Rule-set document PDF | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | — |
+| Document trash | — | `GET /documents/trash` (auth), `POST …/trash/{id}/restore`, `DELETE …/trash/{id}` (admin) |
 | Departments | `GET /departments`, `GET /departments/{level}/{dept}` | POST, PATCH, DELETE |
 | Sections | `GET /departments/{level}/{dept}/sections/{section}` | POST, PATCH, DELETE |
 | Rule sets | `GET /departments/{level}/{dept}/rules/{rule_set}` | POST, PATCH, DELETE |
@@ -236,5 +237,6 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - Browse Vault sidebar and dashboard department cards are fully dynamic
 
 - Basic search: `GET /search?q=` across document titles, section names, and rule set names/descriptions — results split into three typed blocks (Documents / Sections / Rule Sets); guests see verified docs only; header search bar wired to this route; Search link added to sidebar
+- Two-stage document deletion: soft-delete with mandatory reason (stored in status history audit log) → trash view (`GET /documents/trash`) with restore and permanent-delete actions; permanent delete removes files from disk before hard-deleting the DB record; SweetAlert2 used for all confirmations
 
 **Next up:** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.
