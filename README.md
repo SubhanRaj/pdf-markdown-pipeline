@@ -38,18 +38,49 @@ While built for government requirements, the architecture is fully open-source a
 
 ## ⚙️ PHP Configuration Requirements
 
-PHP ships with restrictive defaults that block uploads larger than 2 MB. Before running the pipeline, update your `php.ini` (typically `/usr/local/etc/php/8.x/php.ini`):
+PHP ships with restrictive defaults that block uploads larger than 2 MB. Four directives need raising before the pipeline can accept real documents. There are three places to set them — use whichever matches your deployment:
+
+### Option A — `public/.htaccess` (already present in this repo)
+
+The repo ships with these directives inside `<IfModule mod_php.c>` in `public/.htaccess`. This works for **Apache + mod_php** and takes effect immediately per-request with no server restart. It is also the only option on shared/managed hosting where you don't have php.ini access.
+
+**Requirement:** the Apache vhost or `<Directory>` block must have `AllowOverride All` (or at minimum `AllowOverride Options FileInfo`). If `AllowOverride None` is set, `.htaccess` is silently ignored.
+
+### Option B — `public/.user.ini` (Apache + php-fpm or any SAPI)
+
+Create `public/.user.ini`:
+
+```ini
+upload_max_filesize = 64M
+post_max_size       = 64M
+max_execution_time  = 120
+max_input_time      = 120
+```
+
+PHP reads this file directly for both mod_php and php-fpm. No Apache directive required. Changes take effect within 5 minutes (`user_ini.cache_ttl = 300`) without a restart.
+
+### Option C — `php.ini` on the server (recommended for a dedicated on-premise box)
+
+Edit the system php.ini — path varies by distro:
+
+| Environment | Path |
+|---|---|
+| macOS / Homebrew | `/usr/local/etc/php/8.x/php.ini` |
+| Debian / Ubuntu | `/etc/php/8.x/apache2/php.ini` |
+| RHEL / CentOS | `/etc/php.ini` |
 
 ```ini
 upload_max_filesize = 64M   ; must be ≥ the 50 MB Laravel validation limit
 post_max_size       = 64M   ; must be ≥ upload_max_filesize
-max_execution_time  = 120   ; large uploads on local hardware can exceed the 30s default
+max_execution_time  = 120   ; large uploads on slow hardware can exceed the 30s default
 max_input_time      = 120   ; time allowed to receive the upload data stream
 ```
 
-Restart PHP after changing: `brew services restart php` (macOS/Homebrew) or `sudo systemctl restart php8.x-fpm` (Linux).
+Restart after editing:
+- Apache + mod_php: `sudo systemctl restart apache2` or `brew services restart httpd`
+- Apache + php-fpm: `sudo systemctl restart php8.x-fpm`
 
-**Apache note:** Apache has no equivalent of Nginx's `client_max_body_size`. The only upload size limits that apply here are the PHP ini values above. If using Apache + mod_php, an Apache restart (`brew services restart httpd` / `sudo apachectl restart`) picks up the ini changes. If using Apache + php-fpm, restart the fpm pool instead.
+**Note:** `post_max_size` must always be ≥ `upload_max_filesize` — the POST body wraps the file plus form fields. Apache has no `client_max_body_size` equivalent (that's Nginx); PHP is the only gatekeeper here.
 
 ## 📂 Document Vault Structure
 

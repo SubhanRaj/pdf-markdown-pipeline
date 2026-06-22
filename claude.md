@@ -31,20 +31,35 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Queue | Laravel **database** queue driver — deliberately no Redis, single-box local deployment |
 | Disk | Single local filesystem disk (`public`); logical separation enforced by path convention, not multiple disks |
 
-## PHP ini requirements
+## PHP upload limits
 
-The defaults shipped by PHP are too restrictive for document uploads (default `upload_max_filesize` is 2 MB). Edit `/usr/local/etc/php/8.5/php.ini` (path varies by install) and set:
+PHP's defaults (2 MB upload, 8 MB POST) block real document uploads. Four directives must be raised. Three options, in order of preference for this project:
 
+**Option A — `public/.htaccess`** (already in the repo, works immediately for Apache + mod_php, no restart needed)
+```apache
+<IfModule mod_php.c>
+    php_value upload_max_filesize 64M
+    php_value post_max_size       64M
+    php_value max_execution_time  120
+    php_value max_input_time      120
+</IfModule>
+```
+Requires `AllowOverride All` (or `AllowOverride Options FileInfo`) in the Apache vhost/Directory block — otherwise `.htaccess` is silently ignored.
+
+**Option B — `public/.user.ini`** (works for both mod_php and php-fpm, no Apache directive needed, ~5 min TTL)
 ```ini
-upload_max_filesize = 64M   ; must be ≥ Laravel's 50 MB validation limit
-post_max_size       = 64M   ; must be ≥ upload_max_filesize
-max_execution_time  = 120   ; large uploads on local hardware can exceed the 30s default
-max_input_time      = 120   ; time allowed to receive the upload stream
+upload_max_filesize = 64M
+post_max_size       = 64M
+max_execution_time  = 120
+max_input_time      = 120
 ```
 
-After editing, restart PHP: `brew services restart php` (Homebrew) or `sudo systemctl restart php8.5-fpm` (Linux).
+**Option C — system `php.ini`** (cleanest for a dedicated on-premise server; requires Apache/fpm restart to apply)
+- macOS/Homebrew: `/usr/local/etc/php/8.x/php.ini` → `brew services restart httpd`
+- Debian/Ubuntu: `/etc/php/8.x/apache2/php.ini` → `sudo systemctl restart apache2`
+- RHEL/CentOS: `/etc/php.ini` → `sudo systemctl restart httpd`
 
-**Apache note:** Apache itself has no `client_max_body_size` directive (that's Nginx). The only limits that matter here are the PHP ini values above. If running Apache + mod_php, the ini changes take effect on Apache restart (`brew services restart httpd` / `sudo apachectl restart`). If running Apache + php-fpm via a proxy, restart the fpm pool instead.
+`post_max_size` must always be ≥ `upload_max_filesize`. Apache has no `client_max_body_size` (that's Nginx); PHP is the only upload gatekeeper here.
 
 ## Document vault structure
 

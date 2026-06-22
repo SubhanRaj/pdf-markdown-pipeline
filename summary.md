@@ -10,7 +10,17 @@ Running log of major milestones and architectural decisions. Minor tweaks are no
 
 **Frontend toolchain:** Tailwind CSS via Play CDN, Tabler Icons via jsDelivr, Chart.js via jsDelivr. No Node, no npm, no build step — all JS/CSS loaded from CDN at runtime.
 
-**PHP ini changes required for uploads (applied 2026-06-22):**
+**PHP upload limit fix (applied 2026-06-22):**
+
+Root cause: 13 MB PDF upload returned HTTP 413 before reaching Laravel — PHP rejected the request body at the SAPI level before `StoreDocumentRequest` was ever evaluated. Default `upload_max_filesize = 2M`, `post_max_size = 8M`.
+
+Three options documented (see README ⚙️ PHP Configuration Requirements):
+
+1. **`public/.htaccess`** — `php_value` directives inside `<IfModule mod_php.c>`. Already in repo. Works immediately for Apache + mod_php, no restart. Requires `AllowOverride All` in the vhost.
+2. **`public/.user.ini`** — flat ini file, works for mod_php and php-fpm, ~5 min TTL.
+3. **System `php.ini`** — global fix for dedicated servers, requires Apache/fpm restart.
+
+Values set across all three on local dev machine:
 
 | Directive | Default | Set to |
 |---|---|---|
@@ -19,8 +29,7 @@ Running log of major milestones and architectural decisions. Minor tweaks are no
 | `max_execution_time` | `30` | `120` |
 | `max_input_time` | `60` | `120` |
 
-File: `/usr/local/etc/php/8.5/php.ini`. Restart: `brew services restart php`.
-Root cause: 13 MB PDF upload returned HTTP 413 before reaching Laravel — PHP rejected the request body before the `StoreDocumentRequest` 50 MB rule was ever evaluated.
+Apache on this machine runs on port 80. `php_value` in `.htaccess` is authoritative for mod_php and overrides php.ini per-request. Verified via probe: Apache reports `64M / 64M` live.
 
 ---
 
