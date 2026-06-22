@@ -52,7 +52,14 @@ class RuleSetController extends Controller
             ->paginate(30)
             ->withQueryString();
 
-        return view('rule_sets.show', compact('department', 'ruleSet', 'documents'));
+        // For the "Amends" dropdown in the upload modal — only fetched for authenticated users
+        $parentOptions = auth()->check()
+            ? $ruleSet->documents()->select('id', 'title', 'created_at')->orderBy('created_at')->get()
+                ->map(fn ($d) => ['id' => $d->id, 'title' => $d->title, 'date' => $d->created_at->format('d M Y')])
+                ->values()
+            : collect();
+
+        return view('rule_sets.show', compact('department', 'ruleSet', 'documents', 'parentOptions'));
     }
 
     public function edit(string $level, Department $department, RuleSet $ruleSet): View

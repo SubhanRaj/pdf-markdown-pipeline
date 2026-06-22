@@ -50,6 +50,7 @@ class StoreDocumentRequest extends FormRequest
             'title'         => strip_tags(trim($this->title ?? '')),
             'document_type' => strtolower(trim($this->document_type ?? '')),
             'visibility'    => strtolower(trim($this->visibility ?? 'public')),
+            'parent_id'     => $this->parent_id ? (int) $this->parent_id : null,
         ]);
     }
 
@@ -65,6 +66,7 @@ class StoreDocumentRequest extends FormRequest
             // One of section_id or rule_set_id must be provided — not both
             'section_id'    => ['required_without:rule_set_id', 'nullable', 'integer', 'exists:sections,id'],
             'rule_set_id'   => ['required_without:section_id',  'nullable', 'integer', 'exists:rule_sets,id'],
+            'parent_id'     => ['nullable', 'integer', 'exists:documents,id'],
             'title'         => ['required', 'string', 'max:255', 'regex:/^[\p{L}\p{N}\s\-_.,()\/\#\&]+$/u'],
             'document_type' => ['required', 'string', "in:{$validTypes}"],
             'visibility'    => ['nullable', 'string', 'in:public,authenticated'],

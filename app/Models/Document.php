@@ -89,6 +89,7 @@ class Document extends Model
         'department_id',
         'section_id',
         'rule_set_id',
+        'parent_id',
         'user_id',
         'title',
         'slug',
@@ -129,5 +130,15 @@ class Document extends Model
     public function statusHistory(): HasMany
     {
         return $this->hasMany(DocumentStatusHistory::class);
+    }
+
+    public function parentDocument(): BelongsTo
+    {
+        return $this->belongsTo(Document::class, 'parent_id');
+    }
+
+    public function amendments(): HasMany
+    {
+        return $this->hasMany(Document::class, 'parent_id')->orderBy('created_at', 'asc');
     }
 }

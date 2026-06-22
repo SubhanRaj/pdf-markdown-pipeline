@@ -64,10 +64,13 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
 
     // Documents — mutations
     Route::prefix('documents')->name('documents.')->group(function () {
-        Route::get('/trash',                   [DocumentController::class, 'trash'])->name('trash');
-        Route::get('/trash/{id}/pdf',          [DocumentController::class, 'trashedPdf'])->name('trashed.pdf');
-        Route::post('/trash/{id}/restore',     [DocumentController::class, 'restore'])->name('restore');
-        Route::delete('/trash/{id}',           [DocumentController::class, 'forceDestroy'])->name('force-destroy');
+        Route::get('/trash',                       [DocumentController::class, 'trash'])->name('trash');
+        Route::post('/bulk-destroy',               [DocumentController::class, 'bulkDestroy'])->name('bulk-destroy');
+        Route::post('/trash/bulk-restore',         [DocumentController::class, 'bulkRestore'])->name('trash.bulk-restore');
+        Route::delete('/trash/bulk-force-destroy', [DocumentController::class, 'bulkForceDestroy'])->name('trash.bulk-force-destroy');
+        Route::get('/trash/{id}/pdf',              [DocumentController::class, 'trashedPdf'])->name('trashed.pdf');
+        Route::post('/trash/{id}/restore',         [DocumentController::class, 'restore'])->name('restore');
+        Route::delete('/trash/{id}',               [DocumentController::class, 'forceDestroy'])->name('force-destroy');
         Route::post('/', [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads');
         Route::get('/{level}/{department}/{section}/{document}/review', [DocumentController::class, 'edit'])->name('edit');
         Route::patch('/{level}/{department}/{section}/{document}',      [DocumentController::class, 'update'])->name('update');

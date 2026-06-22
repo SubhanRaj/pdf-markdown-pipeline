@@ -13,10 +13,8 @@
 ]" />
 
 {{-- Data island for JS — use @json() not {{ json_encode() }} to avoid HTML-entity corruption --}}
-<script id="page-data" type="application/json">@json([
-    'storeUrl'  => route('documents.store'),
-    'csrfToken' => csrf_token(),
-])</script>
+@php $pageData = ['storeUrl' => route('documents.store'), 'csrfToken' => csrf_token(), 'parentOptions' => $parentOptions]; @endphp
+<script id="page-data" type="application/json">@json($pageData)</script>
 
 {{-- ── Section header ─────────────────────────────────────────────────────── --}}
 <div class="flex items-start justify-between gap-4 mb-6">
@@ -166,6 +164,15 @@
                             </label>
                         </div>
                         <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Public documents are visible to all visitors. Authenticated Only restricts access to logged-in users.</p>
+                    </div>
+
+                    {{-- Amends (optional parent link) --}}
+                    <div>
+                        <label for="doc-parent" class="field-label">Amends Previous Document <span class="text-slate-400 font-normal">(optional)</span></label>
+                        <select id="doc-parent" name="parent_id" class="field-input">
+                            <option value="">— None —</option>
+                        </select>
+                        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Select if this document formally amends an earlier document in this section.</p>
                     </div>
 
                     {{-- Vault destination --}}
@@ -326,6 +333,7 @@
     const fileInput    = document.getElementById('doc-file');
     const dropZone     = document.getElementById('drop-zone');
     const typeSelect   = document.getElementById('doc-type');
+    const parentSelect = document.getElementById('doc-parent');
     const btnSubmit    = document.getElementById('btn-submit');
     const btnLabel     = document.getElementById('btn-submit-label');
     const statusEl     = document.getElementById('upload-status');
@@ -334,6 +342,16 @@
     const queueCountEl = document.getElementById('queue-count');
     const queueHint    = document.getElementById('queue-empty-hint');
     const btnClear     = document.getElementById('btn-clear-queue');
+
+    // Populate parent options from the server-side data island
+    if (parentSelect && page.parentOptions && page.parentOptions.length > 0) {
+        page.parentOptions.forEach(function (opt) {
+            const el = document.createElement('option');
+            el.value = opt.id;
+            el.textContent = opt.title + ' (' + opt.date + ')';
+            parentSelect.appendChild(el);
+        });
+    }
 
     // [{file, titleInput, statusBadge, row}]
     let uploadFiles = [];
@@ -469,6 +487,7 @@
 
         const type         = typeSelect.value;
         const visibility   = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+        const parentId     = parentSelect ? (parentSelect.value || '') : '';
         const contextInput = form.querySelector('[name="section_id"]');
 
         isUploading = true;
@@ -498,6 +517,7 @@
                 fd.append('title', title);
                 fd.append('document_type', type);
                 fd.append('visibility', visibility);
+                if (parentId) fd.append('parent_id', parentId);
                 fd.append('file', item.file);
 
                 const res = await fetch(page.storeUrl, {
