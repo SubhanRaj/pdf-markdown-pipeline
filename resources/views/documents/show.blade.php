@@ -46,49 +46,30 @@
     ['name' => $document->title,                    'url' => null],
 ]" />
 
-{{-- ── Amendment banners ────────────────────────────────────────────────────── --}}
+{{-- ── Amendment context bar ─────────────────────────────────────────────────── --}}
 @if($document->amendments->isNotEmpty())
-<div class="mb-5 rounded-xl border border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/20 px-5 py-4">
-    <div class="flex items-start gap-3">
-        <i class="ti ti-alert-triangle text-amber-500 dark:text-amber-400 text-lg flex-shrink-0 mt-0.5"></i>
-        <div class="min-w-0">
-            <p class="text-sm font-semibold text-amber-800 dark:text-amber-300">Important: This document has been amended.</p>
-            <p class="text-xs text-amber-700 dark:text-amber-400 mt-0.5 mb-3">The following amendment(s) supersede parts of this document. Review them before acting on this version.</p>
-            <ul class="space-y-1.5">
-                @foreach($document->amendments as $amendment)
-                <li class="flex items-center gap-2">
-                    <i class="ti ti-arrow-right text-amber-400 dark:text-amber-500 text-xs flex-shrink-0"></i>
-                    <a href="{{ $isRuleSetDoc
-                        ? route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $amendment])
-                        : route('documents.show',       [$department->levelAlias(), $department, $section, $amendment]) }}"
-                       class="text-sm font-medium text-amber-700 dark:text-amber-300 hover:underline truncate">
-                        {{ $amendment->title }}
-                    </a>
-                    <span class="text-xs text-amber-500 dark:text-amber-500 flex-shrink-0">{{ $amendment->created_at->format('d M Y') }}</span>
-                </li>
-                @endforeach
-            </ul>
-        </div>
-    </div>
+<div class="mb-4 flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20">
+    <i class="ti ti-alert-triangle text-amber-500 dark:text-amber-400 text-base flex-shrink-0"></i>
+    <p class="text-xs font-medium text-amber-800 dark:text-amber-300 flex-1">
+        This document has been amended — see the <strong>Amendments</strong> section below before acting on this version.
+    </p>
+    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-800/50 text-amber-700 dark:text-amber-300 flex-shrink-0">
+        {{ $document->amendments->count() }} {{ Str::plural('amendment', $document->amendments->count()) }}
+    </span>
 </div>
 @endif
 
 @if($document->parent_id && $document->parentDocument)
-<div class="mb-5 rounded-xl border border-blue-300 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/20 px-5 py-4">
-    <div class="flex items-start gap-3">
-        <i class="ti ti-info-circle text-blue-500 dark:text-blue-400 text-lg flex-shrink-0 mt-0.5"></i>
-        <div class="min-w-0">
-            <p class="text-sm font-semibold text-blue-800 dark:text-blue-300">This is an amendment to:</p>
-            <a href="{{ $isRuleSetDoc
-                ? route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $document->parentDocument])
-                : route('documents.show',       [$department->levelAlias(), $department, $section, $document->parentDocument]) }}"
-               class="inline-flex items-center gap-1.5 mt-1 text-sm font-medium text-blue-700 dark:text-blue-300 hover:underline">
-                <i class="ti ti-file-text text-xs"></i>
-                {{ $document->parentDocument->title }}
-                <span class="text-xs font-normal text-blue-500 dark:text-blue-400">({{ $document->parentDocument->created_at->format('d M Y') }})</span>
-            </a>
-        </div>
-    </div>
+<div class="mb-4 flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-blue-200 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20">
+    <i class="ti ti-git-merge text-blue-500 dark:text-blue-400 text-base flex-shrink-0"></i>
+    <p class="text-xs text-blue-700 dark:text-blue-300 flex-1">
+        This is an amendment to
+        <a href="{{ $isRuleSetDoc
+            ? route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $document->parentDocument])
+            : route('documents.show',       [$department->levelAlias(), $department, $section, $document->parentDocument]) }}"
+           class="font-semibold hover:underline">{{ $document->parentDocument->title }}</a>
+        <span class="text-blue-400 dark:text-blue-500">({{ $document->parentDocument->created_at->format('d M Y') }})</span>
+    </p>
 </div>
 @endif
 
@@ -342,6 +323,69 @@
 
     </div>
 </div>
+
+{{-- ── Amendments section ───────────────────────────────────────────────────── --}}
+@if($document->amendments->isNotEmpty())
+<div class="mt-6 bg-white dark:bg-slate-800 rounded-xl border border-amber-200 dark:border-amber-700/50">
+    <div class="px-5 py-4 border-b border-amber-100 dark:border-amber-700/40 flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+            <i class="ti ti-git-merge text-amber-600 dark:text-amber-400 text-base"></i>
+        </div>
+        <div>
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Amendments
+                <span class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
+                    {{ $document->amendments->count() }}
+                </span>
+            </h3>
+            <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Documents that formally amend or supersede this version</p>
+        </div>
+    </div>
+    <div class="divide-y divide-amber-50 dark:divide-amber-900/20">
+        @foreach($document->amendments as $i => $amendment)
+        @php
+            $aSm = \App\Models\Document::STATUSES[$amendment->status] ?? ['label' => $amendment->status, 'color' => 'slate'];
+            $aSc = ['slate'=>'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400','blue'=>'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400','amber'=>'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400','indigo'=>'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400','green'=>'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400','red'=>'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'];
+        @endphp
+        <div class="flex items-center gap-3 px-5 py-3.5 hover:bg-amber-50/50 dark:hover:bg-amber-900/10 transition-colors group">
+            {{-- Sequence number --}}
+            <span class="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                {{ $i + 1 }}
+            </span>
+            {{-- Status icon --}}
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0
+                @if($amendment->status === 'verified') bg-green-500/10 dark:bg-green-500/20
+                @elseif($amendment->status === 'failed') bg-red-500/10 dark:bg-red-500/20
+                @else bg-slate-100 dark:bg-slate-700 @endif">
+                <i class="ti ti-file-text text-sm
+                    @if($amendment->status === 'verified') text-green-500 dark:text-green-400
+                    @elseif($amendment->status === 'failed') text-red-500 dark:text-red-400
+                    @else text-slate-400 dark:text-slate-500 @endif"></i>
+            </div>
+            {{-- Info --}}
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $amendment->title }}</p>
+                <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+                    @auth
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium {{ $aSc[$aSm['color']] ?? $aSc['slate'] }}">
+                        {{ $aSm['label'] }}
+                    </span>
+                    @endauth
+                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $amendment->created_at->format('d M Y') }}</span>
+                </div>
+            </div>
+            {{-- View link --}}
+            <a href="{{ $isRuleSetDoc
+                ? route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $amendment])
+                : route('documents.show',       [$department->levelAlias(), $department, $section, $amendment]) }}"
+               class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+                View <i class="ti ti-arrow-right text-xs"></i>
+            </a>
+        </div>
+        @endforeach
+    </div>
+</div>
+@endif
 
 @push('scripts')
 <script>

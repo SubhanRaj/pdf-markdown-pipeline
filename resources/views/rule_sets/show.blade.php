@@ -29,7 +29,7 @@
                     {{ $department->name }}
                 </a>
                 <span class="text-slate-300 dark:text-slate-600">·</span>
-                <span class="text-xs text-slate-400 dark:text-slate-500">{{ $documents->total() }} {{ Str::plural('document', $documents->total()) }}</span>
+                <span class="text-xs text-slate-400 dark:text-slate-500">{{ $totalCount }} {{ Str::plural('document', $totalCount) }}</span>
             </div>
             @if($ruleSet->description)
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">{{ $ruleSet->description }}</p>
@@ -38,10 +38,14 @@
     </div>
     <div class="flex items-center gap-2">
         @auth
-        <button type="button"
-                onclick="document.getElementById('upload-modal').style.display='block'"
-                class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
+        <button type="button" onclick="openModal('document')"
+                class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-upload text-base"></i>
+            <span class="hidden sm:inline">Upload Document</span>
+        </button>
+        <button type="button" onclick="openModal('amendment')"
+                class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
+            <i class="ti ti-git-merge text-base"></i>
             <span class="hidden sm:inline">Upload Amendment</span>
         </button>
         @endauth
@@ -64,15 +68,31 @@
          class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl flex flex-col">
 
         <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
-            <div class="flex items-center gap-2">
-                <i class="ti ti-file-upload text-indigo-500 text-lg"></i>
-                <span class="text-sm font-semibold text-slate-800 dark:text-slate-100">Upload Amendment / Document</span>
+            <div class="flex items-center gap-3">
+                <i id="modal-icon" class="ti ti-file-upload text-indigo-500 text-lg"></i>
+                <span id="modal-heading" class="text-sm font-semibold text-slate-800 dark:text-slate-100">Upload Document</span>
                 <span class="text-xs text-slate-400 dark:text-slate-500">— {{ $ruleSet->name }}</span>
             </div>
             <button type="button" onclick="document.getElementById('upload-modal').style.display='none'"
                     class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                 <i class="ti ti-x"></i>
             </button>
+        </div>
+
+        {{-- Mode toggle --}}
+        <div class="px-6 pt-4 pb-0 flex-shrink-0">
+            <div class="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-0.5 gap-0.5">
+                <button type="button" id="mode-document"
+                        onclick="setMode('document')"
+                        class="mode-btn px-4 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    <i class="ti ti-file-text mr-1"></i>Rule Document
+                </button>
+                <button type="button" id="mode-amendment"
+                        onclick="setMode('amendment')"
+                        class="mode-btn px-4 py-1.5 rounded-md text-xs font-medium transition-colors">
+                    <i class="ti ti-git-merge mr-1"></i>Amendment
+                </button>
+            </div>
         </div>
 
         <div class="flex flex-col lg:flex-row flex-1 min-h-0">
@@ -116,7 +136,7 @@
                         <select id="doc-type" name="document_type" class="field-input">
                             <option value="">— Select type —</option>
                             @foreach(\App\Models\Document::DOCUMENT_TYPES as $key => $label)
-                            <option value="{{ $key }}" {{ $key === 'rule_amendment' ? 'selected' : '' }}>{{ $label }}</option>
+                            <option value="{{ $key }}">{{ $label }}</option>
                             @endforeach
                         </select>
                         <p id="err-type" class="field-err-msg" style="display:none"></p>
@@ -141,16 +161,18 @@
                                 </span>
                             </label>
                         </div>
-                        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Public documents are visible to all visitors. Authenticated Only restricts access to logged-in users.</p>
                     </div>
 
-                    {{-- Amends (optional parent link) --}}
-                    <div>
-                        <label for="doc-parent" class="field-label">Amends Previous Document <span class="text-slate-400 font-normal">(optional)</span></label>
+                    {{-- Amends (shown only in amendment mode) --}}
+                    <div id="parent-wrap" style="display:none">
+                        <label for="doc-parent" class="field-label">
+                            Amends <span class="text-red-500">*</span>
+                        </label>
                         <select id="doc-parent" name="parent_id" class="field-input">
-                            <option value="">— None —</option>
+                            <option value="">— Select document being amended —</option>
                         </select>
-                        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Select if this document formally amends an earlier document in this rule set.</p>
+                        <p id="err-parent" class="field-err-msg" style="display:none"></p>
+                        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Select the base rule or earlier document this amendment formally modifies.</p>
                     </div>
 
                     <div class="bg-slate-50 dark:bg-slate-800/60 rounded-lg px-4 py-3">
@@ -176,94 +198,42 @@
 </div>
 @endauth
 
-{{-- ── Amendment timeline / document list ──────────────────────────────────── --}}
+{{-- ── Document hierarchy ────────────────────────────────────────────────── --}}
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
     <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
         <div>
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Amendments &amp; Documents</h3>
             <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                {{ $documents->total() }} {{ Str::plural('document', $documents->total()) }}
+                {{ $totalCount }} {{ Str::plural('document', $totalCount) }}
                 @guest · public only @endguest
             </p>
         </div>
     </div>
 
-    @if($documents->isEmpty())
+    @if($rootDocuments->isEmpty() && $totalCount === 0)
     <div class="flex flex-col items-center justify-center py-16 text-center">
         <i class="ti ti-files text-3xl text-slate-200 dark:text-slate-600 mb-3"></i>
         <p class="text-sm text-slate-500 dark:text-slate-400">No documents yet</p>
         @auth
-        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Use the Upload Amendment button above to add the first document.</p>
+        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Use the buttons above to add documents or amendments.</p>
         @else
-        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Verified documents will appear here.</p>
+        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Documents will appear here once available.</p>
         @endauth
     </div>
     @else
     <div class="divide-y divide-slate-100 dark:divide-slate-700/60">
-        @foreach($documents as $doc)
-        <div class="flex items-start gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
+        @foreach($rootDocuments as $doc)
 
-            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5
-                @if($doc->status === 'verified') bg-green-500/10 dark:bg-green-500/20
-                @elseif($doc->status === 'failed') bg-red-500/10 dark:bg-red-500/20
-                @elseif($doc->status === 'review') bg-indigo-500/10 dark:bg-indigo-500/20
-                @else bg-slate-100 dark:bg-slate-700 @endif">
-                <i class="ti ti-file-text text-base
-                    @if($doc->status === 'verified') text-green-500 dark:text-green-400
-                    @elseif($doc->status === 'failed') text-red-500 dark:text-red-400
-                    @elseif($doc->status === 'review') text-indigo-500 dark:text-indigo-400
-                    @else text-slate-400 dark:text-slate-500 @endif"></i>
-            </div>
+        {{-- Root document row --}}
+        @include('rule_sets._doc_row', ['doc' => $doc, 'department' => $department, 'ruleSet' => $ruleSet, 'isAmendment' => false])
 
-            <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $doc->title }}</p>
-                <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                        {{ \App\Models\Document::DOCUMENT_TYPES[$doc->document_type] ?? $doc->document_type }}
-                    </span>
-                    @auth
-                    @php
-                        $sm = \App\Models\Document::STATUSES[$doc->status] ?? ['label' => $doc->status, 'color' => 'slate'];
-                        $sc = ['slate'=>'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400','blue'=>'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400','amber'=>'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400','indigo'=>'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400','green'=>'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400','red'=>'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'];
-                    @endphp
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium {{ $sc[$sm['color']] ?? $sc['slate'] }}">
-                        {{ $sm['label'] }}
-                    </span>
-                    @endauth
-                    <span class="text-slate-300 dark:text-slate-600">·</span>
-                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $doc->created_at->format('d M Y') }}</span>
-                    @auth @if($doc->user)
-                    <span class="text-slate-300 dark:text-slate-600">·</span>
-                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $doc->user->name }}</span>
-                    @endif @endauth
-                </div>
-            </div>
+        {{-- Amendments indented beneath --}}
+        @foreach($doc->amendments as $amendment)
+        @include('rule_sets._doc_row', ['doc' => $amendment, 'department' => $department, 'ruleSet' => $ruleSet, 'isAmendment' => true])
+        @endforeach
 
-            <div class="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                <a href="{{ route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $doc]) }}"
-                   class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all"
-                   title="View">
-                    <i class="ti ti-eye text-base"></i>
-                </a>
-                @auth @if(auth()->user()->isAdmin())
-                <button type="button"
-                        class="doc-delete-btn inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-                        data-action="{{ route('documents.rules.destroy', [$department->levelAlias(), $department, $ruleSet, $doc]) }}"
-                        data-title="{{ e($doc->title) }}"
-                        title="Delete">
-                    <i class="ti ti-trash text-base"></i>
-                </button>
-                @endif @endauth
-            </div>
-        </div>
         @endforeach
     </div>
-
-    @if($documents->hasPages())
-    <div class="px-5 py-4 border-t border-slate-100 dark:border-slate-700">
-        {{ $documents->links() }}
-    </div>
-    @endif
     @endif
 </div>
 
@@ -282,6 +252,7 @@
     const fileInput    = document.getElementById('doc-file');
     const dropZone     = document.getElementById('drop-zone');
     const typeSelect   = document.getElementById('doc-type');
+    const parentWrap   = document.getElementById('parent-wrap');
     const parentSelect = document.getElementById('doc-parent');
     const btnSubmit    = document.getElementById('btn-submit');
     const btnLabel     = document.getElementById('btn-submit-label');
@@ -291,7 +262,10 @@
     const queueCountEl = document.getElementById('queue-count');
     const queueHint    = document.getElementById('queue-empty-hint');
     const btnClear     = document.getElementById('btn-clear-queue');
+    const modalHeading = document.getElementById('modal-heading');
+    const modalIcon    = document.getElementById('modal-icon');
 
+    // Populate parent dropdown
     if (parentSelect && page.parentOptions && page.parentOptions.length > 0) {
         page.parentOptions.forEach(function (opt) {
             const el = document.createElement('option');
@@ -300,6 +274,71 @@
             parentSelect.appendChild(el);
         });
     }
+
+    // Mode management
+    let currentMode = 'document';
+
+    // Separate options so we can show/hide by mode
+    const typeOptions = Array.from(typeSelect.options); // includes the blank "— Select type —"
+
+    function applyTypeOptions(mode) {
+        // Remove all current options
+        typeSelect.innerHTML = '';
+        typeOptions.forEach(function (opt) {
+            if (!opt.value) {
+                // Always keep the placeholder
+                typeSelect.appendChild(opt.cloneNode(true));
+                return;
+            }
+            if (mode === 'amendment') {
+                // Amendment mode: only rule_amendment is valid
+                if (opt.value === 'rule_amendment') typeSelect.appendChild(opt.cloneNode(true));
+            } else {
+                // Document mode: everything except rule_amendment
+                if (opt.value !== 'rule_amendment') typeSelect.appendChild(opt.cloneNode(true));
+            }
+        });
+        // Auto-select the only option when there is just one real choice
+        if (typeSelect.options.length === 2) {
+            typeSelect.selectedIndex = 1;
+        } else {
+            typeSelect.value = '';
+        }
+    }
+
+    window.setMode = function (mode) {
+        currentMode = mode;
+
+        const btnDoc   = document.getElementById('mode-document');
+        const btnAmend = document.getElementById('mode-amendment');
+        const activeClass = 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm';
+        const idleClass   = 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200';
+
+        if (mode === 'amendment') {
+            btnAmend.className = 'mode-btn px-4 py-1.5 rounded-md text-xs font-medium transition-colors ' + activeClass;
+            btnDoc.className   = 'mode-btn px-4 py-1.5 rounded-md text-xs font-medium transition-colors ' + idleClass;
+            parentWrap.style.display = '';
+            modalHeading.textContent = 'Upload Amendment';
+            modalIcon.className = 'ti ti-git-merge text-amber-500 text-lg';
+        } else {
+            btnDoc.className   = 'mode-btn px-4 py-1.5 rounded-md text-xs font-medium transition-colors ' + activeClass;
+            btnAmend.className = 'mode-btn px-4 py-1.5 rounded-md text-xs font-medium transition-colors ' + idleClass;
+            parentWrap.style.display = 'none';
+            parentSelect.value = '';
+            modalHeading.textContent = 'Upload Rule Document';
+            modalIcon.className = 'ti ti-file-upload text-indigo-500 text-lg';
+        }
+
+        applyTypeOptions(mode);
+    };
+
+    window.openModal = function (mode) {
+        modal.style.display = 'block';
+        setMode(mode || 'document');
+    };
+
+    // Init default state
+    setMode('document');
 
     let uploadFiles = [];
     let isUploading = false;
@@ -340,7 +379,7 @@
         queueCountEl.textContent = n;
         queueWrap.style.display = n ? 'flex' : 'none';
         queueHint.style.display = n ? 'none' : 'block';
-        btnLabel.textContent = n > 1 ? `Upload ${n} files` : 'Upload';
+        btnLabel.textContent = n > 1 ? ('Upload ' + n + ' files') : 'Upload';
         btnSubmit.disabled = n === 0 || isUploading;
     }
 
@@ -421,14 +460,20 @@
         if (isUploading || uploadFiles.length === 0) return;
 
         clearErr('err-type');
+        clearErr('err-parent');
+
         if (!typeSelect.value) {
             showErr('err-type', 'Select a document type before uploading.');
+            return;
+        }
+        if (currentMode === 'amendment' && !parentSelect.value) {
+            showErr('err-parent', 'Select the document this amendment modifies.');
             return;
         }
 
         const type         = typeSelect.value;
         const visibility   = form.querySelector('[name="visibility"]:checked')?.value || 'public';
-        const parentId     = parentSelect ? (parentSelect.value || '') : '';
+        const parentId     = (currentMode === 'amendment' && parentSelect) ? (parentSelect.value || '') : '';
         const contextInput = form.querySelector('[name="rule_set_id"]');
 
         isUploading = true;
@@ -449,7 +494,7 @@
             }
 
             setRowStatus(item, 'uploading');
-            statusEl.textContent = `Uploading ${i + 1} of ${uploadFiles.length}…`;
+            statusEl.textContent = 'Uploading ' + (i + 1) + ' of ' + uploadFiles.length + '…';
 
             try {
                 const fd = new FormData();
@@ -506,14 +551,14 @@
         }
 
         if (doneCount > 0 && lastRedirect) {
-            statusEl.textContent = `${doneCount} uploaded, ${errorCount} failed — fix errors or continue.`;
+            statusEl.textContent = doneCount + ' uploaded, ' + errorCount + ' failed — fix errors or continue.';
             btnSubmit.disabled = false;
             btnLabel.textContent = 'Go to page';
             btnSubmit.onclick = ev => { ev.preventDefault(); window.location.href = lastRedirect; };
         } else {
-            statusEl.textContent = `${doneCount} uploaded, ${errorCount} failed.`;
+            statusEl.textContent = doneCount + ' uploaded, ' + errorCount + ' failed.';
             btnSubmit.disabled = false;
-            btnLabel.textContent = errorCount > 0 ? `Retry (${errorCount} failed)` : 'Upload';
+            btnLabel.textContent = errorCount > 0 ? ('Retry (' + errorCount + ' failed)') : 'Upload';
         }
         syncUI();
     });

@@ -45,21 +45,36 @@ class RuleSetController extends Controller
 
     public function show(string $level, Department $department, RuleSet $ruleSet): View
     {
-        $documents = $ruleSet->documents()
-            ->with('user:id,name')
+        // Root documents with their amendments pre-loaded — drives the hierarchy view
+        $rootDocuments = $ruleSet->documents()
+            ->with([
+                'user:id,name',
+                'amendments' => fn ($q) => $q
+                    ->with('user:id,name')
+                    ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
+                    ->orderBy('created_at'),
+            ])
+            ->whereNull('parent_id')
             ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
             ->orderBy('created_at')
-            ->paginate(30)
-            ->withQueryString();
+            ->get();
 
-        // For the "Amends" dropdown in the upload modal — only fetched for authenticated users
+        $totalCount = $ruleSet->documents()
+            ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
+            ->count();
+
+        // Parent dropdown in upload modal — only root documents are valid amendment targets
         $parentOptions = auth()->check()
-            ? $ruleSet->documents()->select('id', 'title', 'created_at')->orderBy('created_at')->get()
+            ? $ruleSet->documents()
+                ->select('id', 'title', 'created_at')
+                ->whereNull('parent_id')
+                ->orderBy('created_at')
+                ->get()
                 ->map(fn ($d) => ['id' => $d->id, 'title' => $d->title, 'date' => $d->created_at->format('d M Y')])
                 ->values()
             : collect();
 
-        return view('rule_sets.show', compact('department', 'ruleSet', 'documents', 'parentOptions'));
+        return view('rule_sets.show', compact('department', 'ruleSet', 'rootDocuments', 'totalCount', 'parentOptions'));
     }
 
     public function edit(string $level, Department $department, RuleSet $ruleSet): View
