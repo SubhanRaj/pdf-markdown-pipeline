@@ -6,6 +6,7 @@ use App\Http\Requests\StoreRuleSetRequest;
 use App\Http\Requests\UpdateRuleSetRequest;
 use App\Models\Department;
 use App\Models\Document;
+use App\Models\DocumentStatusHistory;
 use App\Models\RuleSet;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
@@ -102,9 +103,23 @@ class RuleSetController extends Controller
     public function destroy(string $level, Department $department, RuleSet $ruleSet): RedirectResponse
     {
         try {
-            DB::transaction(fn () => $ruleSet->delete());
+            DB::transaction(function () use ($ruleSet) {
+                // Soft-delete all documents in this rule set with an audit entry
+                $ruleSet->documents()->each(function (Document $doc) {
+                    DocumentStatusHistory::create([
+                        'document_id' => $doc->id,
+                        'actor_id'    => auth()->id(),
+                        'from_status' => $doc->status,
+                        'to_status'   => 'deleted',
+                        'note'        => 'Deleted with parent rule set.',
+                    ]);
+                    $doc->delete();
+                });
 
-            flash()->success("Rule set \"{$ruleSet->name}\" deleted.");
+                $ruleSet->delete();
+            });
+
+            flash()->success("Rule set \"{$ruleSet->name}\" and all its documents deleted.");
             return redirect()->route('departments.show', [$department->levelAlias(), $department]);
         } catch (\Throwable $e) {
             Log::error('RuleSetController@destroy failed', [

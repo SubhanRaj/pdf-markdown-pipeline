@@ -402,3 +402,46 @@ Migration: `2026_06_22_065143_add_visibility_to_documents_table.php` — adds `s
 **Upload modals** (`sections/show.blade.php`, `rule_sets/show.blade.php`) — visibility radio group added below the document type selector. Default: Public. Options: 🌐 Public / 🔒 Authenticated Only. Helper text explains the distinction.
 
 **`documents/show.blade.php`** — visibility badge in document header: green globe for Public, amber lock for Authenticated Only.
+
+---
+
+## M15 — Rule Set Upload Flow Overhaul & Cascade Delete
+
+### Two separate upload modals replacing the combined mode-toggle modal
+
+The single "Upload Document" modal with a Rule Document / Amendment tab toggle has been replaced with two fully independent modals: **`#modal-rule`** (Upload Rule Document) and **`#modal-amendment`** (Upload Amendment). Each has its own file queue, form, and JS IIFE — sharing only a generic `makeQueue()` factory function.
+
+**`#modal-rule`** — indigo accent. Type dropdown shows all document types except `rule_amendment`; defaults to `rule` (pre-selected via `@selected`). No parent field. Triggered by the "Upload Rule" header button.
+
+**`#modal-amendment`** — amber accent. Document type is a fixed hidden input (`rule_amendment`) shown as a read-only badge. Requires a parent document selection from a dropdown pre-populated from `$parentOptions` (root docs only); auto-selects if exactly one root rule doc exists. Triggered by the "Upload Amendment" header button.
+
+### State-aware header buttons
+
+```php
+$hasRuleDoc     = $rootDocuments->where('document_type', 'rule')->isNotEmpty();
+$canUploadRule  = ! $hasRuleDoc;
+$canUploadAmend = $hasRuleDoc;
+```
+
+| Condition | Upload Rule button | Upload Amendment button |
+|---|---|---|
+| No rule doc yet | Active (indigo) | Disabled (greyed, `cursor-not-allowed`) |
+| Rule doc exists | Disabled — tooltip: "delete it first" | Active (indigo) |
+
+Disabled buttons use `disabled` HTML attribute; onclick is omitted entirely (not guarded by JS) so no keyboard bypass is possible.
+
+### Edit button locked on rule docs with amendments
+
+`documents/show.blade.php` — when `$document->document_type === 'rule'` and `$document->amendments->isNotEmpty()`, the Edit `<a>` tag is replaced with a `<span>` styled identically but greyed out and `cursor-not-allowed`. The delete button is unaffected.
+
+### Amendments eager-load fix
+
+`DocumentController@show` and `@showRuleSetDoc` — the constrained `amendments:` select now includes `status` and `visibility` columns. Previously only `id,parent_id,title,slug,created_at` were selected, causing the amber "has amendments" banner on `documents/show` and the Amendments list section to fail (missing `status` for badge rendering).
+
+### Rule set cascade delete
+
+`RuleSetController@destroy` — before soft-deleting the rule set, iterates all its documents via `$ruleSet->documents()->each(...)`, writes a `DocumentStatusHistory` entry per document (`to_status = 'deleted'`, note = "Deleted with parent rule set.", `actor_id` = current user), then soft-deletes the document. The rule set is deleted last within the same `DB::transaction()`. Users no longer need to delete each document individually before a rule set can be removed.
+
+### JS refactor
+
+The single large upload IIFE was replaced by a shared `makeQueue(ids)` factory that takes an object of element IDs and an optional `validate()` callback. Both modals call `makeQueue()` independently with their own element IDs. Escape key closes both modals. Parent dropdown in the amendment modal is pre-populated from the `$parentOptions` server-side data island.
