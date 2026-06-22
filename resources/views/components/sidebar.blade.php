@@ -37,7 +37,7 @@
 
         <a href="{{ route('documents.index') }}"
            data-tooltip="All Documents"
-           class="nav-link {{ request()->routeIs('documents.*') ? 'nav-link-active' : 'nav-link-idle' }}">
+           class="nav-link {{ request()->routeIs('documents.*') && !request()->routeIs('documents.trash', 'documents.restore', 'documents.force-destroy') ? 'nav-link-active' : 'nav-link-idle' }}">
             <i class="ti ti-folder-open w-5 text-center text-base flex-shrink-0"></i>
             <span class="sidebar-text">All Documents</span>
         </a>
@@ -48,6 +48,15 @@
             <i class="ti ti-search w-5 text-center text-base flex-shrink-0"></i>
             <span class="sidebar-text">Search</span>
         </a>
+
+        @auth
+        <a href="{{ route('documents.trash') }}"
+           data-tooltip="Trash"
+           class="nav-link {{ request()->routeIs('documents.trash') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-trash w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">Trash</span>
+        </a>
+        @endauth
 
         <span class="nav-section-label">Browse Vault</span>
 

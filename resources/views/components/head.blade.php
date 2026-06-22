@@ -31,6 +31,9 @@
     {{-- Chart.js via jsDelivr --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
+    {{-- SweetAlert2 via jsDelivr --}}
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
+
     <script>
         tailwind.config = {
             darkMode: 'class',

@@ -64,6 +64,9 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
 
     // Documents — mutations
     Route::prefix('documents')->name('documents.')->group(function () {
+        Route::get('/trash',               [DocumentController::class, 'trash'])->name('trash');
+        Route::post('/trash/{id}/restore', [DocumentController::class, 'restore'])->name('restore');
+        Route::delete('/trash/{id}',       [DocumentController::class, 'forceDestroy'])->name('force-destroy');
         Route::post('/', [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads');
         Route::get('/{level}/{department}/{section}/{document}/review', [DocumentController::class, 'edit'])->name('edit');
         Route::patch('/{level}/{department}/{section}/{document}',      [DocumentController::class, 'update'])->name('update');

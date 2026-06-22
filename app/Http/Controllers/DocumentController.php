@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\DeleteDocumentRequest;
 use App\Http\Requests\StoreDocumentRequest;
 use App\Http\Requests\UpdateDocumentRequest;
 use App\Models\Department;
@@ -158,12 +159,21 @@ class DocumentController extends Controller
         return redirect()->route('departments.sections.show', [$department->levelAlias(), $department, $section]);
     }
 
-    public function destroy(string $level, Department $department, Section $section, Document $document): RedirectResponse
+    public function destroy(DeleteDocumentRequest $request, string $level, Department $department, Section $section, Document $document): RedirectResponse
     {
         try {
-            DB::transaction(fn () => $document->delete());
+            DB::transaction(function () use ($request, $document) {
+                DocumentStatusHistory::create([
+                    'document_id' => $document->id,
+                    'actor_id'    => auth()->id(),
+                    'from_status' => $document->status,
+                    'to_status'   => 'deleted',
+                    'note'        => $request->validated('reason'),
+                ]);
+                $document->delete();
+            });
 
-            flash()->success('Document deleted.');
+            flash()->success('Document moved to trash.');
             return redirect()->route('departments.sections.show', [$department->levelAlias(), $department, $section]);
         } catch (\Throwable $e) {
             Log::error('DocumentController@destroy failed', [
@@ -171,6 +181,79 @@ class DocumentController extends Controller
                 'error'       => $e->getMessage(),
             ]);
             flash()->error('Failed to delete document. Please try again.');
+            return back();
+        }
+    }
+
+    public function trash(): View
+    {
+        $documents = Document::withTrashed()
+            ->onlyTrashed()
+            ->with([
+                'department',
+                'section',
+                'ruleSet',
+                'statusHistory' => fn ($q) => $q->where('to_status', 'deleted')->with('actor:id,name')->latest('created_at'),
+            ])
+            ->orderByDesc('deleted_at')
+            ->get();
+
+        return view('documents.trash', compact('documents'));
+    }
+
+    public function restore(int $id): RedirectResponse
+    {
+        $document = Document::withTrashed()->findOrFail($id);
+
+        if (! $document->trashed()) {
+            return redirect()->route('documents.trash');
+        }
+
+        try {
+            DB::transaction(function () use ($document) {
+                $document->restore();
+                DocumentStatusHistory::create([
+                    'document_id' => $document->id,
+                    'actor_id'    => auth()->id(),
+                    'from_status' => 'deleted',
+                    'to_status'   => $document->status,
+                    'note'        => 'Restored from trash.',
+                ]);
+            });
+
+            flash()->success('Document restored successfully.');
+            return redirect()->route('documents.trash');
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@restore failed', ['document_id' => $id, 'error' => $e->getMessage()]);
+            flash()->error('Failed to restore document. Please try again.');
+            return back();
+        }
+    }
+
+    public function forceDestroy(int $id): RedirectResponse
+    {
+        if (! auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $document = Document::withTrashed()->findOrFail($id);
+
+        try {
+            DB::transaction(function () use ($document) {
+                if ($document->original_pdf_path) {
+                    Storage::disk('public')->delete($document->original_pdf_path);
+                }
+                if ($document->markdown_path) {
+                    Storage::disk('public')->delete($document->markdown_path);
+                }
+                $document->forceDelete();
+            });
+
+            flash()->success('Document permanently deleted and files removed.');
+            return redirect()->route('documents.trash');
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@forceDestroy failed', ['document_id' => $id, 'error' => $e->getMessage()]);
+            flash()->error('Failed to permanently delete document. Please try again.');
             return back();
         }
     }
@@ -213,12 +296,21 @@ class DocumentController extends Controller
         return redirect()->route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
     }
 
-    public function destroyRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): RedirectResponse
+    public function destroyRuleSetDoc(DeleteDocumentRequest $request, string $level, Department $department, RuleSet $ruleSet, Document $document): RedirectResponse
     {
         try {
-            DB::transaction(fn () => $document->delete());
+            DB::transaction(function () use ($request, $document) {
+                DocumentStatusHistory::create([
+                    'document_id' => $document->id,
+                    'actor_id'    => auth()->id(),
+                    'from_status' => $document->status,
+                    'to_status'   => 'deleted',
+                    'note'        => $request->validated('reason'),
+                ]);
+                $document->delete();
+            });
 
-            flash()->success('Document deleted.');
+            flash()->success('Document moved to trash.');
             return redirect()->route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
         } catch (\Throwable $e) {
             Log::error('DocumentController@destroyRuleSetDoc failed', [

@@ -190,7 +190,7 @@ Standard Laravel/Fortify users table with `is_admin` boolean. Public registratio
 | Module | Controller | Notes |
 |---|---|---|
 | Dashboard | `FrontendController` | Public landing page with document stats; auth-aware recent feed |
-| Documents | `DocumentController` | Full CRUD; AJAX-only store (handles both section and rule-set uploads); PDF stream; hierarchical URLs; slug generation; rule-set doc methods |
+| Documents | `DocumentController` | Full CRUD; AJAX-only store (handles both section and rule-set uploads); PDF stream; hierarchical URLs; slug generation; rule-set doc methods; soft-delete with reason; trash/restore/force-delete |
 | Departments | `DepartmentController` | Full CRUD; slug-based route model binding; loads rule sets for show page |
 | Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + upload modal |
 | Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; upload modal on show page pre-selects `rule_amendment` type |
@@ -221,6 +221,7 @@ Controller method signatures **must** declare `string $level` as their first par
 | Section document PDF | `GET /documents/{level}/{dept}/{section}/{doc}/pdf` | — |
 | Rule-set document show | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}` | `PATCH …/{doc}`, `DELETE …/{doc}` |
 | Rule-set document PDF | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | — |
+| Document trash | — | `GET /documents/trash`, `POST …/trash/{id}/restore`, `DELETE …/trash/{id}` |
 | Departments | `GET /departments`, `GET /departments/{level}/{dept}` | `POST /departments`, edit/patch/delete |
 | Sections | `GET /departments/{level}/{dept}/sections/{section}` | `POST`, edit/patch/delete |
 | Rule sets | `GET /departments/{level}/{dept}/rules/{rule_set}` | `POST /departments/{level}/{dept}/rules`, edit/patch/delete |
@@ -290,6 +291,37 @@ Both stream from the `public` disk via `Storage::disk('public')->response(...)` 
 
 **Sidebar:** Search nav link (icon `ti-search`) sits between All Documents and Browse Vault; active on `routeIs('search.*')`.
 
+### Document deletion, trash & permanent removal
+
+Deletion is a two-stage process — soft-delete to trash, then optional permanent removal.
+
+**Soft delete (Move to Trash):**
+- Admin clicks the delete button on `documents/show`. A SweetAlert2 modal prompts for a deletion reason (required, 5–500 chars).
+- `DeleteDocumentRequest` validates the reason (admin-only `authorize()`).
+- Inside a `DB::transaction`: a `DocumentStatusHistory` row is inserted (`from_status` = current status, `to_status = 'deleted'`, `note` = reason, `actor_id` = current user), then `$document->delete()` (soft-delete sets `deleted_at`).
+- Soft-deleted documents are invisible to guests and excluded from all public queries automatically via `SoftDeletes`.
+- Route: `DELETE /documents/{level}/{dept}/{section}/{doc}` → `DocumentController@destroy` (section-based) or `DELETE /documents/{level}/{dept}/rules/{rule_set}/{doc}` → `@destroyRuleSetDoc` (rule-set-based).
+
+**Trash view (`GET /documents/trash` → `documents.trash`):**
+- Auth-only. Shows all soft-deleted documents ordered by `deleted_at DESC`.
+- Each row displays: title, department, section/rule-set, deletion timestamp, actor, and the reason from the status history entry with `to_status = 'deleted'`.
+- Sidebar: "Trash" link (`ti-trash` icon) visible to all authenticated users. "All Documents" active-state check excludes `documents.trash` so it doesn't highlight incorrectly.
+
+**Restore (`POST /documents/trash/{id}/restore` → `documents.restore`):**
+- Auth-only. Resolves the document via `Document::withTrashed()->findOrFail($id)` (numeric ID — slug binding doesn't work on soft-deleted records).
+- Calls `$document->restore()`, then inserts a history row (`from_status = 'deleted'`, `to_status` = the document's existing status column value, note = 'Restored from trash.').
+- Confirmation via SweetAlert2.
+
+**Permanent delete (`DELETE /documents/trash/{id}` → `documents.force-destroy`):**
+- Admin-only (controller checks `auth()->user()->isAdmin()`). Resolves via `Document::withTrashed()->findOrFail($id)`.
+- Inside a transaction: deletes `original_pdf_path` and `markdown_path` files from the `public` disk, then calls `$document->forceDelete()`.
+- `document_status_histories` rows cascade-delete automatically (FK `cascadeOnDelete`).
+- Confirmation via SweetAlert2 with an explicit "This cannot be undone" warning.
+
+**Form request:** `DeleteDocumentRequest` — `authorize()` returns `$this->user()?->isAdmin()`, `prepareForValidation()` runs `strip_tags` + `trim` on reason, validates `required|string|min:5|max:500`.
+
+**SweetAlert2 (`sweetalert2@11`):** loaded globally in `head.blade.php` via jsDelivr. Used for all destructive-action confirmations. Dark mode background/color passed via `document.documentElement.classList.contains('dark')`. All JS blocks wrapped in `try/catch` to avoid silent failures.
+
 ### Rule set views
 
 - **`rule_sets/create`** — name + description form with JS validation; slug is auto-generated server-side from name.
@@ -336,6 +368,8 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 9. **PDF served via controller routes** — `DocumentController@pdf` and `@pdfRuleSetDoc` stream from the `public` disk with `Content-Disposition: inline`. Guests see 403 on non-verified documents. Always link via these routes — raw `Storage::url()` links bypass the auth gate.
 10. **Dual document taxonomy** — documents belong to either a `Section` (GOs, notices, circulars) or a `RuleSet` (Acts, Rules, amendments), never both. `section_id` and `rule_set_id` are mutually exclusive nullable FKs. The `documents/show` view handles both contexts with a single template via the `$isRuleSetDoc` flag; separate URL routes exist for each context (`documents.show` vs `documents.rules.show`). When iterating documents across both types (index, dashboard feed), always check `$doc->section ? ... : ...` for routing and `$doc->section?->name ?? $doc->ruleSet?->name` for display.
 11. **Rule-set slug is immutable after creation** — `UpdateRuleSetRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths.
+12. **Two-stage document deletion** — `DELETE /documents/…` soft-deletes only (sets `deleted_at`). Physical files are never removed at this stage. Permanent file+record removal requires a second explicit action from the trash view (`DELETE /documents/trash/{id}`). This preserves recoverability and the full audit trail until an admin consciously decides to purge. The deletion reason is always captured and stored in `document_status_histories` before the soft-delete occurs.
+13. **SweetAlert2 for all confirmations** — all destructive-action confirmations use `Swal.fire()` (loaded globally via jsDelivr `sweetalert2@11`). Never use `window.confirm()` or inline `onsubmit` confirm checks. Respect dark mode by passing `background` and `color` based on `document.documentElement.classList.contains('dark')`.
 
 ## Frontend architecture
 
@@ -399,6 +433,7 @@ Never interpolate `{{ }}` inside `<script>` blocks — IDE JS parsers choke on i
 | Tailwind CSS (Play CDN) | `https://cdn.tailwindcss.com` |
 | Tabler Icons (webfont) | jsDelivr — `@tabler/icons-webfont@3.30.0` |
 | Chart.js | jsDelivr — `chart.js@4.4.7` |
+| SweetAlert2 | jsDelivr — `sweetalert2@11` |
 
 All additional JS/CSS packages must be loaded from jsDelivr. Add them to `head.blade.php` (global) or push to `@stack('styles')` / `@stack('scripts')` from individual pages.
 

@@ -85,13 +85,13 @@
             <i class="ti ti-pencil text-base"></i>
             <span class="hidden sm:inline">Review</span>
         </a>
-        <form method="POST" action="{{ $destroyRoute }}"
-              onsubmit="return confirm('Permanently delete this document? This cannot be undone.')">
+        <button type="button" id="delete-doc-btn"
+                class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-red-400 dark:hover:border-red-500 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
+            <i class="ti ti-trash text-base"></i>
+        </button>
+        <form id="delete-doc-form" method="POST" action="{{ $destroyRoute }}">
             @csrf @method('DELETE')
-            <button type="submit"
-                    class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-red-400 dark:hover:border-red-500 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
-                <i class="ti ti-trash text-base"></i>
-            </button>
+            <input type="hidden" name="reason" id="delete-doc-reason">
         </form>
     </div>
     @endif
@@ -254,5 +254,43 @@
 
     </div>
 </div>
+
+@push('scripts')
+<script>
+try {
+    const deleteBtn = document.getElementById('delete-doc-btn');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', function () {
+            const isDark = document.documentElement.classList.contains('dark');
+            Swal.fire({
+                title: 'Move to Trash',
+                html: '<p class="text-sm text-gray-500 mb-3">Provide a reason for removing this document. It will be recorded in the audit trail and can be reviewed in the trash.</p>',
+                input: 'textarea',
+                inputPlaceholder: 'Reason for deletion (required)…',
+                inputAttributes: { maxlength: 500, rows: 3 },
+                showCancelButton: true,
+                confirmButtonText: '<i class="ti ti-trash mr-1"></i> Move to Trash',
+                cancelButtonText: 'Cancel',
+                confirmButtonColor: '#ef4444',
+                background: isDark ? '#1e293b' : '#ffffff',
+                color: isDark ? '#f1f5f9' : '#0f172a',
+                inputValidator: (value) => {
+                    if (!value || value.trim().length < 5) {
+                        return 'Please enter a reason (minimum 5 characters).';
+                    }
+                },
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    document.getElementById('delete-doc-reason').value = result.value;
+                    document.getElementById('delete-doc-form').submit();
+                }
+            });
+        });
+    }
+} catch (e) {
+    console.error('Delete modal init failed:', e);
+}
+</script>
+@endpush
 
 </x-layout>
