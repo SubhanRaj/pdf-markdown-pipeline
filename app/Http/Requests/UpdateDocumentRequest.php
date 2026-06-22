@@ -2,28 +2,45 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Contracts\Validation\ValidationRule;
+use App\Models\Document;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateDocumentRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
-        return false;
+        return $this->user()?->isAdmin() ?? false;
     }
 
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array<string, ValidationRule|array<mixed>|string>
-     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('title')) {
+            $this->merge(['title' => strip_tags(trim($this->input('title', '')))]);
+        }
+        if ($this->has('visibility')) {
+            $this->merge(['visibility' => strtolower(trim($this->input('visibility', 'public')))]);
+        }
+    }
+
     public function rules(): array
     {
         return [
-            //
+            'title'         => ['sometimes', 'required', 'string', 'min:3', 'max:255', 'regex:/^[\p{L}0-9\s\-\(\)\.,\/&#;:]+$/u'],
+            'document_type' => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::DOCUMENT_TYPES))],
+            'status'        => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::STATUSES))],
+            'visibility'    => ['sometimes', 'nullable', 'string', 'in:public,authenticated'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'title.min'            => 'Title must be at least 3 characters.',
+            'title.max'            => 'Title may not exceed 255 characters.',
+            'title.regex'          => 'Title contains invalid characters.',
+            'document_type.in'     => 'Invalid document type selected.',
+            'status.in'            => 'Invalid status selected.',
+            'visibility.in'        => 'Visibility must be public or authenticated.',
         ];
     }
 }

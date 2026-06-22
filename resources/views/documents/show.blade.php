@@ -16,15 +16,17 @@
 
     if ($isRuleSetDoc) {
         $contextName    = $ruleSet->name;
-        $contextUrl     = route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
-        $pdfRoute       = route('documents.rules.pdf',     [$department->levelAlias(), $department, $ruleSet, $document]);
-        $editRoute      = route('documents.rules.edit',    [$department->levelAlias(), $department, $ruleSet, $document]);
-        $destroyRoute   = route('documents.rules.destroy', [$department->levelAlias(), $department, $ruleSet, $document]);
+        $contextUrl     = route('departments.rules.show',   [$department->levelAlias(), $department, $ruleSet]);
+        $pdfRoute       = route('documents.rules.pdf',      [$department->levelAlias(), $department, $ruleSet, $document]);
+        $editRoute      = route('documents.rules.edit',     [$department->levelAlias(), $department, $ruleSet, $document]);
+        $updateRoute    = route('documents.rules.update',   [$department->levelAlias(), $department, $ruleSet, $document]);
+        $destroyRoute   = route('documents.rules.destroy',  [$department->levelAlias(), $department, $ruleSet, $document]);
     } else {
         $contextName    = $section->name;
         $contextUrl     = route('departments.sections.show', [$department->levelAlias(), $department, $section]);
         $pdfRoute       = route('documents.pdf',     [$department->levelAlias(), $department, $section, $document]);
         $editRoute      = route('documents.edit',    [$department->levelAlias(), $department, $section, $document]);
+        $updateRoute    = route('documents.update',  [$department->levelAlias(), $department, $section, $document]);
         $destroyRoute   = route('documents.destroy', [$department->levelAlias(), $department, $section, $document]);
     }
 @endphp
@@ -92,7 +94,7 @@
         <a href="{{ $editRoute }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
-            <span class="hidden sm:inline">Review</span>
+            <span class="hidden sm:inline">Edit</span>
         </a>
         <button type="button" id="delete-doc-btn"
                 class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-red-400 dark:hover:border-red-500 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
@@ -226,6 +228,37 @@
                 @endforeach
                 @endif
             </dl>
+
+            @auth
+            @if(auth()->user()->isAdmin())
+            {{-- Visibility control for admins --}}
+            <div class="px-5 pb-4 pt-1 border-t border-slate-100 dark:border-slate-700">
+                <p class="text-xs text-slate-400 dark:text-slate-500 mb-2">Visibility</p>
+                <form id="visibility-form" method="POST" action="{{ $updateRoute }}">
+                    @csrf @method('PATCH')
+                    <div class="flex flex-col gap-2">
+                        <label class="flex items-center gap-2.5 cursor-pointer select-none group">
+                            <input type="radio" name="visibility" value="public" id="vis-public"
+                                   @checked($document->visibility === 'public')
+                                   class="text-green-500 focus:ring-green-500 focus:ring-offset-0 dark:bg-slate-700 dark:border-slate-600">
+                            <span class="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-200 group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors">
+                                <i class="ti ti-world text-base text-green-500"></i> Public
+                            </span>
+                        </label>
+                        <label class="flex items-center gap-2.5 cursor-pointer select-none group">
+                            <input type="radio" name="visibility" value="authenticated" id="vis-auth"
+                                   @checked($document->visibility === 'authenticated')
+                                   class="text-amber-500 focus:ring-amber-500 focus:ring-offset-0 dark:bg-slate-700 dark:border-slate-600">
+                            <span class="flex items-center gap-1.5 text-sm text-slate-700 dark:text-slate-200 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+                                <i class="ti ti-lock text-base text-amber-500"></i> Authenticated Only
+                            </span>
+                        </label>
+                    </div>
+                </form>
+            </div>
+            @endif
+            @endauth
+
         </div>
 
         @auth
@@ -266,6 +299,19 @@
 
 @push('scripts')
 <script>
+try {
+    const visForm = document.getElementById('visibility-form');
+    if (visForm) {
+        visForm.querySelectorAll('input[type="radio"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                visForm.submit();
+            });
+        });
+    }
+} catch (e) {
+    console.error('Visibility radio init failed:', e);
+}
+
 try {
     const deleteBtn = document.getElementById('delete-doc-btn');
     if (deleteBtn) {

@@ -156,8 +156,29 @@ class DocumentController extends Controller
 
     public function update(UpdateDocumentRequest $request, string $level, Department $department, Section $section, Document $document): RedirectResponse
     {
-        flash()->info('Review workflow coming soon.');
-        return redirect()->route('departments.sections.show', [$department->levelAlias(), $department, $section]);
+        $validated = $request->validated();
+        $oldStatus = $document->status;
+
+        try {
+            DB::transaction(function () use ($validated, $document, $oldStatus) {
+                $document->update($validated);
+                if (isset($validated['status']) && $validated['status'] !== $oldStatus) {
+                    DocumentStatusHistory::create([
+                        'document_id' => $document->id,
+                        'actor_id'    => auth()->id(),
+                        'from_status' => $oldStatus,
+                        'to_status'   => $validated['status'],
+                        'note'        => 'Status updated via document edit.',
+                    ]);
+                }
+            });
+            flash()->success('Document updated successfully.');
+            return redirect()->route('documents.show', [$department->levelAlias(), $department, $section, $document]);
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@update failed', ['document_id' => $document->id, 'error' => $e->getMessage()]);
+            flash()->error('Failed to update document. Please try again.');
+            return back()->withInput();
+        }
     }
 
     public function destroy(DeleteDocumentRequest $request, string $level, Department $department, Section $section, Document $document): RedirectResponse
@@ -293,8 +314,29 @@ class DocumentController extends Controller
 
     public function updateRuleSetDoc(UpdateDocumentRequest $request, string $level, Department $department, RuleSet $ruleSet, Document $document): RedirectResponse
     {
-        flash()->info('Review workflow coming soon.');
-        return redirect()->route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
+        $validated = $request->validated();
+        $oldStatus = $document->status;
+
+        try {
+            DB::transaction(function () use ($validated, $document, $oldStatus) {
+                $document->update($validated);
+                if (isset($validated['status']) && $validated['status'] !== $oldStatus) {
+                    DocumentStatusHistory::create([
+                        'document_id' => $document->id,
+                        'actor_id'    => auth()->id(),
+                        'from_status' => $oldStatus,
+                        'to_status'   => $validated['status'],
+                        'note'        => 'Status updated via document edit.',
+                    ]);
+                }
+            });
+            flash()->success('Document updated successfully.');
+            return redirect()->route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $document]);
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@updateRuleSetDoc failed', ['document_id' => $document->id, 'error' => $e->getMessage()]);
+            flash()->error('Failed to update document. Please try again.');
+            return back()->withInput();
+        }
     }
 
     public function destroyRuleSetDoc(DeleteDocumentRequest $request, string $level, Department $department, RuleSet $ruleSet, Document $document): RedirectResponse
