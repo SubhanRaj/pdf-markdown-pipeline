@@ -46,6 +46,52 @@
     ['name' => $document->title,                    'url' => null],
 ]" />
 
+{{-- ── Amendment banners ────────────────────────────────────────────────────── --}}
+@if($document->amendments->isNotEmpty())
+<div class="mb-5 rounded-xl border border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/20 px-5 py-4">
+    <div class="flex items-start gap-3">
+        <i class="ti ti-alert-triangle text-amber-500 dark:text-amber-400 text-lg flex-shrink-0 mt-0.5"></i>
+        <div class="min-w-0">
+            <p class="text-sm font-semibold text-amber-800 dark:text-amber-300">Important: This document has been amended.</p>
+            <p class="text-xs text-amber-700 dark:text-amber-400 mt-0.5 mb-3">The following amendment(s) supersede parts of this document. Review them before acting on this version.</p>
+            <ul class="space-y-1.5">
+                @foreach($document->amendments as $amendment)
+                <li class="flex items-center gap-2">
+                    <i class="ti ti-arrow-right text-amber-400 dark:text-amber-500 text-xs flex-shrink-0"></i>
+                    <a href="{{ $isRuleSetDoc
+                        ? route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $amendment])
+                        : route('documents.show',       [$department->levelAlias(), $department, $section, $amendment]) }}"
+                       class="text-sm font-medium text-amber-700 dark:text-amber-300 hover:underline truncate">
+                        {{ $amendment->title }}
+                    </a>
+                    <span class="text-xs text-amber-500 dark:text-amber-500 flex-shrink-0">{{ $amendment->created_at->format('d M Y') }}</span>
+                </li>
+                @endforeach
+            </ul>
+        </div>
+    </div>
+</div>
+@endif
+
+@if($document->parent_id && $document->parentDocument)
+<div class="mb-5 rounded-xl border border-blue-300 dark:border-blue-500 bg-blue-50 dark:bg-blue-900/20 px-5 py-4">
+    <div class="flex items-start gap-3">
+        <i class="ti ti-info-circle text-blue-500 dark:text-blue-400 text-lg flex-shrink-0 mt-0.5"></i>
+        <div class="min-w-0">
+            <p class="text-sm font-semibold text-blue-800 dark:text-blue-300">This is an amendment to:</p>
+            <a href="{{ $isRuleSetDoc
+                ? route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $document->parentDocument])
+                : route('documents.show',       [$department->levelAlias(), $department, $section, $document->parentDocument]) }}"
+               class="inline-flex items-center gap-1.5 mt-1 text-sm font-medium text-blue-700 dark:text-blue-300 hover:underline">
+                <i class="ti ti-file-text text-xs"></i>
+                {{ $document->parentDocument->title }}
+                <span class="text-xs font-normal text-blue-500 dark:text-blue-400">({{ $document->parentDocument->created_at->format('d M Y') }})</span>
+            </a>
+        </div>
+    </div>
+</div>
+@endif
+
 {{-- ── Document header ──────────────────────────────────────────────────────── --}}
 <div class="flex items-start justify-between gap-4 mb-6">
     <div class="flex items-start gap-4">

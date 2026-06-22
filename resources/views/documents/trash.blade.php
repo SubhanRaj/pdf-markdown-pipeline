@@ -67,12 +67,60 @@
     </div>
 </div>
 
+{{-- Bulk action bar --}}
+@if($documents->isNotEmpty())
+<div id="bulk-bar"
+     class="hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 shadow-2xl px-6 py-3 flex items-center gap-3 flex-wrap">
+    <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <span id="bulk-count">0</span> selected
+    </span>
+    <div class="flex-1"></div>
+    <button type="button" id="bulk-deselect"
+            class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
+        Deselect all
+    </button>
+    <button type="button" id="bulk-restore-btn"
+            class="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+        <i class="ti ti-restore text-base"></i>
+        Restore Selected
+    </button>
+    @if(auth()->user()->isAdmin())
+    <button type="button" id="bulk-force-btn"
+            class="inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+        <i class="ti ti-trash text-base"></i>
+        Delete Forever
+    </button>
+    @endif
+</div>
+
+{{-- Hidden forms --}}
+<form id="bulk-restore-form" method="POST" action="{{ route('documents.trash.bulk-restore') }}" style="display:none">
+    @csrf
+    <div id="bulk-restore-ids"></div>
+</form>
+@if(auth()->user()->isAdmin())
+<form id="bulk-force-form" method="POST" action="{{ route('documents.trash.bulk-force-destroy') }}" style="display:none">
+    @csrf @method('DELETE')
+    <div id="bulk-force-ids"></div>
+</form>
+@endif
+@endif
+
 <div class="mb-6 flex items-center justify-between gap-4">
     <p class="text-sm text-slate-500 dark:text-slate-400">
         Soft-deleted documents are hidden from public views. Restore to make them accessible again, or permanently delete to remove all files from disk.
     </p>
-    @if(auth()->user()->isAdmin() && $documents->isNotEmpty())
-    <span class="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">{{ $documents->count() }} {{ Str::plural('document', $documents->count()) }}</span>
+    @if($documents->isNotEmpty())
+    <div class="flex items-center gap-3 flex-shrink-0">
+        @if(auth()->user()->isAdmin())
+        <label class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 cursor-pointer select-none">
+            <input type="checkbox" id="select-all-trash"
+                   class="rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 cursor-pointer">
+            Select all
+        </label>
+        @endif
+        <span class="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">{{ $documents->count() }} {{ Str::plural('document', $documents->count()) }}</span>
+    </div>
     @endif
 </div>
 
@@ -97,6 +145,12 @@
     @endphp
     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-5 py-4">
         <div class="flex items-start gap-4">
+            {{-- Checkbox --}}
+            <div class="flex items-center pt-0.5 flex-shrink-0">
+                <input type="checkbox"
+                       class="trash-checkbox rounded border-slate-300 dark:border-slate-600 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 cursor-pointer"
+                       value="{{ $doc->id }}">
+            </div>
             {{-- Icon --}}
             <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-red-50 dark:bg-red-900/20">
                 <i class="ti ti-file-x text-base text-red-400 dark:text-red-500"></i>
@@ -167,6 +221,120 @@
 @endif
 
 @push('scripts')
+@if($documents->isNotEmpty())
+<script>
+(function () {
+    try {
+        const bulkBar        = document.getElementById('bulk-bar');
+        const bulkCount      = document.getElementById('bulk-count');
+        const bulkDeselect   = document.getElementById('bulk-deselect');
+        const bulkRestoreBtn = document.getElementById('bulk-restore-btn');
+        const bulkForceBtn   = document.getElementById('bulk-force-btn');
+        const restoreForm    = document.getElementById('bulk-restore-form');
+        const restoreIds     = document.getElementById('bulk-restore-ids');
+        const forceForm      = document.getElementById('bulk-force-form');
+        const forceIds       = document.getElementById('bulk-force-ids');
+        const selectAll      = document.getElementById('select-all-trash');
+        const isDark         = () => document.documentElement.classList.contains('dark');
+
+        if (!bulkBar) return;
+
+        function getChecked() {
+            return Array.from(document.querySelectorAll('.trash-checkbox:checked'));
+        }
+
+        function buildIds(container, checked) {
+            container.innerHTML = '';
+            checked.forEach(function (cb) {
+                const inp = document.createElement('input');
+                inp.type  = 'hidden';
+                inp.name  = 'ids[]';
+                inp.value = cb.value;
+                container.appendChild(inp);
+            });
+        }
+
+        function syncBar() {
+            const checked = getChecked();
+            const n = checked.length;
+            bulkCount.textContent = n;
+            if (n > 0) {
+                bulkBar.classList.remove('hidden');
+                bulkBar.classList.add('flex');
+                document.body.style.paddingBottom = '64px';
+            } else {
+                bulkBar.classList.add('hidden');
+                bulkBar.classList.remove('flex');
+                document.body.style.paddingBottom = '';
+            }
+            if (selectAll) {
+                const all = document.querySelectorAll('.trash-checkbox');
+                selectAll.indeterminate = n > 0 && n < all.length;
+                selectAll.checked = all.length > 0 && n === all.length;
+            }
+        }
+
+        document.querySelectorAll('.trash-checkbox').forEach(cb => cb.addEventListener('change', syncBar));
+
+        if (selectAll) {
+            selectAll.addEventListener('change', function () {
+                document.querySelectorAll('.trash-checkbox').forEach(cb => { cb.checked = selectAll.checked; });
+                syncBar();
+            });
+        }
+
+        bulkDeselect.addEventListener('click', function () {
+            document.querySelectorAll('.trash-checkbox').forEach(cb => { cb.checked = false; });
+            if (selectAll) { selectAll.checked = false; selectAll.indeterminate = false; }
+            syncBar();
+        });
+
+        bulkRestoreBtn.addEventListener('click', async function () {
+            const checked = getChecked();
+            if (!checked.length) return;
+            const { isConfirmed } = await Swal.fire({
+                title: 'Restore ' + checked.length + ' ' + (checked.length === 1 ? 'Document' : 'Documents') + '?',
+                html: '<p class="text-sm">Selected documents will be restored to their previous status and made accessible again.</p>',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Restore',
+                confirmButtonColor: '#22c55e',
+                cancelButtonText: 'Cancel',
+                background: isDark() ? '#1e293b' : '#fff',
+                color: isDark() ? '#f1f5f9' : '#1e293b',
+            });
+            if (!isConfirmed) return;
+            buildIds(restoreIds, checked);
+            restoreForm.submit();
+        });
+
+        if (bulkForceBtn && forceForm) {
+            bulkForceBtn.addEventListener('click', async function () {
+                const checked = getChecked();
+                if (!checked.length) return;
+                const { isConfirmed } = await Swal.fire({
+                    title: 'Permanently Delete ' + checked.length + ' ' + (checked.length === 1 ? 'Document' : 'Documents') + '?',
+                    html: '<p class="text-sm mb-2">All files for the selected documents will be <strong>permanently removed from disk</strong>.</p><p class="text-xs text-red-500 font-medium">This cannot be undone.</p>',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'Delete Forever',
+                    confirmButtonColor: '#ef4444',
+                    cancelButtonText: 'Cancel',
+                    background: isDark() ? '#1e293b' : '#fff',
+                    color: isDark() ? '#f1f5f9' : '#1e293b',
+                });
+                if (!isConfirmed) return;
+                buildIds(forceIds, checked);
+                forceForm.submit();
+            });
+        }
+
+    } catch (e) {
+        console.error('Trash bulk init failed:', e);
+    }
+})();
+</script>
+@endif
 <script>
 try {
     const isDark  = () => document.documentElement.classList.contains('dark');

@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\BulkDeleteDocumentsRequest;
+use App\Http\Requests\BulkRestoreDocumentsRequest;
+use App\Http\Requests\BulkForceDestroyDocumentsRequest;
 use App\Http\Requests\DeleteDocumentRequest;
 use App\Http\Requests\StoreDocumentRequest;
 use App\Http\Requests\UpdateDocumentRequest;
@@ -14,6 +17,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
@@ -39,7 +43,7 @@ class DocumentController extends Controller
             abort(403);
         }
 
-        $document->load(['user:id,name', 'statusHistory.actor:id,name']);
+        $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,created_at']);
         return view('documents.show', compact('document', 'department', 'section'));
     }
 
@@ -295,6 +299,107 @@ class DocumentController extends Controller
         }
     }
 
+    public function bulkDestroy(BulkDeleteDocumentsRequest $request): RedirectResponse
+    {
+        $ids    = $request->validated()['ids'];
+        $reason = $request->validated()['reason'];
+        $actor  = auth()->id();
+
+        $deleted = 0;
+
+        try {
+            DB::transaction(function () use ($ids, $reason, $actor, &$deleted) {
+                foreach ($ids as $id) {
+                    $document = Document::findOrFail($id);
+
+                    DocumentStatusHistory::create([
+                        'document_id' => $document->id,
+                        'actor_id'    => $actor,
+                        'from_status' => $document->status,
+                        'to_status'   => 'deleted',
+                        'note'        => $reason,
+                    ]);
+
+                    $document->delete();
+                    $deleted++;
+                }
+            });
+
+            flash()->success("{$deleted} " . Str::plural('document', $deleted) . ' moved to trash.');
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@bulkDestroy failed', ['ids' => $ids, 'error' => $e->getMessage()]);
+            flash()->error('Bulk delete failed. Please try again.');
+        }
+
+        return redirect()->route('documents.index');
+    }
+
+    public function bulkRestore(BulkRestoreDocumentsRequest $request): RedirectResponse
+    {
+        $ids     = $request->validated()['ids'];
+        $actor   = auth()->id();
+        $restored = 0;
+
+        try {
+            DB::transaction(function () use ($ids, $actor, &$restored) {
+                foreach ($ids as $id) {
+                    $document = Document::withTrashed()->find($id);
+                    if (! $document || ! $document->trashed()) {
+                        continue;
+                    }
+                    $document->restore();
+                    DocumentStatusHistory::create([
+                        'document_id' => $document->id,
+                        'actor_id'    => $actor,
+                        'from_status' => 'deleted',
+                        'to_status'   => $document->status,
+                        'note'        => 'Restored from trash (bulk action).',
+                    ]);
+                    $restored++;
+                }
+            });
+
+            flash()->success("{$restored} " . Str::plural('document', $restored) . ' restored successfully.');
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@bulkRestore failed', ['ids' => $ids, 'error' => $e->getMessage()]);
+            flash()->error('Bulk restore failed. Please try again.');
+        }
+
+        return redirect()->route('documents.trash');
+    }
+
+    public function bulkForceDestroy(BulkForceDestroyDocumentsRequest $request): RedirectResponse
+    {
+        $ids     = $request->validated()['ids'];
+        $deleted = 0;
+
+        try {
+            DB::transaction(function () use ($ids, &$deleted) {
+                foreach ($ids as $id) {
+                    $document = Document::withTrashed()->find($id);
+                    if (! $document) {
+                        continue;
+                    }
+                    if ($document->original_pdf_path) {
+                        Storage::disk('public')->delete($document->original_pdf_path);
+                    }
+                    if ($document->markdown_path) {
+                        Storage::disk('public')->delete($document->markdown_path);
+                    }
+                    $document->forceDelete();
+                    $deleted++;
+                }
+            });
+
+            flash()->success("{$deleted} " . Str::plural('document', $deleted) . ' permanently deleted.');
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@bulkForceDestroy failed', ['ids' => $ids, 'error' => $e->getMessage()]);
+            flash()->error('Bulk permanent delete failed. Please try again.');
+        }
+
+        return redirect()->route('documents.trash');
+    }
+
     public function forceDestroy(int $id): RedirectResponse
     {
         if (! auth()->user()->isAdmin()) {
@@ -331,7 +436,7 @@ class DocumentController extends Controller
             abort(403);
         }
 
-        $document->load(['user:id,name', 'statusHistory.actor:id,name']);
+        $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,created_at']);
         return view('documents.show', compact('document', 'department', 'ruleSet'));
     }
 

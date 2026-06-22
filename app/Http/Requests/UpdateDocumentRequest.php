@@ -20,6 +20,9 @@ class UpdateDocumentRequest extends FormRequest
         if ($this->has('visibility')) {
             $this->merge(['visibility' => strtolower(trim($this->input('visibility', 'public')))]);
         }
+        if ($this->has('parent_id')) {
+            $this->merge(['parent_id' => $this->parent_id ? (int) $this->parent_id : null]);
+        }
     }
 
     public function rules(): array
@@ -29,6 +32,7 @@ class UpdateDocumentRequest extends FormRequest
             'document_type' => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::DOCUMENT_TYPES))],
             'status'        => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::STATUSES))],
             'visibility'    => ['sometimes', 'nullable', 'string', 'in:public,authenticated'],
+            'parent_id'     => ['sometimes', 'nullable', 'integer', 'exists:documents,id'],
         ];
     }
 
