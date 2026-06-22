@@ -177,17 +177,18 @@ Unique constraint: `(department_id, slug)`.
 | `user_id` | FK → users nullable | `nullOnDelete` — uploader |
 | `title` | string | Human-readable title / reference |
 | `slug` | string | URL-safe; auto-generated from title; unique per section or rule set |
-| `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `rule_amendment` \| `other` |
+| `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `rule` \| `rule_amendment` \| `other` |
 | `original_filename` | string | |
 | `original_pdf_path` | string | Full relative path on `public` disk |
 | `markdown_path` | string nullable | Set after extraction job completes |
 | `vault_path` | string nullable | Vault directory; set at upload |
 | `status` | string | `uploaded → processing → ocr_pending → review → verified \| failed` — pipeline state only |
 | `visibility` | string | `public` (default) \| `authenticated` — guest access gate, independent of status |
+| `parent_id` | FK → documents nullable | `nullOnDelete` — links amendments to their parent rule document |
 | `metadata` | json nullable | GO number, subject, dates, etc. |
 | timestamps + softDeletes | | |
 
-Unique constraint: `(section_id, slug)` for section documents. Slug generation for rule-set documents uses `uniqueSlugForRuleSet()`.
+Unique constraint: `(section_id, slug)` for section documents. Slug generation for rule-set documents uses `uniqueSlugForRuleSet()`. Exactly one of `section_id` or `rule_set_id` is non-null per row.
 
 ### `document_status_histories`
 | Column | Type | Notes |
@@ -232,7 +233,7 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - Full CRUD for Documents, Departments, Sections, Rule Sets, and admin User Management — all with DB transactions, try/catch, and `$request->validated()` throughout
 - Dual document taxonomy: section-based (GOs, notices, circulars) and rule-set-based (Acts, Rules, amendments) with separate vault paths and URL structures
 - File upload: accepts PDF, Word, Excel, PowerPoint, ODT, all image formats, RTF, TXT, CSV — validated against actual magic bytes; stored directly in the vault directory as `{slug}_{YmdHis}.pdf`
-- Rate limiting: login brute-force (5/min per email+IP), general mutation cap (60/min/user), upload cap (10/min/user) — all named limiters
+- Rate limiting: login brute-force (5/min per email+IP), general mutation cap (60/min/user), upload cap (60/min/user) — all named limiters; bulk multi-file uploads are bounded by the 50 MB file size cap rather than a tight request count
 - Sidebar fully dynamic: driven by DB records; no hardcoded department links
 - Level-aware department routing: `{level}` URL segment disambiguates departments sharing slugs across levels
 - Browse Vault sidebar and dashboard department cards are fully dynamic
@@ -240,5 +241,6 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - Basic search: `GET /search?q=` across document titles, section names, and rule set names/descriptions — results split into three typed blocks (Documents / Sections / Rule Sets); guests see verified docs only; header search bar wired to this route; Search link added to sidebar
 - Two-stage document deletion: soft-delete with mandatory reason (stored in status history audit log) → trash view (`GET /documents/trash`) with restore and permanent-delete actions; permanent delete removes files from disk before hard-deleting the DB record; SweetAlert2 used for all confirmations
 - Document visibility control: `public` (default, visible to all guests) vs `authenticated` (logged-in users only); decoupled from the processing-status pipeline so documents can be public immediately on upload without waiting for the review/verified workflow; visibility selector in upload modals; badge on document show page
+- Rule set upload flow: two independent modals — "Upload Rule" (disabled once a rule doc exists) and "Upload Amendment" (disabled until a rule doc exists); amendment modal auto-selects the parent if only one root rule doc is present; rule set cascade delete soft-deletes all documents with audit entries before removing the rule set; Edit button locked on rule docs that already have amendments
 
 **Next up:** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.

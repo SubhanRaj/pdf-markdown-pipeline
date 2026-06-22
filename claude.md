@@ -8,6 +8,8 @@ Context file for Claude Code working in this repository. Read this fully before 
 
 **Operating mode for this repo:** Senior Full-Stack Engineer / Systems Architect pair-programming session. Skip basic conceptual explanations — assume strong familiarity with PHP, Laravel, server administration, and web architecture. Provide production-ready, modular code and direct CLI steps rather than tutorials. When changing `.env` values, DB connections, or Python venv setup, summarize the change before executing it.
 
+**IDE diagnostics:** VSCode is configured with multiple Laravel-aware PHP plugins (Intelephense, Laravel Extra Intellisense, etc.) that produce false positives — `$level` "unused" (it's required by Laravel's route binding contract), `auth()->check()` "undefined method" (static analysis limitation on the auth facade), `Document` "unused" when used only as a closure parameter type hint. **Do not treat these as real errors.** Only act on diagnostics when there is genuine functional impact — wrong logic, missing imports, type mismatches that would cause a runtime exception.
+
 This repo and its context are scoped to engineering work only — no administrative/bureaucratic drafting persona applies here.
 
 ## Project overview
@@ -155,7 +157,7 @@ Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueS
 | `user_id` | FK → users nullable | `nullOnDelete` — uploader |
 | `title` | string | human-readable document title / reference |
 | `slug` | string | URL-safe; auto-generated from title at upload; unique per section or per rule set |
-| `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `rule_amendment` \| `other` |
+| `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `rule` \| `rule_amendment` \| `other` |
 | `original_filename` | string | |
 | `original_pdf_path` | string | full relative path on `public` disk |
 | `markdown_path` | string nullable | set after extraction job completes |
@@ -368,7 +370,18 @@ Deletion is a two-stage process — soft-delete to trash, then optional permanen
 
 - **`rule_sets/create`** — name + description form with JS validation; slug is auto-generated server-side from name.
 - **`rule_sets/edit`** — same, pre-populated; slug is read-only (set at creation, never changed).
-- **`rule_sets/show`** — header with description, upload amendment modal (hidden for guests; pre-selects `rule_amendment` type; sends `rule_set_id`), amendment/document timeline list with status badges and auth-gated view/delete actions.
+- **`rule_sets/show`** — header + two state-aware upload buttons + two independent modals + hierarchy document list.
+
+**Two upload modals (separate, not combined):**
+
+- **`#modal-rule`** (Upload Rule Document) — indigo accent; type dropdown shows all types except `rule_amendment`, pre-selects `rule`; no parent field. Button is disabled once a rule-type doc exists for this rule set (`$rootDocuments->where('document_type', 'rule')->isNotEmpty()`).
+- **`#modal-amendment`** (Upload Amendment) — amber accent; type is a fixed hidden input (`rule_amendment`) shown as read-only badge; requires parent document selection from `$parentOptions` dropdown (root docs only, auto-selects if exactly one exists). Button is disabled until a `rule` doc exists.
+
+Both modals share a `makeQueue(ids)` JS factory function that handles multi-file queue, drag-and-drop, per-row title editing, sequential upload loop, and post-upload redirect/error handling. Each modal has its own set of element IDs passed via the `ids` object.
+
+**Edit lock on rule docs with amendments:** `documents/show.blade.php` — if `$document->document_type === 'rule'` and `$document->amendments->isNotEmpty()`, the Edit button is replaced with a greyed-out disabled `<span>`.
+
+**Cascade delete:** `RuleSetController@destroy` — before soft-deleting the rule set, iterates all documents via `$ruleSet->documents()->each(...)`, writes a `DocumentStatusHistory` row per doc, then soft-deletes each doc — all inside the same `DB::transaction()`. Users do not need to delete documents manually before deleting a rule set.
 
 ### User management & profile
 
@@ -425,7 +438,7 @@ Named limiters defined in `AppServiceProvider::boot()`. Never use anonymous `thr
 | `login` | 5/min per email+IP + 10/min per IP | Fortify brute-force |
 | `two-factor` | 5/min per session+IP | Fortify 2FA |
 | `mutations` | 60/min | user ID or IP — all auth POST/PATCH/DELETE groups |
-| `uploads` | 10/min | user ID or IP — `POST /documents` only (on top of mutations) |
+| `uploads` | 60/min | user ID or IP — `POST /documents` only (on top of mutations) |
 
 ### File upload validation
 
@@ -606,7 +619,7 @@ try {
 
 ### Rate limiting
 - All auth mutation route groups carry `throttle:mutations` middleware (60/min/user).
-- `POST /documents` additionally carries `throttle:uploads` (10/min/user) to prevent disk exhaustion.
+- `POST /documents` additionally carries `throttle:uploads` (60/min/user) — raised from 10 to allow bulk multi-file uploads without 429s; disk exhaustion is guarded by the 50 MB file size cap and the mutations limiter.
 - All named limiters live in `AppServiceProvider::configureRateLimiters()` — never add inline `throttle:N,M` to routes.
 - The `login` and `two-factor` limiters are named in `config/fortify.php` and defined in `AppServiceProvider` — both must remain in sync.
 

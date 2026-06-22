@@ -71,9 +71,10 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // ── File uploads ──────────────────────────────────────────────────────
-        // Tighter cap: 10 uploads per minute per user to prevent disk exhaustion.
+        // 60/min matches the mutations cap; file size (50 MB) and the mutations
+        // limiter are the real disk-exhaustion guards for bulk legitimate uploads.
         RateLimiter::for('uploads', function (Request $request) {
-            return Limit::perMinute(10)
+            return Limit::perMinute(60)
                 ->by($request->user()?->id ?: $request->ip());
         });
     }

@@ -117,12 +117,21 @@
 
     @auth
     @if(auth()->user()->isAdmin())
+    @php $ruleIsLocked = $document->document_type === 'rule' && $document->amendments->isNotEmpty(); @endphp
     <div class="flex items-center gap-2 flex-shrink-0">
+        @if(! $ruleIsLocked)
         <a href="{{ $editRoute }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
             <span class="hidden sm:inline">Edit</span>
         </a>
+        @else
+        <span title="Cannot edit a rule document that has amendments"
+              class="inline-flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 text-slate-300 dark:text-slate-600 text-sm font-medium px-3 py-2 rounded-lg cursor-not-allowed">
+            <i class="ti ti-pencil text-base"></i>
+            <span class="hidden sm:inline">Edit</span>
+        </span>
+        @endif
         <button type="button" id="delete-doc-btn"
                 class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-red-400 dark:hover:border-red-500 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-trash text-base"></i>

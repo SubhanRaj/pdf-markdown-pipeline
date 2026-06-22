@@ -82,6 +82,64 @@
     </div>
 </form>
 
+{{-- ── Danger zone ──────────────────────────────────────────────────────────── --}}
+@if(auth()->user()->isAdmin())
+<div class="max-w-2xl mt-6 rounded-xl border border-red-200 dark:border-red-800/50 bg-white dark:bg-slate-800">
+    <div class="px-6 py-4 border-b border-red-100 dark:border-red-800/40 flex items-center gap-2">
+        <i class="ti ti-alert-triangle text-red-500 dark:text-red-400 text-base"></i>
+        <span class="text-sm font-semibold text-red-700 dark:text-red-400">Danger Zone</span>
+    </div>
+    <div class="px-6 py-5 flex items-start justify-between gap-6">
+        <div>
+            <p class="text-sm font-medium text-slate-700 dark:text-slate-200">Delete this rule set</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Permanently removes the rule set and soft-deletes all {{ $ruleSet->documents()->count() }} associated document(s) to trash.
+                This action cannot be easily undone.
+            </p>
+        </div>
+        <button type="button" id="delete-ruleset-btn"
+                class="flex-shrink-0 inline-flex items-center gap-1.5 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+            <i class="ti ti-trash text-base"></i> Delete Rule Set
+        </button>
+    </div>
+</div>
+
+<form id="delete-ruleset-form" method="POST"
+      action="{{ route('departments.rules.destroy', [$department->levelAlias(), $department, $ruleSet]) }}"
+      style="display:none">
+    @csrf @method('DELETE')
+</form>
+
+@push('scripts')
+<script>
+try {
+    document.getElementById('delete-ruleset-btn').addEventListener('click', function () {
+        const isDark = document.documentElement.classList.contains('dark');
+        const docCount = {{ $ruleSet->documents()->count() }};
+        Swal.fire({
+            title: 'Delete Rule Set?',
+            html: '<p class="text-sm text-gray-500 mb-2">You are about to delete <strong>{{ e($ruleSet->name) }}</strong>.</p>'
+                + (docCount > 0
+                    ? '<p class="text-sm text-red-500">This will also move <strong>' + docCount + ' document(s)</strong> to trash.</p>'
+                    : '<p class="text-sm text-gray-400">No documents are associated with this rule set.</p>'),
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, delete it',
+            cancelButtonText: 'Cancel',
+            confirmButtonColor: '#dc2626',
+            background: isDark ? '#1e293b' : '#ffffff',
+            color: isDark ? '#f1f5f9' : '#0f172a',
+        }).then(function (result) {
+            if (result.isConfirmed) {
+                document.getElementById('delete-ruleset-form').submit();
+            }
+        });
+    });
+} catch (e) { console.error('Delete rule set init failed:', e); }
+</script>
+@endpush
+@endif
+
 @push('scripts')
 <script>
 (function () {

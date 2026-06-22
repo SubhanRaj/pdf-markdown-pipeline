@@ -43,7 +43,7 @@ class DocumentController extends Controller
             abort(403);
         }
 
-        $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,created_at']);
+        $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,status,visibility,created_at']);
         return view('documents.show', compact('document', 'department', 'section'));
     }
 
@@ -116,6 +116,7 @@ class DocumentController extends Controller
                     'department_id'     => $department->id,
                     'section_id'        => $section?->id,
                     'rule_set_id'       => $ruleSet?->id,
+                    'parent_id'         => $validated['parent_id'] ?? null,
                     'user_id'           => $request->user()->id,
                     'title'             => $validated['title'],
                     'slug'              => $slug,
@@ -436,7 +437,7 @@ class DocumentController extends Controller
             abort(403);
         }
 
-        $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,created_at']);
+        $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,status,visibility,created_at']);
         return view('documents.show', compact('document', 'department', 'ruleSet'));
     }
 
