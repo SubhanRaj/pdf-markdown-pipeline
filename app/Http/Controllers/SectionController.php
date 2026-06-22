@@ -15,8 +15,11 @@ class SectionController extends Controller
 {
     public function index(string $level, Department $department): View
     {
+        $isGuest = ! auth()->check();
+        $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
+
         $sections = $department->sections()
-            ->withCount('documents')
+            ->withCount(['documents' => $visibilityScope])
             ->orderBy('wing')
             ->orderBy('name')
             ->get();

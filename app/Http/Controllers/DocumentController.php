@@ -35,6 +35,10 @@ class DocumentController extends Controller
 
     public function show(string $level, Department $department, Section $section, Document $document): View
     {
+        if (! auth()->check() && $document->visibility !== 'public') {
+            abort(403);
+        }
+
         $document->load(['user:id,name', 'statusHistory.actor:id,name']);
         return view('documents.show', compact('document', 'department', 'section'));
     }
@@ -215,12 +219,51 @@ class DocumentController extends Controller
                 'department',
                 'section',
                 'ruleSet',
+                'user:id,name',
                 'statusHistory' => fn ($q) => $q->where('to_status', 'deleted')->with('actor:id,name')->latest('created_at'),
             ])
             ->orderByDesc('deleted_at')
             ->get();
 
-        return view('documents.trash', compact('documents'));
+        $trashData = $documents->map(function ($doc) {
+            $statusEntry = $doc->statusHistory->first();
+            return [
+                'id'              => $doc->id,
+                'title'           => $doc->title,
+                'document_type'   => Document::DOCUMENT_TYPES[$doc->document_type] ?? $doc->document_type,
+                'status'          => $doc->status,
+                'visibility'      => $doc->visibility,
+                'department'      => $doc->department->name,
+                'context_name'    => $doc->section?->name ?? $doc->ruleSet?->name ?? '—',
+                'context_type'    => $doc->section_id ? 'Section' : 'Rule Set',
+                'uploaded_by'     => $doc->user?->name ?? '—',
+                'uploaded_at'     => $doc->created_at->format('d M Y, H:i'),
+                'deleted_at'      => $doc->deleted_at->format('d M Y, H:i'),
+                'deleted_by'      => $statusEntry?->actor?->name ?? '—',
+                'deletion_reason' => $statusEntry?->note ?? '—',
+                'pdf_url'         => $doc->original_pdf_path ? route('documents.trashed.pdf', $doc->id) : null,
+                'restore_url'     => route('documents.restore', $doc->id),
+                'destroy_url'     => route('documents.force-destroy', $doc->id),
+                'is_admin'        => auth()->user()->isAdmin(),
+            ];
+        });
+
+        return view('documents.trash', compact('documents', 'trashData'));
+    }
+
+    public function trashedPdf(int $id): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $document = Document::onlyTrashed()->findOrFail($id);
+
+        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
+            abort(404, 'PDF file not found.');
+        }
+
+        return Storage::disk('public')->response(
+            $document->original_pdf_path,
+            null,
+            ['Content-Disposition' => 'inline; filename="' . basename($document->original_pdf_path) . '"']
+        );
     }
 
     public function restore(int $id): RedirectResponse
@@ -284,6 +327,10 @@ class DocumentController extends Controller
 
     public function showRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): View
     {
+        if (! auth()->check() && $document->visibility !== 'public') {
+            abort(403);
+        }
+
         $document->load(['user:id,name', 'statusHistory.actor:id,name']);
         return view('documents.show', compact('document', 'department', 'ruleSet'));
     }

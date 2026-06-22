@@ -300,15 +300,13 @@
                 </a>
                 @auth
                 @if(auth()->user()->isAdmin())
-                <form method="POST" action="{{ route('documents.destroy', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]) }}"
-                      onsubmit="return confirm('Delete this document? This cannot be undone.')">
-                    @csrf @method('DELETE')
-                    <button type="submit"
-                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-                            title="Delete">
-                        <i class="ti ti-trash text-base"></i>
-                    </button>
-                </form>
+                <button type="button"
+                        class="doc-delete-btn inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                        data-action="{{ route('documents.destroy', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]) }}"
+                        data-title="{{ e($doc->title) }}"
+                        title="Delete">
+                    <i class="ti ti-trash text-base"></i>
+                </button>
                 @endif
                 @endauth
             </div>
@@ -447,6 +445,59 @@
             btnSubmit.disabled = false;
             btnLabel.textContent = 'Upload';
         }
+    });
+})();
+</script>
+
+<script>
+(function () {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+        || document.querySelector('input[name="_token"]')?.value || '';
+
+    function esc(str) {
+        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    document.querySelectorAll('.doc-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async function () {
+            const action = this.dataset.action;
+            const title  = this.dataset.title;
+            const dark   = document.documentElement.classList.contains('dark');
+
+            const { value: reason, isConfirmed } = await Swal.fire({
+                title: 'Move to Trash',
+                html: `<p class="text-sm mb-3">Moving <strong>${esc(title)}</strong> to trash.</p>
+                       <textarea id="swal-reason" class="swal2-textarea" placeholder="Reason for deletion (required)" rows="3" style="resize:vertical"></textarea>`,
+                showCancelButton: true,
+                confirmButtonText: 'Move to Trash',
+                confirmButtonColor: '#dc2626',
+                cancelButtonText: 'Cancel',
+                background: dark ? '#1e293b' : '#fff',
+                color: dark ? '#f1f5f9' : '#1e293b',
+                preConfirm: () => {
+                    const r = document.getElementById('swal-reason').value.trim();
+                    if (!r || r.length < 5) {
+                        Swal.showValidationMessage('Please enter a reason (at least 5 characters).');
+                        return false;
+                    }
+                    if (r.length > 500) {
+                        Swal.showValidationMessage('Reason must be 500 characters or fewer.');
+                        return false;
+                    }
+                    return r;
+                },
+            });
+
+            if (!isConfirmed || !reason) return;
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = action;
+            form.style.display = 'none';
+            form.innerHTML = `<input name="_token" value="${csrfToken}"><input name="_method" value="DELETE"><input name="reason" value="${reason.replace(/"/g, '&quot;')}">`;
+            document.body.appendChild(form);
+            form.submit();
+        });
     });
 })();
 </script>
