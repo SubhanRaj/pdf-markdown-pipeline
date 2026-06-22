@@ -20,7 +20,8 @@ class Document extends Model
         'notice'         => 'Notice',
         'court_order'    => 'Court Order',
         'service_code'   => 'Service Code',
-        'rule_amendment' => 'Rule / Amendment',
+        'rule'           => 'Rule',
+        'rule_amendment' => 'Amendment to Rule',
         'other'          => 'Other',
     ];
 
