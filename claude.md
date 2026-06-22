@@ -24,11 +24,27 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 |---|---|
 | Framework | Laravel 13, PHP 8.4 |
 | Database | MariaDB 12 |
-| Frontend | Blade templates, Tailwind CSS v4, Parsedown (markdown render) |
+| Web server | Apache (mod_php or php-fpm via mod_proxy_fcgi) — **no Nginx** |
+| Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Parsedown (markdown render) — **no Node, no npm, no build step** |
 | Text extraction | Python `markitdown`, via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
 | OCR | Tesseract OCR (`hin` + `eng` language packs), invoked via `symfony/process`. Only triggered when markitdown output is empty/low-quality (i.e. scanned legacy GOs). |
 | Queue | Laravel **database** queue driver — deliberately no Redis, single-box local deployment |
 | Disk | Single local filesystem disk (`public`); logical separation enforced by path convention, not multiple disks |
+
+## PHP ini requirements
+
+The defaults shipped by PHP are too restrictive for document uploads (default `upload_max_filesize` is 2 MB). Edit `/usr/local/etc/php/8.5/php.ini` (path varies by install) and set:
+
+```ini
+upload_max_filesize = 64M   ; must be ≥ Laravel's 50 MB validation limit
+post_max_size       = 64M   ; must be ≥ upload_max_filesize
+max_execution_time  = 120   ; large uploads on local hardware can exceed the 30s default
+max_input_time      = 120   ; time allowed to receive the upload stream
+```
+
+After editing, restart PHP: `brew services restart php` (Homebrew) or `sudo systemctl restart php8.5-fpm` (Linux).
+
+**Apache note:** Apache itself has no `client_max_body_size` directive (that's Nginx). The only limits that matter here are the PHP ini values above. If running Apache + mod_php, the ini changes take effect on Apache restart (`brew services restart httpd` / `sudo apachectl restart`). If running Apache + php-fpm via a proxy, restart the fpm pool instead.
 
 ## Document vault structure
 
@@ -163,6 +179,7 @@ Standard Laravel/Fortify users table with `is_admin` boolean. Public registratio
 | Departments | `DepartmentController` | Full CRUD; slug-based route model binding; loads rule sets for show page |
 | Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + upload modal |
 | Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; upload modal on show page pre-selects `rule_amendment` type |
+| Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see verified docs only; results capped at 50 docs + 20 sections + 20 rule sets |
 | User management | `Admin\UserManagementController` | Admin-only; account creation, role toggle, self-delete guard |
 
 ### Route map
@@ -184,6 +201,7 @@ Controller method signatures **must** declare `string $level` as their first par
 | Resource | Public | Auth-protected mutations |
 |---|---|---|
 | Documents index | `GET /documents` | — |
+| Search | `GET /search?q=` | — |
 | Section document show | `GET /documents/{level}/{dept}/{section}/{doc}` | `POST /documents`, `PATCH …/{doc}`, `DELETE …/{doc}` |
 | Section document PDF | `GET /documents/{level}/{dept}/{section}/{doc}/pdf` | — |
 | Rule-set document show | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}` | `PATCH …/{doc}`, `DELETE …/{doc}` |
@@ -242,6 +260,20 @@ Both stream from the `public` disk via `Storage::disk('public')->response(...)` 
 
 - **`documents/show`** — context-aware: receives either `$section` (section doc) or `$ruleSet` (rule-set doc). A `$isRuleSetDoc` flag switches breadcrumbs, page subtitle, vault path display, and all route helpers (PDF, edit, destroy) without duplicating the template. The "Section / Rule Set" metadata label also adapts.
 - **`documents/index`** — tabbed by department; renders both section and rule-set documents; row links branch on `$doc->section ? documents.show : documents.rules.show`.
+
+### Search
+
+`GET /search?q=` → `SearchController@index` → `search/index.blade.php`. Public route, no auth required.
+
+**Query scope:** LIKE `%q%` on `documents.title`; also surfaces documents whose `section.name` or `rule_set.name` matches. Separate LIKE queries on `sections.name` and `rule_sets.name` + `description`. Guests see only `status = verified` documents.
+
+**Result ordering:** documents with a direct title match float first (via `CASE WHEN` `orderByRaw`), then by `created_at DESC`. Capped at 50 documents, 20 sections, 20 rule sets.
+
+**View structure:** large search bar (autofocused, × clear button) → summary strip with total count → indigo callout explaining cross-taxonomy surfacing (shown when sections or rule sets are matched) → Documents block (reuses `documents/index` row design) → Sections block (sky-accented) → Rule Sets block (violet-accented).
+
+**Header integration:** existing search input in `header.blade.php` is wrapped in `<form method="GET" action="{{ route('search.index') }}">` with `name="q"` and `value="{{ request('q') }}"` so the field stays populated on the results page.
+
+**Sidebar:** Search nav link (icon `ti-search`) sits between All Documents and Browse Vault; active on `routeIs('search.*')`.
 
 ### Rule set views
 

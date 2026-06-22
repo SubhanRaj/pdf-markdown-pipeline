@@ -30,10 +30,26 @@ While built for government requirements, the architecture is fully open-source a
 |---|---|
 | Core Framework | Laravel 13, PHP 8.4 |
 | Database | MariaDB 12 |
-| Frontend / UI | Blade Templates, Tailwind CSS v4, Parsedown |
+| Web Server | Apache (mod_php or php-fpm) — no Nginx |
+| Frontend / UI | Blade Templates, Tailwind CSS v4 (Play CDN), Parsedown — no Node, no npm, no build step |
 | Text Extraction | Python `markitdown`, via the [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package |
 | OCR Engine | Tesseract OCR (`hin` + `eng` language packs) |
 | Queue | Laravel database queue driver (local single-box deployment, no Redis dependency) |
+
+## ⚙️ PHP Configuration Requirements
+
+PHP ships with restrictive defaults that block uploads larger than 2 MB. Before running the pipeline, update your `php.ini` (typically `/usr/local/etc/php/8.x/php.ini`):
+
+```ini
+upload_max_filesize = 64M   ; must be ≥ the 50 MB Laravel validation limit
+post_max_size       = 64M   ; must be ≥ upload_max_filesize
+max_execution_time  = 120   ; large uploads on local hardware can exceed the 30s default
+max_input_time      = 120   ; time allowed to receive the upload data stream
+```
+
+Restart PHP after changing: `brew services restart php` (macOS/Homebrew) or `sudo systemctl restart php8.x-fpm` (Linux).
+
+**Apache note:** Apache has no equivalent of Nginx's `client_max_body_size`. The only upload size limits that apply here are the PHP ini values above. If using Apache + mod_php, an Apache restart (`brew services restart httpd` / `sudo apachectl restart`) picks up the ini changes. If using Apache + php-fpm, restart the fpm pool instead.
 
 ## 📂 Document Vault Structure
 
@@ -164,6 +180,7 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | Resource | Public | Auth-Protected Mutations |
 |---|---|---|
 | Documents index | `GET /documents` | — |
+| Search | `GET /search?q=` | — |
 | Section document | `GET /documents/{level}/{dept}/{section}/{doc}` | POST store, PATCH, DELETE |
 | Section document PDF | `GET /documents/{level}/{dept}/{section}/{doc}/pdf` | — |
 | Rule-set document | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}` | PATCH, DELETE |
@@ -186,5 +203,7 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - Sidebar fully dynamic: driven by DB records; no hardcoded department links
 - Level-aware department routing: `{level}` URL segment disambiguates departments sharing slugs across levels
 - Browse Vault sidebar and dashboard department cards are fully dynamic
+
+- Basic search: `GET /search?q=` across document titles, section names, and rule set names/descriptions — results split into three typed blocks (Documents / Sections / Rule Sets); guests see verified docs only; header search bar wired to this route; Search link added to sidebar
 
 **Next up:** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.

@@ -4,6 +4,26 @@ Running log of major milestones and architectural decisions. Minor tweaks are no
 
 ---
 
+## Environment notes
+
+**Web server:** Apache only — no Nginx. Apache has no `client_max_body_size` directive; upload size is controlled entirely by PHP ini.
+
+**Frontend toolchain:** Tailwind CSS via Play CDN, Tabler Icons via jsDelivr, Chart.js via jsDelivr. No Node, no npm, no build step — all JS/CSS loaded from CDN at runtime.
+
+**PHP ini changes required for uploads (applied 2026-06-22):**
+
+| Directive | Default | Set to |
+|---|---|---|
+| `upload_max_filesize` | `2M` | `64M` |
+| `post_max_size` | `8M` | `64M` |
+| `max_execution_time` | `30` | `120` |
+| `max_input_time` | `60` | `120` |
+
+File: `/usr/local/etc/php/8.5/php.ini`. Restart: `brew services restart php`.
+Root cause: 13 MB PDF upload returned HTTP 413 before reaching Laravel — PHP rejected the request body before the `StoreDocumentRequest` 50 MB rule was ever evaluated.
+
+---
+
 ## M1 — Project Initialization
 Laravel 13 skeleton initialized. Architecture, vault structure, and tech stack documented in `CLAUDE.md` and `README.md`. Core decisions locked in: MariaDB, database queue driver, no Redis, no cloud APIs, single local filesystem disk, path-convention vault silos.
 
@@ -247,3 +267,44 @@ storage/app/public/document_vault/{level}/{dept_slug}/rules/{rule_set_slug}/{slu
 - `StoreRuleSetRequest` — name (regex-guarded, max 150 chars), description (nullable, max 500). `authorize()` requires `isAdmin()`.
 - `UpdateRuleSetRequest` — same rules.
 - `StoreDocumentRequest` — `section_id` and `rule_set_id` are now mutually required-without each other (`required_without:`). One must be provided; both at once is a logical error caught server-side.
+
+---
+
+## M12 — Global Search
+
+Added public LIKE-based search across all three taxonomy types.
+
+### New controller: `SearchController`
+
+`GET /search?q=` → `SearchController@index`. Public route, no auth middleware. Empty `q` renders the prompt state; authenticated users see all document statuses; guests see only `status = verified` documents.
+
+**Query strategy:**
+- Documents: `title LIKE %q%` OR `whereHas('section', name LIKE)` OR `whereHas('ruleSet', name LIKE)`. Ordered by direct title match first (`CASE WHEN orderByRaw`), then `created_at DESC`. Capped at 50.
+- Sections: `name LIKE %q%`, ordered by name. Capped at 20.
+- Rule sets: `name LIKE %q%` OR `description LIKE %q%`, ordered by name. Capped at 20.
+
+### Route
+
+```
+GET /search  →  search.index  →  SearchController@index  (public)
+```
+
+### Header integration
+
+Existing search input in `header.blade.php` wrapped in `<form method="GET" action="{{ route('search.index') }}">`. Added `name="q"` and `value="{{ request('q') }}"` so the field stays populated on the results page.
+
+### Sidebar
+
+Search nav link (`ti-search` icon) added between All Documents and Browse Vault. Active on `routeIs('search.*')`. Collapses to icon with tooltip like all other nav links.
+
+### New view: `search/index.blade.php`
+
+Three states: empty prompt (no `q`), no-results, results.
+
+Results layout:
+1. Large search bar (autofocused, × clear button)
+2. Summary strip — total result count, query term, guest disclaimer
+3. Indigo callout — explains cross-taxonomy surfacing when sections/rule sets are matched
+4. **Documents block** — reuses `documents/index` row design (status icon, title, dept · section/rule set · type badge · status badge · date; hover eye link)
+5. **Sections block** — sky-accented rows; shows wing; links to `departments.sections.show`
+6. **Rule Sets block** — violet-accented rows; shows description excerpt; links to `departments.rules.show`

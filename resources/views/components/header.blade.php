@@ -11,14 +11,17 @@
 
     <div class="flex items-center gap-2">
         {{-- Global search --}}
-        <div class="relative">
+        <form method="GET" action="{{ route('search.index') }}" role="search" class="relative">
             <i class="ti ti-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none"></i>
             <input
                 type="search"
+                name="q"
+                value="{{ request('q') }}"
                 placeholder="Search documents…"
+                autocomplete="off"
                 class="w-52 pl-9 pr-3 py-2 text-sm bg-slate-100 dark:bg-slate-800 rounded-lg border-0 placeholder-slate-400 dark:placeholder-slate-500 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-        </div>
+        </form>
 
         {{-- Dark mode toggle --}}
         <button
