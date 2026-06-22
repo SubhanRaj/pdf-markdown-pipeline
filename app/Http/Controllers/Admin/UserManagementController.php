@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreUserRequest;
 use App\Http\Requests\Admin\UpdateUserRequest;
+use App\Http\Requests\UpdateProfileRequest;
 use App\Models\Department;
 use App\Models\Section;
 use App\Models\User;
@@ -121,9 +122,55 @@ class UserManagementController extends Controller
         }
     }
 
+    public function editProfile(): View
+    {
+        $user        = auth()->user();
+        $departments = Department::orderBy('name')->get(['id', 'name', 'level']);
+        $sections    = Section::orderBy('name')->get(['id', 'name', 'department_id']);
+
+        return view('profile.edit', compact('user', 'departments', 'sections'));
+    }
+
+    public function updateProfile(UpdateProfileRequest $request): RedirectResponse
+    {
+        $user = auth()->user();
+
+        try {
+            DB::transaction(function () use ($request, $user) {
+                $data = [
+                    'name'   => $request->name,
+                    'username' => $request->username,
+                    'email'  => $request->email,
+                    'mobile' => $request->mobile ?: null,
+                    'post'   => $request->post ?: null,
+                ];
+
+                if (filled($request->password)) {
+                    $data['password'] = $request->password;
+                }
+
+                $user->update($data);
+            });
+
+            flash()->success('Profile updated successfully.');
+
+            return redirect()->route('profile.edit');
+
+        } catch (\Throwable $e) {
+            Log::error('UserManagementController@updateProfile failed', [
+                'user_id' => $user->id,
+                'error'   => $e->getMessage(),
+            ]);
+
+            flash()->error('Failed to update profile. Please try again.');
+
+            return back()->withInput($request->except(['password', 'password_confirmation']));
+        }
+    }
+
     public function destroy(User $user): RedirectResponse
     {
-        if ($user->id === auth()->user()?->id) {
+        if ($user->id === auth()->id()) {
             flash()->warning('You cannot delete your own account.');
             return back();
         }

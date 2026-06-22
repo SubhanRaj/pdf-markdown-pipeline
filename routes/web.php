@@ -105,9 +105,16 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
     });
 });
 
+// ── Profile (self-edit, any authenticated user) ───────────────────────────────
+
+Route::middleware(['auth', 'throttle:mutations'])->prefix('profile')->name('profile.')->group(function () {
+    Route::get('/edit',  [UserManagementController::class, 'editProfile'])->name('edit');
+    Route::patch('/',    [UserManagementController::class, 'updateProfile'])->name('update');
+});
+
 // ── Admin-only ────────────────────────────────────────────────────────────────
 
-Route::prefix('admin')->name('admin.')->middleware(['auth', 'throttle:mutations'])->group(function () {
+Route::prefix('admin')->name('admin.')->middleware(['auth', 'is_admin', 'throttle:mutations'])->group(function () {
 
     // User management — admin creates and manages all vault accounts
     Route::prefix('users')->name('users.')->group(function () {

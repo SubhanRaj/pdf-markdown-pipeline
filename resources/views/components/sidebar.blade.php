@@ -147,14 +147,17 @@
     {{-- User profile / login --}}
     <div class="px-3 py-4 border-t border-slate-800/70 flex items-center gap-3 min-w-0">
         @auth
-        <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-             data-tooltip="{{ auth()->user()->name }} · {{ ucfirst(auth()->user()->role) }}">
+        @php $profileRoute = auth()->user()->isAdmin() ? route('admin.users.edit', auth()->user()) : route('profile.edit'); @endphp
+        <a href="{{ $profileRoute }}"
+           class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0 hover:bg-indigo-500 transition-colors"
+           data-tooltip="Edit profile · {{ auth()->user()->name }}">
             {{ strtoupper(substr(auth()->user()->name, 0, 1)) }}
-        </div>
-        <div class="sidebar-user-text flex-1 min-w-0">
-            <p class="text-sm font-medium text-slate-200 truncate">{{ auth()->user()->name }}</p>
+        </a>
+        <a href="{{ $profileRoute }}"
+           class="sidebar-user-text flex-1 min-w-0 group hover:opacity-80 transition-opacity">
+            <p class="text-sm font-medium text-slate-200 truncate group-hover:text-white">{{ auth()->user()->name }}</p>
             <p class="text-xs text-slate-500 truncate">{{ ucfirst(auth()->user()->role) }}</p>
-        </div>
+        </a>
         <form method="POST" action="{{ route('logout') }}" class="sidebar-user-text flex-shrink-0">
             @csrf
             <button type="submit"
