@@ -53,7 +53,7 @@
             @endauth
         </div>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 flex-wrap justify-end">
         @auth
         <button id="btn-toggle-upload" type="button"
                 onclick="document.getElementById('upload-modal').style.display='block'"
@@ -63,6 +63,12 @@
         </button>
         @endauth
         @auth @if(auth()->user()->isAdmin())
+        <a href="{{ route('departments.sections.divisions.create', [$department->levelAlias(), $department, $section]) }}"
+           class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-teal-400 dark:hover:border-teal-500 text-slate-600 dark:text-slate-300 hover:text-teal-600 dark:hover:text-teal-400 text-sm font-medium px-3 py-2 rounded-lg transition-all"
+           title="Add Internal Division">
+            <i class="ti ti-layout-sidebar-right-expand text-base"></i>
+            <span class="hidden sm:inline">Add Division</span>
+        </a>
         <a href="{{ route('departments.sections.edit', [$department->levelAlias(), $department, $section]) }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
@@ -208,14 +214,63 @@
 </div>
 @endauth
 
-{{-- ── Document list ───────────────────────────────────────────────────────── --}}
+{{-- ── Internal Divisions ──────────────────────────────────────────────────── --}}
+@if($divisions->isNotEmpty())
+<div class="mb-6">
+    <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+            <i class="ti ti-layout-sidebar text-teal-500 dark:text-teal-400"></i>
+            Internal Divisions
+            <span class="text-xs font-normal text-slate-400 dark:text-slate-500 normal-case">({{ $divisions->count() }})</span>
+        </h3>
+        @auth @if(auth()->user()->isAdmin())
+        <a href="{{ route('departments.sections.divisions.create', [$department->levelAlias(), $department, $section]) }}"
+           class="inline-flex items-center gap-1 text-xs text-teal-600 dark:text-teal-400 hover:underline">
+            <i class="ti ti-plus text-xs"></i> Add Division
+        </a>
+        @endif @endauth
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        @foreach($divisions as $div)
+        <a href="{{ route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $div]) }}"
+           class="group flex items-start gap-3 p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-teal-400 dark:hover:border-teal-500 transition-all">
+            <div class="w-9 h-9 rounded-lg bg-teal-500/10 dark:bg-teal-500/20 flex items-center justify-center flex-shrink-0">
+                <i class="ti ti-layout-sidebar text-teal-500 dark:text-teal-400 text-base"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 dark:text-slate-100 group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors truncate">{{ $div->name }}</p>
+                @if($div->description)
+                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5 line-clamp-1">{{ $div->description }}</p>
+                @endif
+                <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                    {{ $div->documents_count }} {{ Str::plural('document', $div->documents_count) }}
+                </p>
+            </div>
+            <i class="ti ti-chevron-right text-slate-300 dark:text-slate-600 group-hover:text-teal-400 transition-colors flex-shrink-0 mt-1 text-sm"></i>
+        </a>
+        @endforeach
+    </div>
+</div>
+@else
+@auth @if(auth()->user()->isAdmin())
+<div class="mb-6 flex items-center justify-between px-4 py-3 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500">
+    <span class="text-xs flex items-center gap-2"><i class="ti ti-layout-sidebar"></i> No internal divisions yet</span>
+    <a href="{{ route('departments.sections.divisions.create', [$department->levelAlias(), $department, $section]) }}"
+       class="inline-flex items-center gap-1 text-xs text-teal-600 dark:text-teal-400 hover:underline">
+        <i class="ti ti-plus text-xs"></i> Add Division
+    </a>
+</div>
+@endif @endauth
+@endif
+
+{{-- ── Direct Documents ─────────────────────────────────────────────────────── --}}
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
     <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
         <div>
-            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Documents</h3>
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Direct Documents</h3>
             <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                {{ $documents->total() }} {{ Str::plural('document', $documents->total()) }}
-                @guest · public (verified only) @endguest
+                {{ $documents->total() }} {{ Str::plural('document', $documents->total()) }} · not under any division
+                @guest · public only @endguest
             </p>
         </div>
     </div>

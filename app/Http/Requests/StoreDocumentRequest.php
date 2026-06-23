@@ -51,6 +51,7 @@ class StoreDocumentRequest extends FormRequest
             'document_type' => strtolower(trim($this->document_type ?? '')),
             'visibility'    => strtolower(trim($this->visibility ?? 'public')),
             'parent_id'     => $this->parent_id ? (int) $this->parent_id : null,
+            'division_id'   => $this->division_id ? (int) $this->division_id : null,
         ]);
     }
 
@@ -63,9 +64,11 @@ class StoreDocumentRequest extends FormRequest
         $acceptedMimes  = implode(',', self::ACCEPTED_MIMETYPES);
 
         return [
-            // One of section_id or rule_set_id must be provided — not both
+            // Exactly one of section_id or rule_set_id must be provided.
+            // division_id is optional and only valid alongside section_id.
             'section_id'    => ['required_without:rule_set_id', 'nullable', 'integer', 'exists:sections,id'],
             'rule_set_id'   => ['required_without:section_id',  'nullable', 'integer', 'exists:rule_sets,id'],
+            'division_id'   => ['nullable', 'integer', 'exists:divisions,id'],
             'parent_id'     => ['nullable', 'integer', 'exists:documents,id'],
             'title'         => ['required', 'string', 'max:255', 'regex:/^[\p{L}\p{N}\s\-_.,()\/\#\&]+$/u'],
             'document_type' => ['required', 'string', "in:{$validTypes}"],

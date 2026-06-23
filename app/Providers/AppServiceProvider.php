@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use App\Models\Department;
+use App\Models\Division;
 use App\Models\RuleSet;
+use App\Models\Section;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -26,10 +28,22 @@ class AppServiceProvider extends ServiceProvider
         // shared across levels (e.g. "excise" at dept + secretariat) always
         // resolve to the correct record.
         // Resolves {rule_set} scoped to the current {department} so slugs are unique per dept.
+        // Resolves {division} scoped to the current {section} so slugs are unique per section.
         Route::bind('rule_set', function (string $slug) {
             $dept = request()->route('department');
             return RuleSet::where('slug', $slug)
                 ->where('department_id', $dept->id)
+                ->firstOrFail();
+        });
+
+        Route::bind('division', function (string $slug) {
+            $section = request()->route('section');
+            if (! $section instanceof Section) {
+                // Section may still be a slug string if binding order resolves late
+                abort(404);
+            }
+            return Division::where('slug', $slug)
+                ->where('section_id', $section->id)
                 ->firstOrFail();
         });
 

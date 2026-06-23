@@ -29,4 +29,9 @@ class Section extends Model
     {
         return $this->hasMany(Document::class);
     }
+
+    public function divisions(): HasMany
+    {
+        return $this->hasMany(Division::class)->orderBy('name');
+    }
 }

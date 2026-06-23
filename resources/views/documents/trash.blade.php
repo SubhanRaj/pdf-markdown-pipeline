@@ -4,13 +4,11 @@
     page-subtitle="Soft-deleted documents — view, restore or permanently remove"
 >
 
-<x-slot:breadcrumb>
-    <a href="{{ route('home') }}">Home</a>
-    <i class="ti ti-chevron-right text-xs text-slate-400"></i>
-    <a href="{{ route('documents.index') }}">Documents</a>
-    <i class="ti ti-chevron-right text-xs text-slate-400"></i>
-    <span>Trash</span>
-</x-slot:breadcrumb>
+<x-breadcrumb :items="[
+    ['name' => 'Home',      'url' => route('home')],
+    ['name' => 'Documents', 'url' => route('documents.index')],
+    ['name' => 'Trash',     'url' => null],
+]" />
 
 {{-- Data island for drawer --}}
 <script id="trash-docs" type="application/json">@json($trashData)</script>

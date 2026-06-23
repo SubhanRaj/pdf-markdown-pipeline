@@ -445,3 +445,56 @@ Disabled buttons use `disabled` HTML attribute; onclick is omitted entirely (not
 ### JS refactor
 
 The single large upload IIFE was replaced by a shared `makeQueue(ids)` factory that takes an object of element IDs and an optional `validate()` callback. Both modals call `makeQueue()` independently with their own element IDs. Escape key closes both modals. Parent dropdown in the amendment modal is pre-populated from the `$parentOptions` server-side data island.
+
+---
+
+## M16 — Internal Divisions Module
+
+### What it is
+
+Adds an **Internal Division** (पटल / desk / cell) as a sub-entity of sections. A section can have zero or more divisions, each with its own document stream and amendment hierarchy. Divisions model the organisational reality that different internal desks within a section handle different subjects, while every letter is formally issued by the section (not the desk).
+
+### Schema changes
+
+**New `divisions` table:** `id`, `section_id` FK (restrictOnDelete), `name`, `slug`, `description` nullable, `timestamps`, `softDeletes`. Unique on `(section_id, slug)`. Slug immutable after creation — vault paths depend on it.
+
+**`documents` table:** Added nullable `division_id` FK (nullOnDelete). The old `(section_id, slug)` unique index was replaced with `(section_id, division_id, slug)` — MariaDB treats NULLs as distinct in multi-column unique indexes, so direct section docs and division docs can share a slug without conflicting.
+
+### Document FK layout (three-way taxonomy)
+
+| Context | `section_id` | `division_id` | `rule_set_id` |
+|---|---|---|---|
+| Direct section doc | non-null | null | null |
+| Division doc | non-null | non-null | null |
+| Rule-set doc | null | null | non-null |
+
+### Vault paths
+
+Division docs: `document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/divisions/{division_slug}/{slug}_{YmdHis}.pdf`
+
+### Amendments across divisions
+
+Parent options for the division upload modal lists all root documents in the **section** (not just the division). Cross-division amendments are permitted — a doc in the Pension Desk can amend a doc in the Revenue Branch, or a direct section doc.
+
+### New files
+
+- `app/Models/Division.php` — belongs to Section, has many Documents, slug helper `uniqueSlugForSection`
+- `app/Http/Controllers/DivisionController.php` — full CRUD + show hub
+- `app/Http/Requests/StoreDivisionRequest.php` / `UpdateDivisionRequest.php` — admin-only
+- `resources/views/divisions/create.blade.php`, `edit.blade.php`, `show.blade.php`, `_doc_row.blade.php`
+
+### Updated files
+
+- `Document` model: `division_id` in fillable, `division()` BelongsTo, `uniqueSlugForDivision()` helper
+- `Section` model: `divisions()` HasMany relationship
+- `DocumentController@store`: third branch for `division_id`; redirect to division show page
+- `DocumentController`: new `showDivisionDoc`, `pdfDivisionDoc`, `editDivisionDoc`, `updateDivisionDoc`, `destroyDivisionDoc` methods
+- `SectionController@show`: passes `$divisions` (with doc count) and filters `$documents` to `whereNull('division_id')`
+- `StoreDocumentRequest`: `division_id` nullable field added
+- `AppServiceProvider`: `Route::bind('division', ...)` scoped to section_id
+- `routes/web.php`: 11 new division routes
+- `sections/show.blade.php`: division cards grid above direct documents; "Add Division" button in header for admins
+- `documents/show.blade.php`: `$isDivisionDoc` flag for routes, breadcrumb, and subtitle
+- `documents/index.blade.php`: division-aware routing and display name
+- `search/index.blade.php`: division results block; division-aware document routing
+- `SearchController`: eager loads `division`, searches division name/description, passes `$divisions` to view

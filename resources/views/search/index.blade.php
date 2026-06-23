@@ -92,9 +92,11 @@
                 'green'  => 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
                 'red'    => 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
             ];
-            $docUrl = $doc->section
-                ? route('documents.show',       [$doc->department->levelAlias(), $doc->department, $doc->section, $doc])
-                : route('documents.rules.show', [$doc->department->levelAlias(), $doc->department, $doc->ruleSet,  $doc]);
+            $docUrl = $doc->division
+                ? route('documents.divisions.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->division, $doc])
+                : ($doc->section
+                    ? route('documents.show',       [$doc->department->levelAlias(), $doc->department, $doc->section, $doc])
+                    : route('documents.rules.show', [$doc->department->levelAlias(), $doc->department, $doc->ruleSet,  $doc]));
         @endphp
         <div class="flex items-start gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
 
@@ -120,7 +122,7 @@
                     </span>
                     <span class="text-slate-300 dark:text-slate-600">·</span>
                     <span class="text-xs text-slate-400 dark:text-slate-500">
-                        {{ $doc->section?->name ?? $doc->ruleSet?->name ?? '—' }}
+                        {{ $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name ?? '—' }}
                     </span>
                     <span class="text-slate-300 dark:text-slate-600">·</span>
                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
@@ -213,6 +215,45 @@
             <a href="{{ route('departments.rules.show', [$ruleSet->department->levelAlias(), $ruleSet->department, $ruleSet]) }}"
                class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
                title="Browse rule set">
+                <i class="ti ti-arrow-right text-base"></i>
+            </a>
+        </div>
+        @endforeach
+    </div>
+</div>
+@endif
+
+{{-- ── Divisions ──────────────────────────────────────────────────────────── --}}
+@if($divisions->isNotEmpty())
+<div class="mt-8">
+    <h2 class="text-xs font-semibold uppercase tracking-widest text-teal-600 dark:text-teal-400 mb-3 flex items-center gap-2">
+        <i class="ti ti-layout-sidebar"></i> Internal Divisions
+        <span class="text-teal-400 dark:text-teal-600 font-bold">
+            {{ $divisions->count() }}
+        </span>
+    </h2>
+
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/60">
+        @foreach($divisions as $div)
+        <div class="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
+            <div class="w-9 h-9 rounded-lg bg-teal-500/10 dark:bg-teal-500/20 flex items-center justify-center flex-shrink-0">
+                <i class="ti ti-layout-sidebar text-base text-teal-500 dark:text-teal-400"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $div->name }}</p>
+                <div class="flex items-center gap-2 mt-0.5">
+                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $div->section->department->name }}</span>
+                    <span class="text-slate-300 dark:text-slate-600">›</span>
+                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $div->section->name }}</span>
+                    @if($div->description)
+                    <span class="text-slate-300 dark:text-slate-600">·</span>
+                    <span class="text-xs text-slate-400 dark:text-slate-500 truncate max-w-xs">{{ Str::limit($div->description, 60) }}</span>
+                    @endif
+                </div>
+            </div>
+            <a href="{{ route('departments.sections.divisions.show', [$div->section->department->levelAlias(), $div->section->department, $div->section, $div]) }}"
+               class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-all"
+               title="Browse division">
                 <i class="ti ti-arrow-right text-base"></i>
             </a>
         </div>
