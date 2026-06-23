@@ -239,25 +239,80 @@ Controller method signatures **must** declare `string $level` as their first par
 
 `Department::levelAlias()` → URL alias for route helpers. `Department::levelLabel()` → human label for breadcrumbs.
 
-| Resource | Public | Auth-protected mutations |
-|---|---|---|
-| Documents index | `GET /documents` | — |
-| Search | `GET /search?q=` | — |
-| Section document show | `GET /documents/{level}/{dept}/{section}/{doc}` | `POST /documents`, `PATCH …/{doc}`, `DELETE …/{doc}` |
-| Section document PDF | `GET /documents/{level}/{dept}/{section}/{doc}/pdf` | — |
-| Division document show | `GET /documents/{level}/{dept}/{section}/divisions/{division}/{doc}` | `PATCH …/{doc}`, `DELETE …/{doc}` |
-| Division document PDF | `GET /documents/{level}/{dept}/{section}/divisions/{division}/{doc}/pdf` | — |
-| Rule-set document show | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}` | `PATCH …/{doc}`, `DELETE …/{doc}` |
-| Rule-set document PDF | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | — |
-| Document trash | — | `GET /documents/trash`, `POST …/trash/{id}/restore`, `DELETE …/trash/{id}` |
-| Departments | `GET /departments`, `GET /departments/{level}/{dept}` | `POST /departments`, edit/patch/delete |
-| Sections | `GET /departments/{level}/{dept}/sections/{section}` | `POST`, edit/patch/delete |
-| Divisions | `GET /departments/{level}/{dept}/sections/{section}/divisions/{division}` | `POST /departments/…/sections/{section}/divisions`, edit/patch/delete (admin only) |
-| Rule sets | `GET /departments/{level}/{dept}/rules/{rule_set}` | `POST /departments/{level}/{dept}/rules`, edit/patch/delete |
-| Admin users | — | `GET/POST /admin/users`, edit/patch/delete — **admin-only via `IsAdmin` middleware** |
-| Profile (self-edit) | — | `GET /profile/edit`, `PATCH /profile` — any authenticated user, own record only |
+**Documents**
 
-Route names: `documents.show`, `documents.rules.show`, `departments.sections.show`, `departments.rules.show`, `admin.users.create`, `profile.edit`, `profile.update`.
+| Method | URI | Route name | Auth |
+|---|---|---|---|
+| GET | `/documents` | `documents.index` | Public |
+| POST | `/documents` | `documents.store` | Auth |
+| GET | `/documents/{level}/{dept}/{section}/{doc}` | `documents.show` | Public* |
+| PATCH | `/documents/{level}/{dept}/{section}/{doc}` | `documents.update` | Auth |
+| DELETE | `/documents/{level}/{dept}/{section}/{doc}` | `documents.destroy` | Auth |
+| GET | `/documents/{level}/{dept}/{section}/{doc}/pdf` | `documents.pdf` | Public* |
+| GET | `/documents/{level}/{dept}/{section}/{doc}/review` | `documents.edit` | Auth |
+| GET | `/documents/{level}/{dept}/{section}/divisions/{division}/{doc}` | `documents.divisions.show` | Public* |
+| PATCH | `/documents/{level}/{dept}/{section}/divisions/{division}/{doc}` | `documents.divisions.update` | Auth |
+| DELETE | `/documents/{level}/{dept}/{section}/divisions/{division}/{doc}` | `documents.divisions.destroy` | Auth |
+| GET | `/documents/{level}/{dept}/{section}/divisions/{division}/{doc}/pdf` | `documents.divisions.pdf` | Public* |
+| GET | `/documents/{level}/{dept}/{section}/divisions/{division}/{doc}/review` | `documents.divisions.edit` | Auth |
+| GET | `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | `documents.rules.show` | Public* |
+| PATCH | `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | `documents.rules.update` | Auth |
+| DELETE | `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | `documents.rules.destroy` | Auth |
+| GET | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | `documents.rules.pdf` | Public* |
+| GET | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/review` | `documents.rules.edit` | Auth |
+| GET | `/documents/trash` | `documents.trash` | Auth |
+| GET | `/documents/trash/{id}/pdf` | `documents.trashed.pdf` | Auth |
+| POST | `/documents/trash/{id}/restore` | `documents.restore` | Auth |
+| DELETE | `/documents/trash/{id}` | `documents.force-destroy` | Admin |
+| POST | `/documents/trash/bulk-restore` | `documents.trash.bulk-restore` | Auth |
+| DELETE | `/documents/trash/bulk-force-destroy` | `documents.trash.bulk-force-destroy` | Admin |
+| POST | `/documents/bulk-destroy` | `documents.bulk-destroy` | Auth |
+
+*Public routes 403 on `visibility = authenticated` documents for guests.
+
+**Departments, Sections, Divisions, Rule Sets**
+
+| Method | URI | Route name | Auth |
+|---|---|---|---|
+| GET | `/departments` | `departments.index` | Public |
+| POST | `/departments` | `departments.store` | Auth |
+| GET | `/departments/{level}/{dept}` | `departments.show` | Public |
+| PATCH | `/departments/{level}/{dept}` | `departments.update` | Auth |
+| DELETE | `/departments/{level}/{dept}` | `departments.destroy` | Auth |
+| GET | `/departments/{level}/{dept}/sections` | `departments.sections.index` | Public |
+| POST | `/departments/{level}/{dept}/sections` | `departments.sections.store` | Auth |
+| GET | `/departments/{level}/{dept}/sections/{section}` | `departments.sections.show` | Public |
+| PATCH | `/departments/{level}/{dept}/sections/{section}` | `departments.sections.update` | Auth |
+| DELETE | `/departments/{level}/{dept}/sections/{section}` | `departments.sections.destroy` | Auth |
+| POST | `/departments/{level}/{dept}/sections/{section}/divisions` | `departments.sections.divisions.store` | Admin |
+| GET | `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | `departments.sections.divisions.show` | Public |
+| PATCH | `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | `departments.sections.divisions.update` | Admin |
+| DELETE | `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | `departments.sections.divisions.destroy` | Admin |
+| POST | `/departments/{level}/{dept}/rules` | `departments.rules.store` | Auth |
+| GET | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.show` | Public |
+| PATCH | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.update` | Auth |
+| DELETE | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.destroy` | Auth |
+
+**Users & Profile**
+
+| Method | URI | Route name | Auth |
+|---|---|---|---|
+| GET | `/admin/users` | `admin.users.index` | Admin |
+| POST | `/admin/users` | `admin.users.store` | Admin |
+| GET | `/admin/users/create` | `admin.users.create` | Admin |
+| GET | `/admin/users/{user}` | `admin.users.show` | Admin |
+| PATCH | `/admin/users/{user}` | `admin.users.update` | Admin |
+| DELETE | `/admin/users/{user}` | `admin.users.destroy` | Admin |
+| GET | `/admin/users/{user}/edit` | `admin.users.edit` | Admin |
+| GET | `/profile/edit` | `profile.edit` | Auth |
+| PATCH | `/profile` | `profile.update` | Auth |
+
+**Other**
+
+| URI | Route name | Notes |
+|---|---|---|
+| `GET /` | `home` | Dashboard |
+| `GET /search?q=` | `search.index` | Public full-text search |
 
 ### Slug-based routing (all models)
 
