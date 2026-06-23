@@ -86,9 +86,31 @@ class Document extends Model
         return $slug;
     }
 
+    /** Slug unique within a division (division-based documents). */
+    public static function uniqueSlugForDivision(string $title, int $divisionId, ?int $exceptId = null): string
+    {
+        $base = Str::slug($title);
+        $slug = $base;
+        $i    = 2;
+
+        while (
+            static::where('division_id', $divisionId)
+                ->where('slug', $slug)
+                ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+                ->withTrashed()
+                ->exists()
+        ) {
+            $slug = "{$base}-{$i}";
+            $i++;
+        }
+
+        return $slug;
+    }
+
     protected $fillable = [
         'department_id',
         'section_id',
+        'division_id',
         'rule_set_id',
         'parent_id',
         'user_id',
@@ -116,6 +138,11 @@ class Document extends Model
     public function section(): BelongsTo
     {
         return $this->belongsTo(Section::class);
+    }
+
+    public function division(): BelongsTo
+    {
+        return $this->belongsTo(Division::class);
     }
 
     public function ruleSet(): BelongsTo

@@ -10,9 +10,10 @@
     ];
     $statusClass = $statusColors[$statusMeta['color']] ?? $statusColors['slate'];
 
-    // Context: section-based or rule-set-based document
-    $isRuleSetDoc = isset($ruleSet) && $ruleSet !== null;
-    $wing         = $isRuleSetDoc ? null : ($section->wing ?? null);
+    // Context: rule-set, division, or direct section document
+    $isRuleSetDoc  = isset($ruleSet)  && $ruleSet  !== null;
+    $isDivisionDoc = isset($division) && $division !== null;
+    $wing          = ($isRuleSetDoc || $isDivisionDoc) ? null : ($section->wing ?? null);
 
     if ($isRuleSetDoc) {
         $contextName    = $ruleSet->name;
@@ -21,6 +22,13 @@
         $editRoute      = route('documents.rules.edit',     [$department->levelAlias(), $department, $ruleSet, $document]);
         $updateRoute    = route('documents.rules.update',   [$department->levelAlias(), $department, $ruleSet, $document]);
         $destroyRoute   = route('documents.rules.destroy',  [$department->levelAlias(), $department, $ruleSet, $document]);
+    } elseif ($isDivisionDoc) {
+        $contextName    = $division->name;
+        $contextUrl     = route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division]);
+        $pdfRoute       = route('documents.divisions.pdf',    [$department->levelAlias(), $department, $section, $division, $document]);
+        $editRoute      = route('documents.divisions.edit',   [$department->levelAlias(), $department, $section, $division, $document]);
+        $updateRoute    = route('documents.divisions.update', [$department->levelAlias(), $department, $section, $division, $document]);
+        $destroyRoute   = route('documents.divisions.destroy',[$department->levelAlias(), $department, $section, $division, $document]);
     } else {
         $contextName    = $section->name;
         $contextUrl     = route('departments.sections.show', [$department->levelAlias(), $department, $section]);
@@ -37,14 +45,20 @@
     page-subtitle="{{ $document->department->name }}{{ $wing ? ' · ' . Str::title(str_replace('_', ' ', $wing)) : '' }} · {{ $contextName }}"
 >
 
-<x-breadcrumb :items="[
-    ['name' => 'Home',                              'url' => route('home')],
-    ['name' => 'Departments',                       'url' => route('departments.index')],
-    ['name' => $document->department->levelLabel(), 'url' => null],
-    ['name' => $document->department->name,         'url' => route('departments.show', [$document->department->levelAlias(), $document->department])],
-    ['name' => $contextName,                        'url' => $contextUrl],
-    ['name' => $document->title,                    'url' => null],
-]" />
+@php
+    $breadcrumbItems = [
+        ['name' => 'Home',                              'url' => route('home')],
+        ['name' => 'Departments',                       'url' => route('departments.index')],
+        ['name' => $document->department->levelLabel(), 'url' => null],
+        ['name' => $document->department->name,         'url' => route('departments.show', [$document->department->levelAlias(), $document->department])],
+    ];
+    if ($isDivisionDoc) {
+        $breadcrumbItems[] = ['name' => $section->name, 'url' => route('departments.sections.show', [$department->levelAlias(), $department, $section])];
+    }
+    $breadcrumbItems[] = ['name' => $contextName, 'url' => $contextUrl];
+    $breadcrumbItems[] = ['name' => $document->title, 'url' => null];
+@endphp
+<x-breadcrumb :items="$breadcrumbItems" />
 
 {{-- ── Amendment context bar ─────────────────────────────────────────────────── --}}
 @if($document->amendments->isNotEmpty())

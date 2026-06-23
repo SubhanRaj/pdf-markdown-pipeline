@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\DivisionController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\FrontendController;
 use App\Http\Controllers\RuleSetController;
@@ -27,9 +28,14 @@ Route::get('/search', [SearchController::class, 'index'])->name('search.index');
 // {level} = 'dept' (department_level) | 'sectt' (secretariat_level)
 Route::prefix('documents')->name('documents.')->group(function () {
     Route::get('/', [DocumentController::class, 'index'])->name('index');
-    // Section-based documents
+    // Section-based documents (direct — no division)
     Route::get('/{level}/{department}/{section}/{document}',     [DocumentController::class, 'show'])->name('show');
     Route::get('/{level}/{department}/{section}/{document}/pdf', [DocumentController::class, 'pdf'])->name('pdf');
+    // Division-based documents
+    Route::prefix('/{level}/{department}/{section}/divisions/{division}')->name('divisions.')->group(function () {
+        Route::get('/{document}',     [DocumentController::class, 'showDivisionDoc'])->name('show');
+        Route::get('/{document}/pdf', [DocumentController::class, 'pdfDivisionDoc'])->name('pdf');
+    });
     // Rule-set-based documents
     Route::prefix('/{level}/{department}/rules/{rule_set}')->name('rules.')->group(function () {
         Route::get('/{document}',     [DocumentController::class, 'showRuleSetDoc'])->name('show');
@@ -49,6 +55,11 @@ Route::prefix('departments')->name('departments.')->group(function () {
         Route::get('/',          [SectionController::class, 'index'])->name('index');
         Route::get('/create',    [SectionController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
         Route::get('/{section}', [SectionController::class, 'show'])->name('show');
+        // Internal divisions — public show only
+        Route::prefix('/{section}/divisions')->name('divisions.')->group(function () {
+            Route::get('/create',     [DivisionController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
+            Route::get('/{division}', [DivisionController::class, 'show'])->name('show');
+        });
     });
 
     Route::prefix('/{level}/{department}/rules')->name('rules.')->group(function () {
@@ -81,6 +92,12 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
             Route::patch('/{document}',      [DocumentController::class, 'updateRuleSetDoc'])->name('update');
             Route::delete('/{document}',     [DocumentController::class, 'destroyRuleSetDoc'])->name('destroy');
         });
+        // Division document mutations
+        Route::prefix('/{level}/{department}/{section}/divisions/{division}')->name('divisions.')->group(function () {
+            Route::get('/{document}/review', [DocumentController::class, 'editDivisionDoc'])->name('edit');
+            Route::patch('/{document}',      [DocumentController::class, 'updateDivisionDoc'])->name('update');
+            Route::delete('/{document}',     [DocumentController::class, 'destroyDivisionDoc'])->name('destroy');
+        });
     });
 
     // Departments — mutations
@@ -96,6 +113,14 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
             Route::get('/{section}/edit',  [SectionController::class, 'edit'])->name('edit');
             Route::patch('/{section}',     [SectionController::class, 'update'])->name('update');
             Route::delete('/{section}',    [SectionController::class, 'destroy'])->name('destroy');
+
+            // Internal divisions — mutations (admin only — enforced in Form Request authorize())
+            Route::prefix('/{section}/divisions')->name('divisions.')->group(function () {
+                Route::post('/',                [DivisionController::class, 'store'])->name('store');
+                Route::get('/{division}/edit',  [DivisionController::class, 'edit'])->name('edit');
+                Route::patch('/{division}',     [DivisionController::class, 'update'])->name('update');
+                Route::delete('/{division}',    [DivisionController::class, 'destroy'])->name('destroy');
+            });
         });
 
         // Rule sets — mutations (admin only — enforced in Form Request authorize())

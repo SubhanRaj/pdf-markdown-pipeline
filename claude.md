@@ -134,6 +134,18 @@ Unique constraint: `(slug, level)`.
 
 Unique constraint: `(department_id, wing, slug)`.
 
+### `divisions`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `section_id` | FK → sections | `restrictOnDelete` |
+| `name` | string | Display name (free-form — e.g. "Pension Desk", "HRMS Cell") |
+| `slug` | string | Auto-generated from name; unique per section |
+| `description` | text nullable | Optional scope/function description (max 500 chars) |
+| `timestamps` + `softDeletes` | | |
+
+Unique constraint: `(section_id, slug)`. Slug generated via `Division::uniqueSlugForSection($name, $sectionId)` — checks `withTrashed()`. Slug is immutable after creation (vault paths depend on it).
+
 ### `rule_sets`
 | Column | Type | Notes |
 |---|---|---|
@@ -152,8 +164,9 @@ Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueS
 |---|---|---|
 | `id` | bigint PK | |
 | `department_id` | FK → departments | `restrictOnDelete` |
-| `section_id` | FK → sections **nullable** | `restrictOnDelete` — null for rule-set docs |
-| `rule_set_id` | FK → rule_sets **nullable** | `nullOnDelete` — null for section-based docs |
+| `section_id` | FK → sections **nullable** | `restrictOnDelete` — null for rule-set docs; always set for direct and division docs |
+| `division_id` | FK → divisions **nullable** | `nullOnDelete` — non-null for division docs; null for direct section docs and rule-set docs |
+| `rule_set_id` | FK → rule_sets **nullable** | `nullOnDelete` — null for section/division-based docs |
 | `user_id` | FK → users nullable | `nullOnDelete` — uploader |
 | `title` | string | human-readable document title / reference |
 | `slug` | string | URL-safe; auto-generated from title at upload; unique per section or per rule set |
@@ -167,10 +180,19 @@ Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueS
 | `metadata` | json nullable | GO number, subject, dates, etc. |
 | `timestamps` + `softDeletes` | | |
 
-Exactly one of `section_id` or `rule_set_id` is non-null per row. Slug helpers:
-- Section docs: `Document::uniqueSlugForSection($title, $sectionId)` — unique within `(section_id, slug)`.
-- Rule-set docs: `Document::uniqueSlugForRuleSet($title, $ruleSetId)` — unique within `(rule_set_id, slug)`.
-Both check `withTrashed()` and append `-2`, `-3` on collision.
+Three-way FK exclusivity — exactly one context is non-null per row:
+
+| Doc context | `section_id` | `division_id` | `rule_set_id` |
+|---|---|---|---|
+| Direct section doc | non-null | null | null |
+| Division doc | non-null | non-null | null |
+| Rule-set doc | null | null | non-null |
+
+Slug helpers:
+- Section docs: `Document::uniqueSlugForSection($title, $sectionId)` — unique within direct section docs (`division_id IS NULL`).
+- Division docs: `Document::uniqueSlugForDivision($title, $divisionId)` — unique within the division.
+- Rule-set docs: `Document::uniqueSlugForRuleSet($title, $ruleSetId)` — unique within the rule set.
+All check `withTrashed()` and append `-2`, `-3` on collision. DB unique constraint is `(section_id, division_id, slug)` — MySQL treats NULL as distinct in multi-column unique indexes, so direct and division slugs don't conflict.
 
 ### `document_status_histories`
 | Column | Type | Notes |
@@ -186,7 +208,7 @@ Both check `withTrashed()` and append `-2`, `-3` on collision.
 ### `users`
 Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings), `department_id` (FK, nullable), `section_id` (FK, nullable). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
 
-## What's built (as of 2026-06-22, updated)
+## What's built (as of 2026-06-23, updated)
 
 ### Modules / controllers
 
@@ -197,6 +219,7 @@ Standard Laravel/Fortify users table extended with: `username` (unique), `mobile
 | Departments | `DepartmentController` | Full CRUD; slug-based route model binding; loads rule sets for show page |
 | Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + multi-file upload modal |
 | Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; multi-file upload modal on show page pre-selects `rule_amendment` type |
+| Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal and amendment hierarchy |
 | Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see `visibility = 'public'` docs only; results capped at 50 docs + 20 sections + 20 rule sets |
 | User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins |
 
@@ -222,11 +245,14 @@ Controller method signatures **must** declare `string $level` as their first par
 | Search | `GET /search?q=` | — |
 | Section document show | `GET /documents/{level}/{dept}/{section}/{doc}` | `POST /documents`, `PATCH …/{doc}`, `DELETE …/{doc}` |
 | Section document PDF | `GET /documents/{level}/{dept}/{section}/{doc}/pdf` | — |
+| Division document show | `GET /documents/{level}/{dept}/{section}/divisions/{division}/{doc}` | `PATCH …/{doc}`, `DELETE …/{doc}` |
+| Division document PDF | `GET /documents/{level}/{dept}/{section}/divisions/{division}/{doc}/pdf` | — |
 | Rule-set document show | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}` | `PATCH …/{doc}`, `DELETE …/{doc}` |
 | Rule-set document PDF | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | — |
 | Document trash | — | `GET /documents/trash`, `POST …/trash/{id}/restore`, `DELETE …/trash/{id}` |
 | Departments | `GET /departments`, `GET /departments/{level}/{dept}` | `POST /departments`, edit/patch/delete |
 | Sections | `GET /departments/{level}/{dept}/sections/{section}` | `POST`, edit/patch/delete |
+| Divisions | `GET /departments/{level}/{dept}/sections/{section}/divisions/{division}` | `POST /departments/…/sections/{section}/divisions`, edit/patch/delete (admin only) |
 | Rule sets | `GET /departments/{level}/{dept}/rules/{rule_set}` | `POST /departments/{level}/{dept}/rules`, edit/patch/delete |
 | Admin users | — | `GET/POST /admin/users`, edit/patch/delete — **admin-only via `IsAdmin` middleware** |
 | Profile (self-edit) | — | `GET /profile/edit`, `PATCH /profile` — any authenticated user, own record only |
@@ -235,14 +261,18 @@ Route names: `documents.show`, `documents.rules.show`, `departments.sections.sho
 
 ### Slug-based routing (all models)
 
-`Department`, `Section`, `RuleSet`, and `Document` all override `getRouteKeyName()` to return `'slug'`. Route helpers accept model instances. Never pass `->id` manually to a route helper for these models.
+`Department`, `Section`, `Division`, `RuleSet`, and `Document` all override `getRouteKeyName()` to return `'slug'`. Route helpers accept model instances. Never pass `->id` manually to a route helper for these models.
 
 Slug helpers:
-- `Document::uniqueSlugForSection($title, $sectionId, $exceptId?)` — section-scoped
+- `Document::uniqueSlugForSection($title, $sectionId, $exceptId?)` — direct section docs (division_id IS NULL)
+- `Document::uniqueSlugForDivision($title, $divisionId, $exceptId?)` — division-scoped
 - `Document::uniqueSlugForRuleSet($title, $ruleSetId, $exceptId?)` — rule-set-scoped
+- `Division::uniqueSlugForSection($name, $sectionId, $exceptId?)` — division slug within section
 - `RuleSet::uniqueSlugForDepartment($name, $departmentId, $exceptId?)` — department-scoped
 
 All check `withTrashed()` and append `-2`, `-3` on collision.
+
+**Division route binding** — `Route::bind('division', ...)` in `AppServiceProvider::configureRouteBindings()` scopes to `WHERE slug = ? AND section_id = ?` using the already-resolved `{section}`. Division slugs for division documents are also scoped this way. Level-aware department binding applies to all routes that include `{level}/{department}`.
 
 **Level-aware department binding** — see route map above. Controller methods must declare `string $level` as first parameter.
 
@@ -260,13 +290,20 @@ Upload is initiated from a section show page or rule set show page via a modal. 
 5. On failure: delete orphaned PDF; return 500 JSON
 6. On success: JSON `{'redirect': sections_url}`
 
+**Division-based upload (per file):**
+1. Slug: `Document::uniqueSlugForDivision($title, $division->id)`
+2. Vault dir: `document_vault/{dept.level}/{dept.slug}/{section.wing?}/{section.slug}/divisions/{division.slug}`
+3. Same file/DB/error flow as above; `section_id` AND `division_id` are both stored
+4. On success: JSON `{'redirect': division_url}`
+5. Parent options in the upload modal are all root docs in the **section** (not just the division) — cross-division amendments are permitted
+
 **Rule-set-based upload (per file):**
 1. Slug: `Document::uniqueSlugForRuleSet($title, $ruleSet->id)`
 2. Vault dir: `document_vault/{dept.level}/{dept.slug}/rules/{ruleSet.slug}`
 3. Same file/DB/error flow as above
 4. On success: JSON `{'redirect': rule_set_url}`
 
-`StoreDocumentRequest` — `section_id` and `rule_set_id` are `required_without:` each other. Exactly one must be provided. Each fetch in the JS loop builds its own `FormData` with the per-file title and the shared type/visibility/context-id — `FormData(form)` is **not** used because the file input is outside the `<form>` element (left vs right column layout).
+`StoreDocumentRequest` — `section_id` and `rule_set_id` are `required_without:` each other. `division_id` is optional and only valid alongside `section_id`. When `division_id` is provided, the store branch uses `Division::with('section.department')` to derive the section and department. Each fetch in the JS loop builds its own `FormData` with the per-file title and the shared type/visibility/context-ids — `FormData(form)` is **not** used because the file input is outside the `<form>` element (left vs right column layout).
 
 **Converted Markdown** lands in the same vault directory, same base filename, `.md` extension. `markdown_path` stores the full relative path on `public` disk.
 
@@ -457,8 +494,10 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 7. **Slug-based URLs with level disambiguation** — `Department`, `Section`, `RuleSet`, `Document` all use `getRouteKeyName() = 'slug'`. IDs never appear in public URLs. A `{level}` alias (`dept` / `sectt`) precedes `{department}` in every URL. Always pass `[$dept->levelAlias(), $dept]` to route helpers — never just `$dept` alone.
 8. **`POST /documents` is AJAX-only** — always returns JSON regardless of `Accept` header. `StoreDocumentRequest::failedValidation()` overrides the default redirect to throw `HttpResponseException` with 422 JSON. The JS `fetch` call always sends `Accept: application/json` + `X-CSRF-TOKEN` + `X-Requested-With: XMLHttpRequest`.
 9. **PDF served via controller routes** — `DocumentController@pdf` and `@pdfRuleSetDoc` stream from the `public` disk with `Content-Disposition: inline`. Guests see 403 on non-verified documents. Always link via these routes — raw `Storage::url()` links bypass the auth gate.
-10. **Dual document taxonomy** — documents belong to either a `Section` (GOs, notices, circulars) or a `RuleSet` (Acts, Rules, amendments), never both. `section_id` and `rule_set_id` are mutually exclusive nullable FKs. The `documents/show` view handles both contexts with a single template via the `$isRuleSetDoc` flag; separate URL routes exist for each context (`documents.show` vs `documents.rules.show`). When iterating documents across both types (index, dashboard feed), always check `$doc->section ? ... : ...` for routing and `$doc->section?->name ?? $doc->ruleSet?->name` for display.
-11. **Rule-set slug is immutable after creation** — `UpdateRuleSetRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths.
+10. **Triple document taxonomy** — documents belong to one of three contexts: a direct `Section` (GOs, notices, circulars), an `Internal Division` within a section (operational orders issued by a specific desk/cell), or a `RuleSet` (Acts, Rules, amendments). The FK layout is: division docs have both `section_id` and `division_id` non-null; direct section docs have `section_id` non-null and `division_id` null; rule-set docs have `rule_set_id` non-null and the others null. The `documents/show` view handles all three contexts via `$isRuleSetDoc` and `$isDivisionDoc` flags — no template duplication. When iterating documents (index, dashboard, trash), routing priority is: `$doc->division ? documents.divisions.show : ($doc->section ? documents.show : documents.rules.show)`. Display name: `$doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name`.
+11. **Internal divisions are sub-entities of sections, not replacements** — a `Division` belongs to a `Section`. Division docs carry both `section_id` (always set — the issuing authority) and `division_id` (the internal grouping). This models the real-world situation where every letter is issued by the section regardless of which internal desk handles the matter. Sections can have both direct docs and divisions simultaneously. Amendments can cross division boundaries — parent options on the division upload modal list all root docs in the section, not just the division.
+11a. **Division slug is immutable after creation** — `UpdateDivisionRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths under `divisions/{slug}/`.
+12. **Rule-set slug is immutable after creation** — `UpdateRuleSetRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths.
 12. **Two-stage document deletion** — `DELETE /documents/…` soft-deletes only (sets `deleted_at`). Physical files are never removed at this stage. Permanent file+record removal requires a second explicit action from the trash view (`DELETE /documents/trash/{id}`). This preserves recoverability and the full audit trail until an admin consciously decides to purge. The deletion reason is always captured and stored in `document_status_histories` before the soft-delete occurs.
 13. **SweetAlert2 for all confirmations** — all destructive-action confirmations use `Swal.fire()` (loaded globally via jsDelivr `sweetalert2@11`). Never use `window.confirm()` or inline `onsubmit` confirm checks. Respect dark mode by passing `background` and `color` based on `document.documentElement.classList.contains('dark')`.
 14. **`visibility` is the sole guest access gate** — the old `status = 'verified'` filter for guests has been removed. Access control for unauthenticated users is now exclusively determined by `documents.visibility` (`public` | `authenticated`). The `status` column tracks only the conversion pipeline state and must never be used as an access gate. When writing any query that serves public-facing views, filter on `visibility = 'public'` for guests — never on `status`.

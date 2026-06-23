@@ -9,6 +9,7 @@ use App\Http\Requests\DeleteDocumentRequest;
 use App\Http\Requests\StoreDocumentRequest;
 use App\Http\Requests\UpdateDocumentRequest;
 use App\Models\Department;
+use App\Models\Division;
 use App\Models\Document;
 use App\Models\DocumentStatusHistory;
 use App\Models\RuleSet;
@@ -25,7 +26,7 @@ class DocumentController extends Controller
 {
     public function index(): View
     {
-        $query = Document::with(['department', 'section', 'ruleSet', 'user:id,name'])
+        $query = Document::with(['department', 'section', 'division', 'ruleSet', 'user:id,name'])
             ->orderByDesc('created_at');
 
         if (! auth()->check()) {
@@ -70,7 +71,10 @@ class DocumentController extends Controller
     {
         $validated = $request->validated();
 
-        // ── Resolve context: section-based upload vs rule-set amendment upload ──
+        // ── Resolve context: rule-set, division, or direct section upload ──
+        $ruleSet  = null;
+        $division = null;
+
         if (! empty($validated['rule_set_id'])) {
             $ruleSet    = RuleSet::with('department')->findOrFail($validated['rule_set_id']);
             $department = $ruleSet->department;
@@ -85,10 +89,25 @@ class DocumentController extends Controller
             ]);
 
             $slug = Document::uniqueSlugForRuleSet($validated['title'], $ruleSet->id);
+        } elseif (! empty($validated['division_id'])) {
+            $division   = Division::with('section.department')->findOrFail($validated['division_id']);
+            $section    = $division->section;
+            $department = $section->department;
+
+            $vaultDir = implode('/', array_filter([
+                'document_vault',
+                $department->level,
+                $department->slug,
+                $section->wing,
+                $section->slug,
+                'divisions',
+                $division->slug,
+            ]));
+
+            $slug = Document::uniqueSlugForDivision($validated['title'], $division->id);
         } else {
             $section    = Section::with('department')->findOrFail($validated['section_id']);
             $department = $section->department;
-            $ruleSet    = null;
 
             $vaultDir = implode('/', array_filter([
                 'document_vault',
@@ -111,10 +130,11 @@ class DocumentController extends Controller
         try {
             $document = null;
 
-            DB::transaction(function () use ($validated, $section, $ruleSet, $department, $vaultDir, $pdfPath, $slug, $request, &$document) {
+            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $department, $vaultDir, $pdfPath, $slug, $request, &$document) {
                 $document = Document::create([
                     'department_id'     => $department->id,
                     'section_id'        => $section?->id,
+                    'division_id'       => $division?->id,
                     'rule_set_id'       => $ruleSet?->id,
                     'parent_id'         => $validated['parent_id'] ?? null,
                     'user_id'           => $request->user()->id,
@@ -139,9 +159,11 @@ class DocumentController extends Controller
 
             flash()->success("\"{$validated['title']}\" uploaded successfully.");
 
-            $redirectUrl = $ruleSet
-                ? route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet])
-                : route('departments.sections.show', [$department->levelAlias(), $department, $section]);
+            $redirectUrl = match(true) {
+                $ruleSet  !== null => route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]),
+                $division !== null => route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division]),
+                default            => route('departments.sections.show', [$department->levelAlias(), $department, $section]),
+            };
 
             return response()->json(['redirect' => $redirectUrl]);
 
@@ -510,6 +532,95 @@ class DocumentController extends Controller
             return redirect()->route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
         } catch (\Throwable $e) {
             Log::error('DocumentController@destroyRuleSetDoc failed', [
+                'document_id' => $document->id,
+                'error'       => $e->getMessage(),
+            ]);
+            flash()->error('Failed to delete document. Please try again.');
+            return back();
+        }
+    }
+
+    // ── Division document methods ─────────────────────────────────────────────
+
+    public function showDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): View
+    {
+        if (! auth()->check() && $document->visibility !== 'public') {
+            abort(403);
+        }
+
+        $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,status,visibility,created_at']);
+        return view('documents.show', compact('document', 'department', 'section', 'division'));
+    }
+
+    public function pdfDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        if (! auth()->check() && $document->visibility !== 'public') {
+            abort(403);
+        }
+
+        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
+            abort(404, 'PDF file not found.');
+        }
+
+        $filename = $document->original_filename ?: 'document.pdf';
+
+        return Storage::disk('public')->response(
+            $document->original_pdf_path,
+            $filename,
+            ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
+        );
+    }
+
+    public function editDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): View
+    {
+        return view('documents.edit', compact('document', 'department', 'section', 'division'));
+    }
+
+    public function updateDivisionDoc(UpdateDocumentRequest $request, string $level, Department $department, Section $section, Division $division, Document $document): RedirectResponse
+    {
+        $validated = $request->validated();
+        $oldStatus = $document->status;
+
+        try {
+            DB::transaction(function () use ($validated, $document, $oldStatus) {
+                $document->update($validated);
+                if (isset($validated['status']) && $validated['status'] !== $oldStatus) {
+                    DocumentStatusHistory::create([
+                        'document_id' => $document->id,
+                        'actor_id'    => auth()->id(),
+                        'from_status' => $oldStatus,
+                        'to_status'   => $validated['status'],
+                        'note'        => 'Status updated via document edit.',
+                    ]);
+                }
+            });
+            flash()->success('Document updated successfully.');
+            return redirect()->route('documents.divisions.show', [$department->levelAlias(), $department, $section, $division, $document]);
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@updateDivisionDoc failed', ['document_id' => $document->id, 'error' => $e->getMessage()]);
+            flash()->error('Failed to update document. Please try again.');
+            return back()->withInput();
+        }
+    }
+
+    public function destroyDivisionDoc(DeleteDocumentRequest $request, string $level, Department $department, Section $section, Division $division, Document $document): RedirectResponse
+    {
+        try {
+            DB::transaction(function () use ($request, $document) {
+                DocumentStatusHistory::create([
+                    'document_id' => $document->id,
+                    'actor_id'    => auth()->id(),
+                    'from_status' => $document->status,
+                    'to_status'   => 'deleted',
+                    'note'        => $request->validated('reason'),
+                ]);
+                $document->delete();
+            });
+
+            flash()->success('Document moved to trash.');
+            return redirect()->route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division]);
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@destroyDivisionDoc failed', [
                 'document_id' => $document->id,
                 'error'       => $e->getMessage(),
             ]);

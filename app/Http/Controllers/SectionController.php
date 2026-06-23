@@ -53,24 +53,39 @@ class SectionController extends Controller
 
     public function show(string $level, Department $department, Section $section): View
     {
+        $isGuest = ! auth()->check();
+
+        // Direct documents only (no division) — paginated
         $documentsQuery = $section->documents()
+            ->whereNull('division_id')
             ->with('user:id,name')
             ->orderByDesc('created_at');
 
-        if (! auth()->check()) {
+        if ($isGuest) {
             $documentsQuery->where('visibility', 'public');
         }
 
         $documents = $documentsQuery->paginate(20)->withQueryString();
 
-        // For the "Amends" dropdown in the upload modal — only fetched for authenticated users
+        // Divisions with document counts
+        $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
+
+        $divisions = $section->divisions()
+            ->withCount(['documents' => $visibilityScope])
+            ->get();
+
+        // For the "Amends" dropdown in the upload modal — direct section docs only
         $parentOptions = auth()->check()
-            ? $section->documents()->select('id', 'title', 'created_at')->orderBy('created_at')->get()
+            ? $section->documents()
+                ->whereNull('division_id')
+                ->select('id', 'title', 'created_at')
+                ->orderBy('created_at')
+                ->get()
                 ->map(fn ($d) => ['id' => $d->id, 'title' => $d->title, 'date' => $d->created_at->format('d M Y')])
                 ->values()
             : collect();
 
-        return view('sections.show', compact('department', 'section', 'documents', 'parentOptions'));
+        return view('sections.show', compact('department', 'section', 'documents', 'divisions', 'parentOptions'));
     }
 
     public function edit(string $level, Department $department, Section $section): View
