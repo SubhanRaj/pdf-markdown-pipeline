@@ -498,3 +498,102 @@ Parent options for the division upload modal lists all root documents in the **s
 - `documents/index.blade.php`: division-aware routing and display name
 - `search/index.blade.php`: division results block; division-aware document routing
 - `SearchController`: eager loads `division`, searches division name/description, passes `$divisions` to view
+
+---
+
+## M17 — Amendment Metadata, Date-Based Sort/Filter, Breadcrumb Normalisation
+
+### Breadcrumb normalisation
+
+All views were using `<x-slot:breadcrumb>` with inline Tabler icon HTML. Migrated to `<x-breadcrumb :items="[...]" />` array-style component across all affected views (`documents/trash.blade.php` was the last remaining offender).
+
+### Document amendment metadata (`metadata` JSON column)
+
+No new migration. Four new keys stored inside the existing `metadata` JSON column on `documents`:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `amendment_number` | integer 1–999 | Ordinal number of the amendment (e.g. 5 = "5th amendment") |
+| `effective_year` | integer 1900–2099 | Year the amendment / rule came into force |
+| `effective_month` | integer 1–12 | Month (optional) |
+| `effective_day` | integer 1–31 | Day (optional) |
+
+`StoreDocumentRequest` and `UpdateDocumentRequest` both validated with `nullable|integer` rules. `DocumentController` uses two private helpers:
+- `extractMetadata(array $validated)` — builds a clean metadata array from the four keys for new documents.
+- `mergeMetadata(array $validated, Document $document)` — merges into existing metadata on update, supporting individual key deletion by setting null.
+
+Upload modals (sections, divisions, rule sets) all include a 2×2 field grid for these values. JS `FormData` captures them and appends conditionally.
+
+### Sort and filter
+
+**Rule sets and divisions** (tree/hierarchy structure) — PHP-side collection sort/filter applied after eager-loading. `setRelation('amendments', $sorted)` replaces the lazy-loaded collection without extra queries.
+
+**Sections** (flat paginated list) — SQL-level sort/filter using `JSON_EXTRACT(metadata, '$.effective_year')` and `JSON_UNQUOTE(...)` for the WHERE clause.
+
+Sort options available:
+- Amendment # ↓↑ (default for rule sets/divisions)
+- Effective year ↓↑
+- Uploaded date ↓↑ (default for sections)
+
+Year filter dropdown appears only when at least one document in context has `effective_year` set. Filter cleared via `×` link.
+
+### Display
+
+- Row badges: `#N` amber badge for amendment number; effective date shown as `15 Jan 2019` / `Jan 2019` / `2019` beside the upload date.
+- `documents/show` sidebar: replaces raw `metadata` key-value dump with a structured "Amendment No." (`#N` bold) and "Effective Date" (full month names) display.
+- `documents/edit.blade.php`: "Amendment Details" section appears for `rule` and `rule_amendment` document types only; all four fields pre-populated from `$document->metadata`.
+
+---
+
+## M18 — Full Unicode / Devanagari (Rajbhasha) Support for All CRUD Fields
+
+### Problem
+
+Document titles containing Hindi text with Devanagari combining marks (matras: `ु`, `ि`; halant: `्`) were rejected by both PHP-side regex validation and JS-side frontend patterns. Root cause: `\p{L}` in both PCRE (PHP) and ECMAScript `u`-flag regexes matches Unicode *letters* (base characters) but not Unicode *combining marks* (category `\p{M}`). A word like `शुद्धिपत्र` contains base letters and combining matras — the matras failed the allowlist.
+
+The same issue affected all `name` fields (sections, departments, rule sets, divisions) — any Hindi name would be rejected at the frontend before the request even reached Laravel.
+
+### Fix: Unicode category classes
+
+All non-user text fields now use:
+
+```
+/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u
+```
+
+| Category | Covers |
+|---|---|
+| `\p{L}` | All Unicode letters — Latin, Devanagari base chars, Arabic, etc. |
+| `\p{M}` | Combining marks — Devanagari matras, halant, Arabic diacritics, etc. |
+| `\p{N}` | All Unicode numbers |
+| `\p{P}` | All Unicode punctuation — `।`, `॥`, `-`, `.`, `(`, `)`, `'`, `:`, `;` etc. |
+| `\p{Z}` | Unicode separators |
+| `\s` | Standard ASCII whitespace |
+
+This is a single, script-agnostic pattern that handles entirely Devanagari titles, mixed Hindi-English titles, and English-only titles without any script-specific hardcoding.
+
+### Scope: non-user fields only
+
+The **user model is deliberately excluded**. `name`, `username`, `email`, `mobile`, `post`, and `designation` fields on `users` remain Latin-only:
+
+- `name` and `post` keep `\p{L}\s'\-\.` — person names and designations in this system are in English (standard government nomenclature).
+- `username` keeps `[a-zA-Z0-9_]` — system identifiers must be ASCII.
+- `email` and `mobile` are format-constrained by their own rules.
+
+Allowing Unicode in user fields introduces ambiguity in authentication flows (homoglyph attacks, normalisation mismatches between login and stored value) and is not needed since all staff names and designations are recorded in English.
+
+### Files changed
+
+**PHP Form Requests (backend validation):**
+- `StoreDocumentRequest` — `title` field
+- `UpdateDocumentRequest` — `title` field
+- `StoreSectionRequest` / `UpdateSectionRequest` — `name` field
+- `StoreDepartmentRequest` / `UpdateDepartmentRequest` — `name` field
+- `StoreRuleSetRequest` / `UpdateRuleSetRequest` — `name` field
+- `StoreDivisionRequest` / `UpdateDivisionRequest` — `name` field
+
+**Blade views (JS frontend validation):**
+- `sections/create.blade.php` / `sections/edit.blade.php` — `RULES.name.pattern`
+- `department/create.blade.php` / `department/edit.blade.php` — `RULES.name.pattern`
+- `rule_sets/create.blade.php` / `rule_sets/edit.blade.php` — `NAME_PATTERN`
+- `divisions/create.blade.php` / `divisions/edit.blade.php` — `NAME_PATTERN`

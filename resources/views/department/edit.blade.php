@@ -90,7 +90,7 @@
 <script>
 (function () {
     const RULES = {
-        name: { pattern: /^[\p{L}\s\&'\-\.]{2,100}$/u, msg: 'Name contains invalid characters.' },
+        name: { pattern: /^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]{2,100}$/u, msg: 'Name contains invalid characters.' },
         slug: { pattern: /^[a-z0-9\-_]{1,80}$/, msg: 'Slug: lowercase letters, numbers and hyphens only.' },
     };
 

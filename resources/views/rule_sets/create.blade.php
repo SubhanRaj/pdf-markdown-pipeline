@@ -77,7 +77,7 @@
 <script>
 (function () {
     try {
-        const NAME_PATTERN = /^[\p{L}0-9\s\(\)\-\.\/&']{2,150}$/u;
+        const NAME_PATTERN = /^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]{2,150}$/u;
 
         function validateName() {
             const el = document.getElementById('name');

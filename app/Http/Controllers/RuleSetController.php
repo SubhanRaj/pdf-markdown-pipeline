@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreRuleSetRequest;
+use Illuminate\Http\Request;
 use App\Http\Requests\UpdateRuleSetRequest;
 use App\Models\Department;
 use App\Models\Document;
@@ -44,9 +45,12 @@ class RuleSetController extends Controller
         }
     }
 
-    public function show(string $level, Department $department, RuleSet $ruleSet): View
+    public function show(Request $request, string $level, Department $department, RuleSet $ruleSet): View
     {
-        // Root documents with their amendments pre-loaded — drives the hierarchy view
+        $sort       = $request->get('sort', 'amendment_number_desc');
+        $filterYear = (int) $request->get('year', 0);
+
+        // Root documents with amendments pre-loaded
         $rootDocuments = $ruleSet->documents()
             ->with([
                 'user:id,name',
@@ -59,6 +63,37 @@ class RuleSetController extends Controller
             ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
             ->orderBy('created_at')
             ->get();
+
+        // Collect all years present in amendments for the filter dropdown
+        $availableYears = $rootDocuments
+            ->flatMap(fn ($root) => $root->amendments)
+            ->map(fn ($a) => ($a->metadata['effective_year'] ?? null))
+            ->filter()
+            ->unique()
+            ->sort()
+            ->values();
+
+        // Apply sort and optional year filter to each root's amendments collection
+        $rootDocuments->each(function ($root) use ($sort, $filterYear) {
+            $amendments = $root->amendments;
+
+            if ($filterYear) {
+                $amendments = $amendments->filter(
+                    fn ($a) => ($a->metadata['effective_year'] ?? null) == $filterYear
+                );
+            }
+
+            $amendments = match ($sort) {
+                'amendment_number_asc'  => $amendments->sortBy(fn ($a) => $a->metadata['amendment_number'] ?? PHP_INT_MAX),
+                'year_desc'             => $amendments->sortByDesc(fn ($a) => $a->metadata['effective_year'] ?? 0),
+                'year_asc'              => $amendments->sortBy(fn ($a) => $a->metadata['effective_year'] ?? PHP_INT_MAX),
+                'uploaded_asc'          => $amendments->sortBy('created_at'),
+                'uploaded_desc'         => $amendments->sortByDesc('created_at'),
+                default                 => $amendments->sortByDesc(fn ($a) => $a->metadata['amendment_number'] ?? -PHP_INT_MAX),
+            };
+
+            $root->setRelation('amendments', $amendments->values());
+        });
 
         $totalCount = $ruleSet->documents()
             ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
@@ -75,7 +110,7 @@ class RuleSetController extends Controller
                 ->values()
             : collect();
 
-        return view('rule_sets.show', compact('department', 'ruleSet', 'rootDocuments', 'totalCount', 'parentOptions'));
+        return view('rule_sets.show', compact('department', 'ruleSet', 'rootDocuments', 'totalCount', 'parentOptions', 'sort', 'filterYear', 'availableYears'));
     }
 
     public function edit(string $level, Department $department, RuleSet $ruleSet): View

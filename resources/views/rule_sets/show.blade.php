@@ -236,6 +236,34 @@
                         <p id="amend-err-parent" class="field-err-msg" style="display:none"></p>
                         <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Select the base rule or earlier amendment this document formally modifies.</p>
                     </div>
+                    {{-- Amendment number + effective date ──────────────────── --}}
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label for="amend-amendment-number" class="field-label">Amendment No.</label>
+                            <input type="number" id="amend-amendment-number" name="amendment_number" min="1" max="999"
+                                   placeholder="e.g. 5" class="field-input">
+                            <p class="field-hint">Ordinal number of this amendment</p>
+                        </div>
+                        <div>
+                            <label for="amend-effective-year" class="field-label">Effective Year</label>
+                            <input type="number" id="amend-effective-year" name="effective_year" min="1900" max="2099"
+                                   placeholder="e.g. 2019" class="field-input">
+                        </div>
+                        <div>
+                            <label for="amend-effective-month" class="field-label">Month <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <select id="amend-effective-month" name="effective_month" class="field-input">
+                                <option value="">—</option>
+                                @foreach(['January','February','March','April','May','June','July','August','September','October','November','December'] as $mi => $mn)
+                                <option value="{{ $mi + 1 }}">{{ $mn }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label for="amend-effective-day" class="field-label">Day <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <input type="number" id="amend-effective-day" name="effective_day" min="1" max="31"
+                                   placeholder="1–31" class="field-input">
+                        </div>
+                    </div>
                     <div>
                         <label class="field-label">Visibility</label>
                         <div class="flex gap-3 mt-1">
@@ -272,14 +300,45 @@
 
 {{-- ── Document hierarchy ────────────────────────────────────────────────── --}}
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between gap-4 flex-wrap">
         <div>
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Amendments &amp; Documents</h3>
             <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
                 {{ $totalCount }} {{ Str::plural('document', $totalCount) }}
                 @guest · public only @endguest
+                @if($filterYear) · filtered to {{ $filterYear }} @endif
             </p>
         </div>
+        {{-- Sort / filter controls --}}
+        @if($totalCount > 1)
+        <form method="GET" action="{{ route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]) }}"
+              class="flex items-center gap-2 flex-wrap">
+            <select name="sort" onchange="this.form.submit()"
+                    class="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="amendment_number_desc" @selected($sort === 'amendment_number_desc')>Amendment # ↓ newest first</option>
+                <option value="amendment_number_asc"  @selected($sort === 'amendment_number_asc')>Amendment # ↑ oldest first</option>
+                <option value="year_desc"             @selected($sort === 'year_desc')>Year ↓</option>
+                <option value="year_asc"              @selected($sort === 'year_asc')>Year ↑</option>
+                <option value="uploaded_desc"         @selected($sort === 'uploaded_desc')>Uploaded ↓</option>
+                <option value="uploaded_asc"          @selected($sort === 'uploaded_asc')>Uploaded ↑</option>
+            </select>
+            @if($availableYears->isNotEmpty())
+            <select name="year" onchange="this.form.submit()"
+                    class="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">All years</option>
+                @foreach($availableYears as $yr)
+                <option value="{{ $yr }}" @selected($filterYear == $yr)>{{ $yr }}</option>
+                @endforeach
+            </select>
+            @endif
+            @if($filterYear)
+            <a href="{{ route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]) }}"
+               class="text-xs text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors" title="Clear filter">
+                <i class="ti ti-x"></i>
+            </a>
+            @endif
+        </form>
+        @endif
     </div>
 
     @if($rootDocuments->isEmpty() && $totalCount === 0)
@@ -440,10 +499,14 @@
             // Per-modal validation hooks (set by caller)
             if (ids.validate && !ids.validate()) return;
 
-            const contextInput = form.querySelector('[name="rule_set_id"]');
-            const typeInput    = form.querySelector('[name="document_type"]');
-            const parentInput  = form.querySelector('[name="parent_id"]');
-            const visibility   = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+            const contextInput      = form.querySelector('[name="rule_set_id"]');
+            const typeInput         = form.querySelector('[name="document_type"]');
+            const parentInput       = form.querySelector('[name="parent_id"]');
+            const visibility        = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+            const amendmentNumber   = form.querySelector('[name="amendment_number"]')?.value?.trim() || '';
+            const effectiveYear     = form.querySelector('[name="effective_year"]')?.value?.trim()   || '';
+            const effectiveMonth    = form.querySelector('[name="effective_month"]')?.value          || '';
+            const effectiveDay      = form.querySelector('[name="effective_day"]')?.value?.trim()    || '';
 
             isUploading = true;
             btnSubmit.disabled = true;
@@ -468,6 +531,10 @@
                     fd.append('document_type', typeInput ? typeInput.value : '');
                     fd.append('visibility', visibility);
                     if (parentInput && parentInput.value) fd.append('parent_id', parentInput.value);
+                    if (amendmentNumber) fd.append('amendment_number', amendmentNumber);
+                    if (effectiveYear)   fd.append('effective_year',   effectiveYear);
+                    if (effectiveMonth)  fd.append('effective_month',  effectiveMonth);
+                    if (effectiveDay)    fd.append('effective_day',    effectiveDay);
                     fd.append('file', item.file);
 
                     const res = await fetch(page.storeUrl, {

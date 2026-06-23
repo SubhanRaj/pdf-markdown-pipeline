@@ -181,6 +181,34 @@
                         <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Select if this document formally amends an earlier document in this section.</p>
                     </div>
 
+                    {{-- Amendment number + effective date --}}
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label for="sec-amendment-number" class="field-label">Amendment No. <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <input type="number" id="sec-amendment-number" name="amendment_number" min="1" max="999"
+                                   placeholder="e.g. 5" class="field-input">
+                        </div>
+                        <div>
+                            <label for="sec-effective-year" class="field-label">Effective Year <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <input type="number" id="sec-effective-year" name="effective_year" min="1900" max="2099"
+                                   placeholder="e.g. 2019" class="field-input">
+                        </div>
+                        <div>
+                            <label for="sec-effective-month" class="field-label">Month <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <select id="sec-effective-month" name="effective_month" class="field-input">
+                                <option value="">—</option>
+                                @foreach(['January','February','March','April','May','June','July','August','September','October','November','December'] as $mi => $mn)
+                                <option value="{{ $mi + 1 }}">{{ $mn }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label for="sec-effective-day" class="field-label">Day <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <input type="number" id="sec-effective-day" name="effective_day" min="1" max="31"
+                                   placeholder="1–31" class="field-input">
+                        </div>
+                    </div>
+
                     {{-- Vault destination --}}
                     <div class="bg-slate-50 dark:bg-slate-800/60 rounded-lg px-4 py-3">
                         <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">Saving to</p>
@@ -265,14 +293,42 @@
 
 {{-- ── Direct Documents ─────────────────────────────────────────────────────── --}}
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between gap-4 flex-wrap">
         <div>
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Direct Documents</h3>
             <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
                 {{ $documents->total() }} {{ Str::plural('document', $documents->total()) }} · not under any division
                 @guest · public only @endguest
+                @if($filterYear) · filtered to {{ $filterYear }} @endif
             </p>
         </div>
+        @if($documents->total() > 1 || $filterYear)
+        <form method="GET" action="{{ route('departments.sections.show', [$department->levelAlias(), $department, $section]) }}"
+              class="flex items-center gap-2 flex-wrap">
+            <select name="sort" onchange="this.form.submit()"
+                    class="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="uploaded_desc" @selected($sort === 'uploaded_desc')>Uploaded ↓ newest first</option>
+                <option value="uploaded_asc"  @selected($sort === 'uploaded_asc')>Uploaded ↑ oldest first</option>
+                <option value="year_desc"     @selected($sort === 'year_desc')>Effective Year ↓</option>
+                <option value="year_asc"      @selected($sort === 'year_asc')>Effective Year ↑</option>
+            </select>
+            @if($availableYears->isNotEmpty())
+            <select name="year" onchange="this.form.submit()"
+                    class="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="">All years</option>
+                @foreach($availableYears as $yr)
+                <option value="{{ $yr }}" @selected($filterYear == $yr)>{{ $yr }}</option>
+                @endforeach
+            </select>
+            @endif
+            @if($filterYear)
+            <a href="{{ route('departments.sections.show', [$department->levelAlias(), $department, $section]) }}"
+               class="text-xs text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors" title="Clear filter">
+                <i class="ti ti-x"></i>
+            </a>
+            @endif
+        </form>
+        @endif
     </div>
 
     @if($documents->isEmpty())
@@ -330,8 +386,27 @@
                     </span>
                     @endauth
 
+                    @php
+                        $secMn    = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                        $secEY    = $doc->metadata['effective_year']  ?? null;
+                        $secEM    = $doc->metadata['effective_month'] ?? null;
+                        $secED    = $doc->metadata['effective_day']   ?? null;
+                        $secAN    = $doc->metadata['amendment_number'] ?? null;
+                        $secDate  = $secEY
+                            ? ($secED && $secEM ? "{$secED} {$secMn[$secEM]} {$secEY}" : ($secEM ? "{$secMn[$secEM]} {$secEY}" : (string) $secEY))
+                            : null;
+                    @endphp
+                    @if($secAN)
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">#{{ $secAN }}</span>
+                    @endif
                     <span class="text-slate-300 dark:text-slate-600">·</span>
+                    @if($secDate)
+                    <span class="text-xs text-slate-600 dark:text-slate-300 font-medium" title="Effective date">{{ $secDate }}</span>
+                    <span class="text-slate-300 dark:text-slate-600">·</span>
+                    <span class="text-xs text-slate-400 dark:text-slate-500" title="Uploaded">{{ $doc->created_at->format('d M Y') }}</span>
+                    @else
                     <span class="text-xs text-slate-400 dark:text-slate-500">{{ $doc->created_at->format('d M Y') }}</span>
+                    @endif
 
                     @auth
                     @if($doc->user)
@@ -540,10 +615,14 @@
             return;
         }
 
-        const type         = typeSelect.value;
-        const visibility   = form.querySelector('[name="visibility"]:checked')?.value || 'public';
-        const parentId     = parentSelect ? (parentSelect.value || '') : '';
-        const contextInput = form.querySelector('[name="section_id"]');
+        const type            = typeSelect.value;
+        const visibility      = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+        const parentId        = parentSelect ? (parentSelect.value || '') : '';
+        const contextInput    = form.querySelector('[name="section_id"]');
+        const amendmentNumber = form.querySelector('[name="amendment_number"]')?.value?.trim() || '';
+        const effectiveYear   = form.querySelector('[name="effective_year"]')?.value?.trim()   || '';
+        const effectiveMonth  = form.querySelector('[name="effective_month"]')?.value          || '';
+        const effectiveDay    = form.querySelector('[name="effective_day"]')?.value?.trim()    || '';
 
         isUploading = true;
         btnSubmit.disabled = true;
@@ -572,7 +651,11 @@
                 fd.append('title', title);
                 fd.append('document_type', type);
                 fd.append('visibility', visibility);
-                if (parentId) fd.append('parent_id', parentId);
+                if (parentId)        fd.append('parent_id',        parentId);
+                if (amendmentNumber) fd.append('amendment_number', amendmentNumber);
+                if (effectiveYear)   fd.append('effective_year',   effectiveYear);
+                if (effectiveMonth)  fd.append('effective_month',  effectiveMonth);
+                if (effectiveDay)    fd.append('effective_day',    effectiveDay);
                 fd.append('file', item.file);
 
                 const res = await fetch(page.storeUrl, {

@@ -7,6 +7,7 @@ use App\Http\Requests\UpdateSectionRequest;
 use App\Models\Department;
 use App\Models\Section;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
@@ -51,21 +52,35 @@ class SectionController extends Controller
         }
     }
 
-    public function show(string $level, Department $department, Section $section): View
+    public function show(Request $request, string $level, Department $department, Section $section): View
     {
-        $isGuest = ! auth()->check();
+        $isGuest    = ! auth()->check();
+        $sort       = $request->get('sort', 'uploaded_desc');
+        $filterYear = (int) $request->get('year', 0);
 
         // Direct documents only (no division) — paginated
         $documentsQuery = $section->documents()
             ->whereNull('division_id')
             ->with('user:id,name')
-            ->orderByDesc('created_at');
+            ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
+            ->when($filterYear, fn ($q) => $q->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.effective_year')) = ?", [$filterYear]));
 
-        if ($isGuest) {
-            $documentsQuery->where('visibility', 'public');
-        }
+        match ($sort) {
+            'year_desc'    => $documentsQuery->orderByRaw("JSON_EXTRACT(metadata, '$.effective_year') IS NULL, JSON_EXTRACT(metadata, '$.effective_year') DESC"),
+            'year_asc'     => $documentsQuery->orderByRaw("JSON_EXTRACT(metadata, '$.effective_year') IS NULL, JSON_EXTRACT(metadata, '$.effective_year') ASC"),
+            'uploaded_asc' => $documentsQuery->orderBy('created_at'),
+            default        => $documentsQuery->orderByDesc('created_at'),
+        };
 
         $documents = $documentsQuery->paginate(20)->withQueryString();
+
+        // Available years for the filter dropdown
+        $availableYears = $section->documents()
+            ->whereNull('division_id')
+            ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
+            ->pluck('metadata')
+            ->map(fn ($m) => is_array($m) ? ($m['effective_year'] ?? null) : null)
+            ->filter()->unique()->sort()->values();
 
         // Divisions with document counts
         $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
@@ -85,7 +100,7 @@ class SectionController extends Controller
                 ->values()
             : collect();
 
-        return view('sections.show', compact('department', 'section', 'documents', 'divisions', 'parentOptions'));
+        return view('sections.show', compact('department', 'section', 'documents', 'divisions', 'parentOptions', 'sort', 'filterYear', 'availableYears'));
     }
 
     public function edit(string $level, Department $department, Section $section): View

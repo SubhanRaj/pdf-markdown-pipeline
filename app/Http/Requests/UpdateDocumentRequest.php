@@ -23,16 +23,25 @@ class UpdateDocumentRequest extends FormRequest
         if ($this->has('parent_id')) {
             $this->merge(['parent_id' => $this->parent_id ? (int) $this->parent_id : null]);
         }
+        foreach (['amendment_number', 'effective_year', 'effective_month', 'effective_day'] as $field) {
+            if ($this->has($field)) {
+                $this->merge([$field => $this->$field ? (int) $this->$field : null]);
+            }
+        }
     }
 
     public function rules(): array
     {
         return [
-            'title'         => ['sometimes', 'required', 'string', 'min:3', 'max:255', 'regex:/^[\p{L}0-9\s\-\(\)\.,\/&#;:]+$/u'],
-            'document_type' => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::DOCUMENT_TYPES))],
-            'status'        => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::STATUSES))],
-            'visibility'    => ['sometimes', 'nullable', 'string', 'in:public,authenticated'],
-            'parent_id'     => ['sometimes', 'nullable', 'integer', 'exists:documents,id'],
+            'title'            => ['sometimes', 'required', 'string', 'min:3', 'max:255', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
+            'document_type'    => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::DOCUMENT_TYPES))],
+            'status'           => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::STATUSES))],
+            'visibility'       => ['sometimes', 'nullable', 'string', 'in:public,authenticated'],
+            'parent_id'        => ['sometimes', 'nullable', 'integer', 'exists:documents,id'],
+            'amendment_number' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:999'],
+            'effective_year'   => ['sometimes', 'nullable', 'integer', 'min:1900', 'max:2099'],
+            'effective_month'  => ['sometimes', 'nullable', 'integer', 'min:1', 'max:12'],
+            'effective_day'    => ['sometimes', 'nullable', 'integer', 'min:1', 'max:31'],
         ];
     }
 
