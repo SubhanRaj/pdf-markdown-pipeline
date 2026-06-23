@@ -653,6 +653,19 @@ All non-user human-readable text fields (`title`, `name`, `description` free-tex
 
 Both the PHP Form Request regex AND the matching JS `pattern` in the Blade view must use `\p{M}` — the browser JS `u` flag has the same combining-mark gap as PCRE. Apply them in sync whenever a field is updated.
 
+**Unicode-aware slug generation** — `Str::slug()` must NOT be used on user-supplied text. It pipes text through ICU transliteration, which turns `शुद्धिपत्र` into a mangled Latin approximation (`shathathhapatara`). All model slug helpers (`Document`, `RuleSet`, `Division`) use `static::makeSlug()` from the `HasUnicodeSlug` trait (`app/Models/Concerns/HasUnicodeSlug.php`) instead:
+
+```php
+protected static function makeSlug(string $text): string
+{
+    $slug = mb_strtolower($text);
+    $slug = preg_replace('/[^\p{L}\p{M}\p{N}]+/u', '-', $slug);
+    return trim($slug, '-');
+}
+```
+
+This keeps Unicode letters + combining marks intact and collapses everything else (spaces, brackets, punctuation) to hyphens. Result: `fl-bottling-rules-2011-16th-amendment-शुद्धिपत्र`. Modern browsers display percent-decoded Devanagari in the address bar, so the URL reads naturally. Never add `Str::slug()` calls to model slug helpers.
+
 ### Mass assignment protection
 - Every model must have an explicit `$fillable` array (or `#[Fillable]` attribute). **Never use `$guarded = []`**.
 - Never pass `$request->all()` directly to `create()` / `update()` — always use `$request->validated()` or an explicit array.
