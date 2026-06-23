@@ -203,7 +203,7 @@ Unique constraint: `(section_id, slug)` for section documents. Slug generation f
 | `created_at` | timestamp | Append-only — no `updated_at` |
 
 ### `users`
-Standard Laravel/Fortify users table with `is_admin` boolean. Public registration disabled — admin-created only.
+Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digits, nullable), `landline` (free-form STD+number, nullable), `post`, `role`, `privileges` (JSON), `department_id`, `section_id`. Public registration disabled — admin-created only.
 
 ## 🗺️ Route Map
 

@@ -206,7 +206,7 @@ All check `withTrashed()` and append `-2`, `-3` on collision. DB unique constrai
 | `created_at` | timestamp | append-only — no `updated_at` |
 
 ### `users`
-Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings), `department_id` (FK, nullable), `section_id` (FK, nullable). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
+Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings), `department_id` (FK, nullable), `section_id` (FK, nullable). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
 
 ## What's built (as of 2026-06-23, updated)
 
