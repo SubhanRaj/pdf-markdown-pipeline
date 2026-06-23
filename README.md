@@ -211,19 +211,81 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 
 `{level}` = `dept` (department_level) | `sectt` (secretariat_level) — disambiguates departments sharing a slug across levels.
 
-| Resource | Public | Auth-Protected Mutations |
+### Documents
+
+| Route | Method | Name | Auth |
+|---|---|---|---|
+| `/documents` | GET | `documents.index` | Public |
+| `/documents` | POST | `documents.store` | Auth |
+| `/documents/{level}/{dept}/{section}/{doc}` | GET | `documents.show` | Public* |
+| `/documents/{level}/{dept}/{section}/{doc}` | PATCH | `documents.update` | Auth |
+| `/documents/{level}/{dept}/{section}/{doc}` | DELETE | `documents.destroy` | Auth |
+| `/documents/{level}/{dept}/{section}/{doc}/pdf` | GET | `documents.pdf` | Public* |
+| `/documents/{level}/{dept}/{section}/{doc}/review` | GET | `documents.edit` | Auth |
+| `/documents/{level}/{dept}/{section}/divisions/{division}/{doc}` | GET | `documents.divisions.show` | Public* |
+| `/documents/{level}/{dept}/{section}/divisions/{division}/{doc}` | PATCH | `documents.divisions.update` | Auth |
+| `/documents/{level}/{dept}/{section}/divisions/{division}/{doc}` | DELETE | `documents.divisions.destroy` | Auth |
+| `/documents/{level}/{dept}/{section}/divisions/{division}/{doc}/pdf` | GET | `documents.divisions.pdf` | Public* |
+| `/documents/{level}/{dept}/{section}/divisions/{division}/{doc}/review` | GET | `documents.divisions.edit` | Auth |
+| `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | GET | `documents.rules.show` | Public* |
+| `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | PATCH | `documents.rules.update` | Auth |
+| `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | DELETE | `documents.rules.destroy` | Auth |
+| `/documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | GET | `documents.rules.pdf` | Public* |
+| `/documents/{level}/{dept}/rules/{rule_set}/{doc}/review` | GET | `documents.rules.edit` | Auth |
+| `/documents/trash` | GET | `documents.trash` | Auth |
+| `/documents/trash/{id}/pdf` | GET | `documents.trashed.pdf` | Auth |
+| `/documents/trash/{id}/restore` | POST | `documents.restore` | Auth |
+| `/documents/trash/{id}` | DELETE | `documents.force-destroy` | Admin |
+| `/documents/trash/bulk-restore` | POST | `documents.trash.bulk-restore` | Auth |
+| `/documents/trash/bulk-force-destroy` | DELETE | `documents.trash.bulk-force-destroy` | Admin |
+| `/documents/bulk-destroy` | POST | `documents.bulk-destroy` | Auth |
+
+*Public routes 403 on `visibility = authenticated` documents for guests.
+
+### Departments, Sections, Divisions, Rule Sets
+
+| Route | Method | Name | Auth |
+|---|---|---|---|
+| `/departments` | GET | `departments.index` | Public |
+| `/departments` | POST | `departments.store` | Auth |
+| `/departments/{level}/{dept}` | GET | `departments.show` | Public |
+| `/departments/{level}/{dept}` | PATCH | `departments.update` | Auth |
+| `/departments/{level}/{dept}` | DELETE | `departments.destroy` | Auth |
+| `/departments/{level}/{dept}/sections` | GET | `departments.sections.index` | Public |
+| `/departments/{level}/{dept}/sections` | POST | `departments.sections.store` | Auth |
+| `/departments/{level}/{dept}/sections/{section}` | GET | `departments.sections.show` | Public |
+| `/departments/{level}/{dept}/sections/{section}` | PATCH | `departments.sections.update` | Auth |
+| `/departments/{level}/{dept}/sections/{section}` | DELETE | `departments.sections.destroy` | Auth |
+| `/departments/{level}/{dept}/sections/{section}/divisions` | POST | `departments.sections.divisions.store` | Admin |
+| `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | GET | `departments.sections.divisions.show` | Public |
+| `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | PATCH | `departments.sections.divisions.update` | Admin |
+| `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | DELETE | `departments.sections.divisions.destroy` | Admin |
+| `/departments/{level}/{dept}/rules` | POST | `departments.rules.store` | Auth |
+| `/departments/{level}/{dept}/rules/{rule_set}` | GET | `departments.rules.show` | Public |
+| `/departments/{level}/{dept}/rules/{rule_set}` | PATCH | `departments.rules.update` | Auth |
+| `/departments/{level}/{dept}/rules/{rule_set}` | DELETE | `departments.rules.destroy` | Auth |
+
+### Users & Profile
+
+| Route | Method | Name | Auth |
+|---|---|---|---|
+| `/admin/users` | GET | `admin.users.index` | Admin |
+| `/admin/users` | POST | `admin.users.store` | Admin |
+| `/admin/users/{user}` | GET | `admin.users.show` | Admin |
+| `/admin/users/{user}` | PATCH | `admin.users.update` | Admin |
+| `/admin/users/{user}` | DELETE | `admin.users.destroy` | Admin |
+| `/admin/users/{user}/edit` | GET | `admin.users.edit` | Admin |
+| `/profile/edit` | GET | `profile.edit` | Auth |
+| `/profile` | PATCH | `profile.update` | Auth |
+
+### Other
+
+| Route | Name | Notes |
 |---|---|---|
-| Documents index | `GET /documents` | — |
-| Search | `GET /search?q=` | — |
-| Section document | `GET /documents/{level}/{dept}/{section}/{doc}` | POST store, PATCH, DELETE |
-| Section document PDF | `GET /documents/{level}/{dept}/{section}/{doc}/pdf` | — |
-| Rule-set document | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}` | PATCH, DELETE |
-| Rule-set document PDF | `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | — |
-| Document trash | — | `GET /documents/trash` (auth), `POST …/trash/{id}/restore`, `DELETE …/trash/{id}` (admin) |
-| Departments | `GET /departments`, `GET /departments/{level}/{dept}` | POST, PATCH, DELETE |
-| Sections | `GET /departments/{level}/{dept}/sections/{section}` | POST, PATCH, DELETE |
-| Rule sets | `GET /departments/{level}/{dept}/rules/{rule_set}` | POST, PATCH, DELETE |
-| Admin users | — | Full CRUD under `/admin/users` |
+| `GET /` | `home` | Dashboard |
+| `GET /search?q=` | `search.index` | Public full-text search |
+| `GET /login`, `POST /login` | `login`, `login.store` | Fortify auth |
+| `POST /logout` | `logout` | Fortify auth |
 
 ## 🚧 Status
 
