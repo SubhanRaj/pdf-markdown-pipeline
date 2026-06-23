@@ -75,12 +75,12 @@
                     <input
                         id="mobile" name="mobile" type="tel"
                         value="{{ old('mobile') }}"
-                        placeholder="9876543210"
-                        maxlength="10"
+                        placeholder="9876543210 or +91-9876543210"
+                        maxlength="14"
                         class="field-input @error('mobile') field-error @enderror"
                         data-rule="mobile"
                     >
-                    <p class="field-hint">10-digit Indian mobile number (optional).</p>
+                    <p class="field-hint">10-digit mobile number (optional). +91 prefix stripped automatically.</p>
                     <p class="field-err-msg hidden" id="mobile-err"></p>
                     @error('mobile') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
@@ -291,8 +291,13 @@
             msg: 'Enter a valid email address.'
         },
         mobile: {
-            pattern: /^[6-9]\d{9}$/,
-            msg: 'Must be a 10-digit Indian mobile number (starts with 6–9).',
+            custom: () => {
+                const raw = document.getElementById('mobile').value.trim();
+                if (!raw) return null;
+                const digits = raw.replace(/\D/g, '');
+                const n = (digits.length === 12 && digits.startsWith('91')) ? digits.slice(2) : digits;
+                return /^\d{10}$/.test(n) ? null : 'Must be 10 digits. +91 or +91- prefix is stripped automatically.';
+            },
             optional: true
         },
         password: {
