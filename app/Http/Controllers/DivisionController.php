@@ -10,6 +10,7 @@ use App\Models\Document;
 use App\Models\DocumentStatusHistory;
 use App\Models\Section;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
@@ -44,8 +45,11 @@ class DivisionController extends Controller
         }
     }
 
-    public function show(string $level, Department $department, Section $section, Division $division): View
+    public function show(Request $request, string $level, Department $department, Section $section, Division $division): View
     {
+        $sort       = $request->get('sort', 'amendment_number_desc');
+        $filterYear = (int) $request->get('year', 0);
+
         // All root documents in this division with amendments pre-loaded
         $rootDocuments = $division->documents()
             ->with([
@@ -59,6 +63,34 @@ class DivisionController extends Controller
             ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
             ->orderBy('created_at')
             ->get();
+
+        // Available years across all amendments in this division
+        $availableYears = $rootDocuments
+            ->flatMap(fn ($root) => $root->amendments)
+            ->map(fn ($a) => $a->metadata['effective_year'] ?? null)
+            ->filter()->unique()->sort()->values();
+
+        // Apply sort and optional year filter to each root's amendments collection
+        $rootDocuments->each(function ($root) use ($sort, $filterYear) {
+            $amendments = $root->amendments;
+
+            if ($filterYear) {
+                $amendments = $amendments->filter(
+                    fn ($a) => ($a->metadata['effective_year'] ?? null) == $filterYear
+                );
+            }
+
+            $amendments = match ($sort) {
+                'amendment_number_asc' => $amendments->sortBy(fn ($a) => $a->metadata['amendment_number'] ?? PHP_INT_MAX),
+                'year_desc'            => $amendments->sortByDesc(fn ($a) => $a->metadata['effective_year'] ?? 0),
+                'year_asc'             => $amendments->sortBy(fn ($a) => $a->metadata['effective_year'] ?? PHP_INT_MAX),
+                'uploaded_asc'         => $amendments->sortBy('created_at'),
+                'uploaded_desc'        => $amendments->sortByDesc('created_at'),
+                default                => $amendments->sortByDesc(fn ($a) => $a->metadata['amendment_number'] ?? -PHP_INT_MAX),
+            };
+
+            $root->setRelation('amendments', $amendments->values());
+        });
 
         $totalCount = $division->documents()
             ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
@@ -80,7 +112,7 @@ class DivisionController extends Controller
                 ->values()
             : collect();
 
-        return view('divisions.show', compact('department', 'section', 'division', 'rootDocuments', 'totalCount', 'parentOptions'));
+        return view('divisions.show', compact('department', 'section', 'division', 'rootDocuments', 'totalCount', 'parentOptions', 'sort', 'filterYear', 'availableYears'));
     }
 
     public function edit(string $level, Department $department, Section $section, Division $division): View

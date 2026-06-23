@@ -636,6 +636,23 @@ try {
 - Use `exists:table,column` rules for FK references — prevents orphaned or spoofed IDs.
 - Unique rules on updates must exclude the current record: `unique:users,email,{$id}`.
 
+#### Unicode / Rajbhasha (Devanagari) regex policy
+
+All non-user human-readable text fields (`title`, `name`, `description` free-text) use the Unicode category class pattern:
+
+```
+/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u
+```
+
+`\p{L}` = letters, `\p{M}` = combining marks (Devanagari matras/halant — **critical** for Hindi), `\p{N}` = numbers, `\p{P}` = punctuation (covers `।`, `॥`, `-`, `.`, `()` etc.), `\p{Z}` = Unicode separators. This covers entirely Devanagari titles, mixed Hindi-English, and English-only without script-specific hardcoding.
+
+**User model fields are explicitly excluded from this pattern** — `name`, `username`, `email`, `mobile`, `post` on `users` stay Latin-only:
+- Person names and designations are recorded in English (standard government nomenclature for this system).
+- Allowing Unicode in `username`/`email` opens homoglyph attack surface (e.g. Cyrillic `а` vs Latin `a`) and normalisation mismatches between login entry and stored value.
+- `username` keeps `[a-zA-Z0-9_]` — system identifiers must be ASCII.
+
+Both the PHP Form Request regex AND the matching JS `pattern` in the Blade view must use `\p{M}` — the browser JS `u` flag has the same combining-mark gap as PCRE. Apply them in sync whenever a field is updated.
+
 ### Mass assignment protection
 - Every model must have an explicit `$fillable` array (or `#[Fillable]` attribute). **Never use `$guarded = []`**.
 - Never pass `$request->all()` directly to `create()` / `update()` — always use `$request->validated()` or an explicit array.

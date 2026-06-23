@@ -47,11 +47,15 @@ class StoreDocumentRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         $this->merge([
-            'title'         => strip_tags(trim($this->title ?? '')),
-            'document_type' => strtolower(trim($this->document_type ?? '')),
-            'visibility'    => strtolower(trim($this->visibility ?? 'public')),
-            'parent_id'     => $this->parent_id ? (int) $this->parent_id : null,
-            'division_id'   => $this->division_id ? (int) $this->division_id : null,
+            'title'            => strip_tags(trim($this->title ?? '')),
+            'document_type'    => strtolower(trim($this->document_type ?? '')),
+            'visibility'       => strtolower(trim($this->visibility ?? 'public')),
+            'parent_id'        => $this->parent_id        ? (int) $this->parent_id        : null,
+            'division_id'      => $this->division_id      ? (int) $this->division_id      : null,
+            'amendment_number' => $this->amendment_number ? (int) $this->amendment_number : null,
+            'effective_year'   => $this->effective_year   ? (int) $this->effective_year   : null,
+            'effective_month'  => $this->effective_month  ? (int) $this->effective_month  : null,
+            'effective_day'    => $this->effective_day    ? (int) $this->effective_day    : null,
         ]);
     }
 
@@ -70,10 +74,14 @@ class StoreDocumentRequest extends FormRequest
             'rule_set_id'   => ['required_without:section_id',  'nullable', 'integer', 'exists:rule_sets,id'],
             'division_id'   => ['nullable', 'integer', 'exists:divisions,id'],
             'parent_id'     => ['nullable', 'integer', 'exists:documents,id'],
-            'title'         => ['required', 'string', 'max:255', 'regex:/^[\p{L}\p{N}\s\-_.,()\/\#\&]+$/u'],
+            'title'         => ['required', 'string', 'max:255', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
             'document_type' => ['required', 'string', "in:{$validTypes}"],
             'visibility'    => ['nullable', 'string', 'in:public,authenticated'],
-            'file'          => ['required', 'file', "mimetypes:{$acceptedMimes}", 'max:51200'], // 50 MB
+            'file'             => ['required', 'file', "mimetypes:{$acceptedMimes}", 'max:51200'], // 50 MB
+            'amendment_number' => ['nullable', 'integer', 'min:1', 'max:999'],
+            'effective_year'   => ['nullable', 'integer', 'min:1900', 'max:2099'],
+            'effective_month'  => ['nullable', 'integer', 'min:1', 'max:12'],
+            'effective_day'    => ['nullable', 'integer', 'min:1', 'max:31'],
         ];
     }
 

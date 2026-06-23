@@ -27,7 +27,7 @@ class StoreSectionRequest extends FormRequest
         $departmentId = $this->route('department')?->id;
 
         return [
-            'name' => ['required', 'string', 'max:120', 'regex:/^[\p{L}\s\&\'\-\.\/]+$/u'],
+            'name' => ['required', 'string', 'max:120', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
             'slug' => ['required', 'string', 'max:80', 'regex:/^[a-z0-9\-_]+$/',
                        Rule::unique('sections')->where(fn ($q) => $q
                            ->where('department_id', $departmentId)

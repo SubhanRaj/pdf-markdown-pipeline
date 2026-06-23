@@ -130,7 +130,9 @@ class DocumentController extends Controller
         try {
             $document = null;
 
-            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $department, $vaultDir, $pdfPath, $slug, $request, &$document) {
+            $metadata = $this->extractMetadata($validated);
+
+            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $department, $vaultDir, $pdfPath, $slug, $request, $metadata, &$document) {
                 $document = Document::create([
                     'department_id'     => $department->id,
                     'section_id'        => $section?->id,
@@ -146,6 +148,7 @@ class DocumentController extends Controller
                     'vault_path'        => $vaultDir,
                     'status'            => 'uploaded',
                     'visibility'        => $validated['visibility'] ?? 'public',
+                    'metadata'          => ! empty($metadata) ? $metadata : null,
                 ]);
 
                 DocumentStatusHistory::create([
@@ -189,10 +192,11 @@ class DocumentController extends Controller
     {
         $validated = $request->validated();
         $oldStatus = $document->status;
+        $data      = $this->mergeMetadata($validated, $document);
 
         try {
-            DB::transaction(function () use ($validated, $document, $oldStatus) {
-                $document->update($validated);
+            DB::transaction(function () use ($data, $validated, $document, $oldStatus) {
+                $document->update($data);
                 if (isset($validated['status']) && $validated['status'] !== $oldStatus) {
                     DocumentStatusHistory::create([
                         'document_id' => $document->id,
@@ -491,10 +495,11 @@ class DocumentController extends Controller
     {
         $validated = $request->validated();
         $oldStatus = $document->status;
+        $data      = $this->mergeMetadata($validated, $document);
 
         try {
-            DB::transaction(function () use ($validated, $document, $oldStatus) {
-                $document->update($validated);
+            DB::transaction(function () use ($data, $validated, $document, $oldStatus) {
+                $document->update($data);
                 if (isset($validated['status']) && $validated['status'] !== $oldStatus) {
                     DocumentStatusHistory::create([
                         'document_id' => $document->id,
@@ -580,10 +585,11 @@ class DocumentController extends Controller
     {
         $validated = $request->validated();
         $oldStatus = $document->status;
+        $data      = $this->mergeMetadata($validated, $document);
 
         try {
-            DB::transaction(function () use ($validated, $document, $oldStatus) {
-                $document->update($validated);
+            DB::transaction(function () use ($data, $validated, $document, $oldStatus) {
+                $document->update($data);
                 if (isset($validated['status']) && $validated['status'] !== $oldStatus) {
                     DocumentStatusHistory::create([
                         'document_id' => $document->id,
@@ -627,5 +633,44 @@ class DocumentController extends Controller
             flash()->error('Failed to delete document. Please try again.');
             return back();
         }
+    }
+
+    // ── Private helpers ────────────────────────────────────────────────────────
+
+    /** Build a metadata array from store validated data (null values excluded). */
+    private function extractMetadata(array $validated): array
+    {
+        return array_filter([
+            'amendment_number' => $validated['amendment_number'] ?? null,
+            'effective_year'   => $validated['effective_year']   ?? null,
+            'effective_month'  => $validated['effective_month']  ?? null,
+            'effective_day'    => $validated['effective_day']    ?? null,
+        ], fn ($v) => $v !== null);
+    }
+
+    /**
+     * Merge metadata fields from an update request into the existing document
+     * metadata, then return a data array safe to pass to $document->update().
+     * The 4 raw metadata keys are stripped; 'metadata' is added in their place.
+     */
+    private function mergeMetadata(array $validated, Document $document): array
+    {
+        $metaKeys = ['amendment_number', 'effective_year', 'effective_month', 'effective_day'];
+        $existing = $document->metadata ?? [];
+
+        foreach ($metaKeys as $key) {
+            if (array_key_exists($key, $validated)) {
+                if ($validated[$key] !== null) {
+                    $existing[$key] = $validated[$key];
+                } else {
+                    unset($existing[$key]);
+                }
+            }
+        }
+
+        $data = array_diff_key($validated, array_flip($metaKeys));
+        $data['metadata'] = ! empty($existing) ? $existing : null;
+
+        return $data;
     }
 }

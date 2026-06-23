@@ -55,7 +55,24 @@
             </span>
             @endif
         </div>
+        @php
+            $amendNo      = $doc->metadata['amendment_number'] ?? null;
+            $effYear      = $doc->metadata['effective_year']   ?? null;
+            $effMonth     = $doc->metadata['effective_month']  ?? null;
+            $effDay       = $doc->metadata['effective_day']    ?? null;
+            $monthNames   = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            $effectiveDate = $effYear
+                ? ($effDay && $effMonth
+                    ? "{$effDay} {$monthNames[$effMonth]} {$effYear}"
+                    : ($effMonth ? "{$monthNames[$effMonth]} {$effYear}" : (string) $effYear))
+                : null;
+        @endphp
         <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+            @if($amendNo)
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                #{{ $amendNo }}
+            </span>
+            @endif
             <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
                 {{ \App\Models\Document::DOCUMENT_TYPES[$doc->document_type] ?? $doc->document_type }}
             </span>
@@ -65,7 +82,13 @@
             </span>
             @endauth
             <span class="text-slate-300 dark:text-slate-600">·</span>
+            @if($effectiveDate)
+            <span class="text-xs text-slate-600 dark:text-slate-300 font-medium" title="Effective date">{{ $effectiveDate }}</span>
+            <span class="text-slate-300 dark:text-slate-600">·</span>
+            <span class="text-xs text-slate-400 dark:text-slate-500" title="Uploaded">{{ $doc->created_at->format('d M Y') }}</span>
+            @else
             <span class="text-xs text-slate-400 dark:text-slate-500">{{ $doc->created_at->format('d M Y') }}</span>
+            @endif
             @auth @if($doc->user)
             <span class="text-slate-300 dark:text-slate-600">·</span>
             <span class="text-xs text-slate-400 dark:text-slate-500">{{ $doc->user->name }}</span>

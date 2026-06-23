@@ -25,7 +25,7 @@ class StoreDepartmentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name'  => ['required', 'string', 'max:100', 'regex:/^[\p{L}\s\&\'\-\.]+$/u'],
+            'name'  => ['required', 'string', 'max:100', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
             'level' => ['required', 'in:secretariat_level,department_level'],
             'slug'  => ['required', 'string', 'max:80', 'regex:/^[a-z0-9\-_]+$/',
                         Rule::unique('departments')->where('level', $this->level)],

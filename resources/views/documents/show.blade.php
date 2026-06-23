@@ -268,14 +268,28 @@
                 </div>
                 @endif
                 @if($document->metadata)
-                @foreach($document->metadata as $key => $value)
-                @if($value)
+                @php
+                    $mAnNo  = $document->metadata['amendment_number'] ?? null;
+                    $mEY    = $document->metadata['effective_year']   ?? null;
+                    $mEM    = $document->metadata['effective_month']  ?? null;
+                    $mED    = $document->metadata['effective_day']    ?? null;
+                    $mMon   = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+                    $mDate  = $mEY
+                        ? ($mED && $mEM ? "{$mED} {$mMon[$mEM]} {$mEY}" : ($mEM ? "{$mMon[$mEM]} {$mEY}" : (string) $mEY))
+                        : null;
+                @endphp
+                @if($mAnNo)
                 <div>
-                    <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">{{ Str::title(str_replace('_', ' ', $key)) }}</dt>
-                    <dd class="text-slate-700 dark:text-slate-200 text-xs">{{ $value }}</dd>
+                    <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">Amendment No.</dt>
+                    <dd class="text-slate-700 dark:text-slate-200 font-semibold">#{{ $mAnNo }}</dd>
                 </div>
                 @endif
-                @endforeach
+                @if($mDate)
+                <div>
+                    <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">Effective Date</dt>
+                    <dd class="text-slate-700 dark:text-slate-200">{{ $mDate }}</dd>
+                </div>
+                @endif
                 @endif
             </dl>
 

@@ -127,6 +127,48 @@
                     @enderror
                 </div>
 
+                {{-- Amendment number + effective date (rule/amendment docs only) --}}
+                @if(in_array($document->document_type, ['rule', 'rule_amendment']))
+                <div class="pt-3 border-t border-slate-100 dark:border-slate-700">
+                    <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Amendment Details</p>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label for="amendment_number" class="field-label">Amendment No.</label>
+                            <input type="number" id="amendment_number" name="amendment_number" min="1" max="999"
+                                   placeholder="e.g. 5"
+                                   value="{{ old('amendment_number', $document->metadata['amendment_number'] ?? '') }}"
+                                   class="field-input mt-1">
+                        </div>
+                        <div>
+                            <label for="effective_year" class="field-label">Effective Year</label>
+                            <input type="number" id="effective_year" name="effective_year" min="1900" max="2099"
+                                   placeholder="e.g. 2019"
+                                   value="{{ old('effective_year', $document->metadata['effective_year'] ?? '') }}"
+                                   class="field-input mt-1">
+                        </div>
+                        <div>
+                            <label for="effective_month" class="field-label">Month <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <select id="effective_month" name="effective_month" class="field-input mt-1">
+                                <option value="">—</option>
+                                @foreach(['January','February','March','April','May','June','July','August','September','October','November','December'] as $mi => $mn)
+                                <option value="{{ $mi + 1 }}"
+                                        @selected(old('effective_month', $document->metadata['effective_month'] ?? '') == $mi + 1)>
+                                    {{ $mn }}
+                                </option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label for="effective_day" class="field-label">Day <span class="text-slate-400 font-normal">(optional)</span></label>
+                            <input type="number" id="effective_day" name="effective_day" min="1" max="31"
+                                   placeholder="1–31"
+                                   value="{{ old('effective_day', $document->metadata['effective_day'] ?? '') }}"
+                                   class="field-input mt-1">
+                        </div>
+                    </div>
+                </div>
+                @endif
+
                 {{-- Read-only info --}}
                 <div class="pt-1 border-t border-slate-100 dark:border-slate-700 grid grid-cols-2 gap-4">
                     <div>

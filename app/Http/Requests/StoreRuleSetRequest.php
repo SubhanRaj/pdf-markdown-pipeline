@@ -22,7 +22,7 @@ class StoreRuleSetRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name'        => ['required', 'string', 'regex:/^[\p{L}0-9\s\(\)\-\.\/&\']{2,150}$/u'],
+            'name'        => ['required', 'string', 'min:2', 'max:150', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
             'description' => ['nullable', 'string', 'max:500'],
         ];
     }
