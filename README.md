@@ -247,4 +247,28 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - Amendment metadata: `amendment_number`, `effective_year`, `effective_month`, `effective_day` stored in the existing `metadata` JSON column (no migration); upload modals include optional fields; sort/filter by amendment number or effective year available on rule sets, divisions, and section document lists; effective date displayed on document rows and the show-page sidebar
 - Full Unicode / Rajbhasha support: all document title, section name, rule set name, and division name fields accept Devanagari and mixed-script text; validation uses `[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]` in both PHP Form Requests and JS frontend patterns; user model fields remain Latin-only by design
 
+## 👥 Demo Accounts
+
+The `UserSeeder` ships with pre-built accounts covering every role and a representative set of privilege combinations. Run with:
+
+```bash
+php artisan db:seed --class=UserSeeder
+```
+
+The seeder is idempotent — uses `firstOrCreate` on email, so re-running it never duplicates or overwrites existing records.
+
+| Role | Email | Password | Privileges |
+|---|---|---|---|
+| Admin | `shubhanraj2002@gmail.com` | `Admin@1234` | Full access (`*`) — primary dev account |
+| Admin (demo) | `admin.demo@excise.up.gov.in` | `Admin@1234` | Full access (`*`) — Deputy Commissioner persona |
+| Operator (full) | `operator.full@excise.up.gov.in` | `Operator@1234` | upload + edit + delete + restore + verify |
+| Operator (upload-only) | `operator.upload@excise.up.gov.in` | `Operator@1234` | `documents.upload` only — junior clerk |
+| Operator (review/verify) | `operator.review@excise.up.gov.in` | `Operator@1234` | edit + verify — QA reviewer |
+| Viewer | `viewer@excise.up.gov.in` | `Viewer@1234` | None — read-only authenticated access |
+
+**Role summary:**
+- **Admin** — complete system access including user management (`/admin/users`). `isAdmin()` unconditionally returns `true` for all privilege checks.
+- **Operator** — authenticated mutations only; specific capabilities controlled by `privileges` JSON array. No user management access.
+- **Viewer** — can log in and view `authenticated`-visibility documents that guests cannot see, but cannot upload or mutate anything.
+
 **Next up:** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.

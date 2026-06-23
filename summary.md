@@ -663,3 +663,32 @@ This also closes a latent edge case: previously a section slug shared across two
 ### Files changed
 
 - `app/Providers/AppServiceProvider.php` — added `Route::bind('section', ...)` before the `division` binding; removed the now-unnecessary comment about late resolution
+
+---
+
+## M21 — Demo seeder: multi-role user accounts (2026-06-23)
+
+Added demo accounts to `database/seeders/UserSeeder.php` covering all three roles and multiple privilege combinations, for use during demos and onboarding.
+
+Seeder is idempotent — uses `firstOrCreate` on email; re-running never duplicates or overwrites existing records.
+
+### Accounts
+
+| Role | Email | Password | Privileges |
+|---|---|---|---|
+| Admin | `shubhanraj2002@gmail.com` | `Admin@1234` | `['*']` — primary dev account |
+| Admin (demo) | `admin.demo@excise.up.gov.in` | `Admin@1234` | `['*']` — Deputy Commissioner persona |
+| Operator (full) | `operator.full@excise.up.gov.in` | `Operator@1234` | upload + edit + delete + restore + verify |
+| Operator (upload-only) | `operator.upload@excise.up.gov.in` | `Operator@1234` | `['documents.upload']` — junior clerk |
+| Operator (review/verify) | `operator.review@excise.up.gov.in` | `Operator@1234` | edit + verify — QA reviewer persona |
+| Viewer | `viewer@excise.up.gov.in` | `Viewer@1234` | `[]` — read-only authenticated access |
+
+### Role behaviour summary
+
+- **Admin** — full system access including user management (`/admin/users`); `IsAdmin` middleware gates all admin routes; `isAdmin()` returns true regardless of `privileges` array.
+- **Operator** — authenticated mutations (upload, edit, delete, restore, verify) gated by individual `privileges` entries; no access to user management.
+- **Viewer** — authenticated but no mutation privileges; can access `authenticated`-visibility documents that guests cannot see.
+
+### Files changed
+
+- `database/seeders/UserSeeder.php` — replaced single-account seeder with the six-account loop above

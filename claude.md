@@ -450,6 +450,19 @@ Both modals share a `makeQueue(ids)` JS factory function that handles multi-file
 - `UserManagementController@updateProfile` — uses `UpdateProfileRequest`; updates only the allowed fields; never touches role/privileges/dept/section.
 - `UserManagementController@destroy` — self-delete guard uses `auth()->id()` (not `auth()->user()->id`) to avoid the nullable dereference.
 
+**Demo seeder accounts (`database/seeders/UserSeeder.php`):**
+
+Seeder is idempotent (`firstOrCreate` on email). Run with `php artisan db:seed --class=UserSeeder`.
+
+| Role | Email | Password | Privileges |
+|---|---|---|---|
+| Admin | `shubhanraj2002@gmail.com` | `Admin@1234` | `['*']` — primary dev account |
+| Admin (demo) | `admin.demo@excise.up.gov.in` | `Admin@1234` | `['*']` — Deputy Commissioner persona |
+| Operator (full) | `operator.full@excise.up.gov.in` | `Operator@1234` | upload + edit + delete + restore + verify |
+| Operator (upload-only) | `operator.upload@excise.up.gov.in` | `Operator@1234` | `['documents.upload']` only |
+| Operator (review/verify) | `operator.review@excise.up.gov.in` | `Operator@1234` | edit + verify only |
+| Viewer | `viewer@excise.up.gov.in` | `Viewer@1234` | `[]` — read-only authenticated |
+
 **Previously identified vulnerabilities (now fixed):**
 1. All `admin.*` routes had only `auth` middleware — any logged-in user could view the full user list, access the create form, and delete other accounts. Fixed by adding `is_admin` middleware to the entire `admin.*` group.
 2. `UpdateUserRequest::authorize()` was the only admin gate for updates — the GET routes (index, create, show, edit) had no gate at all. Fixed by middleware.
