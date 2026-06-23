@@ -14,6 +14,7 @@ return new class extends Migration
             $table->string('username', 30)->unique();
             $table->string('email', 255)->unique();
             $table->string('mobile', 10)->nullable();
+            $table->string('landline', 20)->nullable();  // STD + number e.g. 0522-223456
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->string('post', 100)->nullable();            // job title / designation

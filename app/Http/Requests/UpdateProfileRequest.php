@@ -21,6 +21,7 @@ class UpdateProfileRequest extends FormRequest
             'username' => ['required', 'string', 'min:3', 'max:30', 'regex:/^[a-zA-Z0-9_]+$/', "unique:users,username,{$userId}"],
             'email'    => ['required', 'email:rfc', 'max:255', "unique:users,email,{$userId}"],
             'mobile'   => ['nullable', 'digits:10'],
+            'landline' => ['nullable', 'string', 'max:20', 'regex:/^[\d\s\-\+\(\)]{7,20}$/'],
             'password' => ['nullable', 'confirmed', Password::min(8)->mixedCase()->numbers()->symbols()],
             'post'     => ['nullable', 'string', 'max:100', 'regex:/^[\p{L}\s\'\-\.&\/\(\)]+$/u'],
         ];
@@ -32,6 +33,7 @@ class UpdateProfileRequest extends FormRequest
             'name.regex'     => 'Name may only contain letters, spaces, hyphens, apostrophes, and dots.',
             'username.regex' => 'Username may only contain letters, numbers, and underscores.',
             'mobile.digits'  => 'Mobile number must be exactly 10 digits (country code stripped automatically).',
+            'landline.regex' => 'Landline must be 7–20 chars containing digits, spaces, hyphens, or parentheses (e.g. 0522-223456).',
             'post.regex'     => 'Post/designation contains invalid characters.',
         ];
     }
@@ -43,6 +45,7 @@ class UpdateProfileRequest extends FormRequest
             'username' => strtolower(strip_tags(trim($this->username ?? ''))),
             'email'    => strtolower(strip_tags(trim($this->email ?? ''))),
             'mobile'   => \App\Http\Requests\Admin\StoreUserRequest::sanitizeMobile($this->mobile ?? ''),
+            'landline' => trim($this->landline ?? ''),
             'post'     => strip_tags(trim($this->post ?? '')),
         ]);
     }

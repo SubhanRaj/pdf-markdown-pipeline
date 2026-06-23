@@ -76,6 +76,19 @@
                     @error('mobile') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
 
+                <div>
+                    <label for="landline" class="field-label">Landline Number</label>
+                    <input id="landline" name="landline" type="tel"
+                        value="{{ old('landline', $user->landline) }}"
+                        placeholder="0522-223456"
+                        maxlength="20"
+                        class="field-input @error('landline') field-error @enderror"
+                        data-rule="landline">
+                    <p class="field-hint">STD code + number (optional), e.g. 0522-223456 or 0522 223456.</p>
+                    <p class="field-err-msg hidden" id="landline-err"></p>
+                    @error('landline') <p class="field-err-msg">{{ $message }}</p> @enderror
+                </div>
+
                 <div class="col-span-2">
                     <label for="post" class="field-label">Post / Designation</label>
                     <input id="post" name="post" type="text"
@@ -195,6 +208,11 @@
                 const n = (digits.length === 12 && digits.startsWith('91')) ? digits.slice(2) : digits;
                 return /^\d{10}$/.test(n) ? null : 'Must be 10 digits. +91 or +91- prefix is stripped automatically.';
             },
+            optional: true
+        },
+        landline: {
+            pattern: /^[\d\s\-\+\(\)]{7,20}$/,
+            msg: 'Enter STD code + number (e.g. 0522-223456). Digits, spaces, hyphens, and parentheses only.',
             optional: true
         },
         password: { pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&\#^()\[\]{}|;:,.<>?\/\\`~"'\-_=+])[^\s]{8,}$/, msg: 'Min 8 chars with uppercase, lowercase, number, and symbol.', optional: true },
