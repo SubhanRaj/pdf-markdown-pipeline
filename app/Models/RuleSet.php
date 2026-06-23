@@ -7,12 +7,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Str;
+use App\Models\Concerns\HasUnicodeSlug;
 
 class RuleSet extends Model
 {
     /** @use HasFactory<\Database\Factories\RuleSetFactory> */
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, HasUnicodeSlug;
 
     protected $fillable = ['department_id', 'name', 'slug', 'description', 'metadata'];
 
@@ -36,7 +36,7 @@ class RuleSet extends Model
     /** Generate a slug unique within the department, checking soft-deleted records. */
     public static function uniqueSlugForDepartment(string $name, int $departmentId, ?int $exceptId = null): string
     {
-        $base = Str::slug($name);
+        $base = static::makeSlug($name);
         $slug = $base;
         $i    = 2;
 
