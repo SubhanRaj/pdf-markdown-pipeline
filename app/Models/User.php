@@ -20,6 +20,7 @@ class User extends Authenticatable
         'username',
         'email',
         'mobile',
+        'landline',
         'password',
         'post',
         'role',

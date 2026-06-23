@@ -67,6 +67,9 @@
                         @if($user->mobile)
                         <p class="text-xs text-slate-400 dark:text-slate-500">{{ $user->mobile }}</p>
                         @endif
+                        @if($user->landline)
+                        <p class="text-xs text-slate-400 dark:text-slate-500">{{ $user->landline }}</p>
+                        @endif
                     </td>
                     <td class="px-5 py-3">
                         <span class="badge {{ $roleMap[$user->role] ?? 'bg-slate-100 text-slate-600' }}">
