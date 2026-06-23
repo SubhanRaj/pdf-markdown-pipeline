@@ -17,7 +17,7 @@
             type="search"
             name="q"
             value="{{ $q }}"
-            placeholder="Search by title, section name, rule set…"
+            placeholder="Search by title, section name, rule set… / शीर्षक, अनुभाग, नियम समूह द्वारा खोजें"
             autocomplete="off"
             autofocus
             class="w-full pl-11 pr-4 py-3 text-sm bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 placeholder-slate-400 dark:placeholder-slate-500 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
