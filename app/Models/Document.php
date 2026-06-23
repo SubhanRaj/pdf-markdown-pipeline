@@ -7,12 +7,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Str;
+use App\Models\Concerns\HasUnicodeSlug;
 
 class Document extends Model
 {
     /** @use HasFactory<\Database\Factories\DocumentFactory> */
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, HasUnicodeSlug;
 
     public const DOCUMENT_TYPES = [
         'go'             => 'Government Order',
@@ -47,7 +47,7 @@ class Document extends Model
     /** Slug unique within a section (section-based documents). */
     public static function uniqueSlugForSection(string $title, int $sectionId, ?int $exceptId = null): string
     {
-        $base = Str::slug($title);
+        $base = static::makeSlug($title);
         $slug = $base;
         $i    = 2;
 
@@ -68,7 +68,7 @@ class Document extends Model
     /** Slug unique within a rule set (rule-amendment documents). */
     public static function uniqueSlugForRuleSet(string $title, int $ruleSetId, ?int $exceptId = null): string
     {
-        $base = Str::slug($title);
+        $base = static::makeSlug($title);
         $slug = $base;
         $i    = 2;
 
@@ -89,7 +89,7 @@ class Document extends Model
     /** Slug unique within a division (division-based documents). */
     public static function uniqueSlugForDivision(string $title, int $divisionId, ?int $exceptId = null): string
     {
-        $base = Str::slug($title);
+        $base = static::makeSlug($title);
         $slug = $base;
         $i    = 2;
 

@@ -7,11 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Str;
+use App\Models\Concerns\HasUnicodeSlug;
 
 class Division extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, HasUnicodeSlug;
 
     protected $fillable = ['section_id', 'name', 'slug', 'description'];
 
@@ -33,7 +33,7 @@ class Division extends Model
     /** Generate a slug unique within the section, checking soft-deleted records. */
     public static function uniqueSlugForSection(string $name, int $sectionId, ?int $exceptId = null): string
     {
-        $base = Str::slug($name);
+        $base = static::makeSlug($name);
         $slug = $base;
         $i    = 2;
 
