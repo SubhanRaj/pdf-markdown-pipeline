@@ -597,3 +597,38 @@ Allowing Unicode in user fields introduces ambiguity in authentication flows (ho
 - `department/create.blade.php` / `department/edit.blade.php` — `RULES.name.pattern`
 - `rule_sets/create.blade.php` / `rule_sets/edit.blade.php` — `NAME_PATTERN`
 - `divisions/create.blade.php` / `divisions/edit.blade.php` — `NAME_PATTERN`
+
+---
+
+## M19 — Unicode-Preserving Slug Generation
+
+### Problem
+
+`Str::slug()` internally calls PHP's ICU transliterator, which maps every Devanagari character to a Latin approximation. `शुद्धिपत्र` became `shathathhapatara` — not useful to Hindi readers and lossy (multiple distinct Devanagari strings could map to the same Latin output, risking slug collisions). Additionally, Devanagari matras (`\p{M}` combining marks) were stripped entirely before transliteration, compounding the garbling.
+
+### Fix
+
+New trait `app/Models/Concerns/HasUnicodeSlug.php` with `makeSlug(string $text): string`:
+
+```
+mb_strtolower → preg_replace('/[^\p{L}\p{M}\p{N}]+/u', '-') → trim('-')
+```
+
+Keeps Unicode letters and combining marks intact; collapses spaces, brackets, punctuation to hyphens. `Str::slug()` is never called on user-supplied text again.
+
+Result for `FL Bottling Rules 2011 (16th amendment) (शुद्धिपत्र)`:
+- Before: `fl-bottling-rules-2011-16th-amendment-shathathhapatara`
+- After:  `fl-bottling-rules-2011-16th-amendment-शुद्धिपत्र`
+
+Modern browsers display percent-decoded Unicode in the address bar, so the URL reads naturally. The slug is still URL-safe (percent-encoded on the wire).
+
+### Files changed
+
+- `app/Models/Concerns/HasUnicodeSlug.php` — new trait
+- `app/Models/Document.php` — uses `HasUnicodeSlug`; all three `uniqueSlugFor*` methods use `static::makeSlug()`
+- `app/Models/RuleSet.php` — uses `HasUnicodeSlug`; `uniqueSlugForDepartment()` updated
+- `app/Models/Division.php` — uses `HasUnicodeSlug`; `uniqueSlugForSection()` updated
+
+### Existing slugs
+
+Slugs already stored in the DB are unaffected — they were written once at upload and are never regenerated. Only new uploads going forward use the improved format.
