@@ -272,6 +272,8 @@ Slug helpers:
 
 All check `withTrashed()` and append `-2`, `-3` on collision.
 
+**Section route binding** — `Route::bind('section', ...)` in `AppServiceProvider::configureRouteBindings()` scopes to `WHERE slug = ? AND department_id = ?` using the already-resolved `{department}`. This explicit binding is required so that `{section}` is guaranteed to be a `Section` model instance before the `{division}` binding fires. Without it, `{section}` would use Laravel's implicit binding, which resolves *after* explicit `Route::bind()` callbacks — causing the division binding to receive a raw slug string and abort 404.
+
 **Division route binding** — `Route::bind('division', ...)` in `AppServiceProvider::configureRouteBindings()` scopes to `WHERE slug = ? AND section_id = ?` using the already-resolved `{section}`. Division slugs for division documents are also scoped this way. Level-aware department binding applies to all routes that include `{level}/{department}`.
 
 **Level-aware department binding** — see route map above. Controller methods must declare `string $level` as first parameter.

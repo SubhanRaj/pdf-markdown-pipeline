@@ -632,3 +632,34 @@ Modern browsers display percent-decoded Unicode in the address bar, so the URL r
 ### Existing slugs
 
 Slugs already stored in the DB are unaffected — they were written once at upload and are never regenerated. Only new uploads going forward use the improved format.
+
+---
+
+## M20 — Fix: Division 404 due to implicit/explicit route binding order (2026-06-23)
+
+### Problem
+
+Navigating to a division show page (e.g. `/departments/sectt/excise/sections/deputy_secretary_wing/divisions/section-1`) returned 404 despite the records existing in the DB.
+
+Root cause: the `{division}` custom `Route::bind()` callback called `request()->route('section')` expecting a resolved `Section` model instance. But `{section}` was using Laravel's **implicit** route model binding (no corresponding `Route::bind()` entry), and implicit bindings resolve *after* explicit ones. So when the division binding fired, `section` was still a raw slug string — the `instanceof Section` guard caught this and called `abort(404)`.
+
+### Fix
+
+Added an explicit `Route::bind('section', ...)` in `AppServiceProvider::configureRouteBindings()`, declared immediately before the `division` binding. It scopes the lookup to the already-resolved `{department}`:
+
+```php
+Route::bind('section', function (string $slug) {
+    $dept = request()->route('department');
+    $query = Section::where('slug', $slug);
+    if ($dept instanceof Department) {
+        $query->where('department_id', $dept->id);
+    }
+    return $query->firstOrFail();
+});
+```
+
+This also closes a latent edge case: previously a section slug shared across two departments (possible if different wings used the same slug) could resolve to the wrong section. The department scope prevents that.
+
+### Files changed
+
+- `app/Providers/AppServiceProvider.php` — added `Route::bind('section', ...)` before the `division` binding; removed the now-unnecessary comment about late resolution

@@ -36,10 +36,19 @@ class AppServiceProvider extends ServiceProvider
                 ->firstOrFail();
         });
 
+        // Explicit binding so {section} is always resolved before {division} below.
+        Route::bind('section', function (string $slug) {
+            $dept = request()->route('department');
+            $query = Section::where('slug', $slug);
+            if ($dept instanceof Department) {
+                $query->where('department_id', $dept->id);
+            }
+            return $query->firstOrFail();
+        });
+
         Route::bind('division', function (string $slug) {
             $section = request()->route('section');
             if (! $section instanceof Section) {
-                // Section may still be a slug string if binding order resolves late
                 abort(404);
             }
             return Division::where('slug', $slug)
