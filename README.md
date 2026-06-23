@@ -23,7 +23,7 @@ While built for government requirements, the architecture is fully open-source a
 - **Dual Document Taxonomy** — Documents belong to either a **Section** (for GOs, notices, policy circulars) or a **Rule Set** (for Acts, Rules, and their amendments), each with dedicated vault paths and URL structures.
 - **Metadata Injection** — Processed Markdown files carry YAML frontmatter (department, section, GO reference, dates, etc.), enabling accurate context retrieval for downstream LLM/RAG pipelines.
 - **Full Audit Trail** — Every document state transition (`Uploaded → Processing → Review → Verified`) is logged with the acting user and timestamp.
-- **Full Rajbhasha / Unicode Support** — All document titles, section names, rule set names, and division names accept Devanagari text natively — including combining marks (matras, halant). Mixed Hindi-English titles like `FL Bottling Rules 2011 (शुद्धिपत्र)` are stored and displayed correctly. Validation uses Unicode category classes (`\p{L}\p{M}\p{N}\p{P}\p{Z}`) in both PHP (PCRE) and browser JavaScript.
+- **Full Rajbhasha / Unicode Support** — All document titles, section names, rule set names, and division names accept Devanagari text natively — including combining marks (matras, halant). Mixed Hindi-English titles like `FL Bottling Rules 2011 (शुद्धिपत्र)` are stored, displayed, and slugified correctly. Validation uses Unicode category classes (`\p{L}\p{M}\p{N}\p{P}\p{Z}`) in both PHP (PCRE) and browser JavaScript. URL slugs preserve Devanagari characters intact (e.g. `…/fl-bottling-rules-2011-16th-amendment-शुद्धिपत्र`) instead of transliterating them.
 
 ## 🛠️ Technology Stack
 
