@@ -10,7 +10,13 @@ class StoreDepartmentRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() ?? false;
+        $user = $this->user();
+        if (! $user) {
+            return false;
+        }
+
+        // Only admins and organization.head may create departments
+        return $user->isAdmin() || $user->hasPrivilege('organization.head');
     }
 
     protected function prepareForValidation(): void

@@ -222,6 +222,7 @@
                     <select
                         id="section_id" name="section_id"
                         class="field-input @error('section_id') field-error @enderror"
+                        onchange="filterDivisions(this.value)"
                     >
                         <option value="">— None —</option>
                         @foreach($sections as $sec)
@@ -235,36 +236,64 @@
                     @error('section_id') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
 
+                <div class="col-span-2 sm:col-span-1">
+                    <label for="division_id" class="field-label">Division <span class="text-xs font-normal text-slate-400">(optional — smallest scope)</span></label>
+                    <select
+                        id="division_id" name="division_id"
+                        class="field-input @error('division_id') field-error @enderror"
+                    >
+                        <option value="">— None —</option>
+                        @foreach($divisions as $div)
+                        <option
+                            value="{{ $div->id }}"
+                            data-section="{{ $div->section_id }}"
+                            {{ old('division_id') == $div->id ? 'selected' : '' }}
+                        >{{ $div->name }}</option>
+                        @endforeach
+                    </select>
+                    @error('division_id') <p class="field-err-msg">{{ $message }}</p> @enderror
+                </div>
+
             </div>
 
             {{-- Privileges --}}
+            @php
+            $privilegeLabels = [
+                'documents.upload'       => ['label' => 'Upload documents',           'group' => 'Documents'],
+                'documents.edit'         => ['label' => 'Edit document metadata',     'group' => 'Documents'],
+                'documents.delete'       => ['label' => 'Archive (soft-delete) docs', 'group' => 'Documents'],
+                'documents.restore'      => ['label' => 'Restore from archive',       'group' => 'Documents'],
+                'documents.force-delete' => ['label' => 'Permanently delete (requires letter)', 'group' => 'Documents'],
+                'documents.verify'       => ['label' => 'Verify / approve docs',      'group' => 'Documents'],
+                'section.head'           => ['label' => 'Section Head (create divisions in own section)', 'group' => 'Organisational'],
+                'department.head'        => ['label' => 'Department Head (create sections/divisions in own dept)', 'group' => 'Organisational'],
+                'organization.head'      => ['label' => 'Organisation Head (full access across all depts)', 'group' => 'Organisational'],
+            ];
+            $privGroups = collect($privilegeLabels)->groupBy(fn($v) => $v['group']);
+            @endphp
             <div class="mt-4">
                 <label class="field-label">Granular Privileges</label>
-                <p class="text-xs text-slate-400 dark:text-slate-500 mb-2">Applies on top of role. Admin always has all. Leave empty to use role defaults.</p>
-                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    @php
-                        $allPrivileges = [
-                            'documents.upload'   => 'Upload documents',
-                            'documents.delete'   => 'Delete documents',
-                            'documents.verify'   => 'Verify / approve',
-                            'documents.convert'  => 'Convert PDF',
-                            'departments.manage' => 'Manage departments',
-                            'users.manage'       => 'Manage users',
-                        ];
-                    @endphp
-                    @foreach($allPrivileges as $key => $label)
-                    <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer select-none">
+                <p class="text-xs text-slate-400 dark:text-slate-500 mb-3">Applies on top of role. Admin always has all. Privileges control what actions and scopes the user can access.</p>
+                @foreach($privGroups as $group => $privs)
+                <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5 mt-3">{{ $group }}</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    @foreach($privs as $key => $meta)
+                    <label class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer select-none p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
                         <input
                             type="checkbox"
                             name="privileges[]"
                             value="{{ $key }}"
                             {{ in_array($key, old('privileges', [])) ? 'checked' : '' }}
-                            class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-400"
+                            class="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-400 flex-shrink-0"
                         >
-                        {{ $label }}
+                        <span>
+                            <span class="font-medium">{{ $meta['label'] }}</span>
+                            <span class="block text-[10px] text-slate-400 font-mono">{{ $key }}</span>
+                        </span>
                     </label>
                     @endforeach
                 </div>
+                @endforeach
             </div>
         </div>
 
@@ -288,6 +317,7 @@
 
 @push('scripts')
 <script id="sections-data" type="application/json">@json($sections->keyBy('id'))</script>
+<script id="divisions-data" type="application/json">@json($divisions->keyBy('id'))</script>
 <script>
 (function () {
 
@@ -434,7 +464,19 @@
             opt.hidden    = deptId && opt.dataset.dept !== deptId;
             opt.disabled  = deptId && opt.dataset.dept !== deptId;
         });
-        if (deptId) select.value = '';
+        if (deptId) { select.value = ''; filterDivisions(''); }
+    };
+
+    // ── Division filter (cascades from section) ───────────────────────────────
+    window.filterDivisions = function (sectionId) {
+        const select  = document.getElementById('division_id');
+        if (!select) return;
+        const options = select.querySelectorAll('option[data-section]');
+        options.forEach(opt => {
+            opt.hidden   = sectionId && opt.dataset.section !== String(sectionId);
+            opt.disabled = sectionId && opt.dataset.section !== String(sectionId);
+        });
+        if (sectionId) select.value = '';
     };
 
     // ── Password toggle ──────────────────────────────────────────────────────
@@ -445,9 +487,11 @@
         icon.className = el.type === 'password' ? 'ti ti-eye text-sm' : 'ti ti-eye-off text-sm';
     };
 
-    // Run section filter on load if old() set department
+    // Run cascade filters on load if old() values pre-populate the selects
     const deptSel = document.getElementById('department_id');
     if (deptSel.value) filterSections(deptSel.value);
+    const sectSel = document.getElementById('section_id');
+    if (sectSel && sectSel.value) filterDivisions(sectSel.value);
 
 })();
 </script>

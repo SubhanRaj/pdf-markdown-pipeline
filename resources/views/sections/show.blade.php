@@ -55,14 +55,16 @@
     </div>
     <div class="flex items-center gap-2 flex-wrap justify-end">
         @auth
+        @if(auth()->user()->canUploadTo($section))
         <button id="btn-toggle-upload" type="button"
                 onclick="document.getElementById('upload-modal').style.display='block'"
                 class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
             <i class="ti ti-upload text-base"></i>
             <span class="hidden sm:inline">Upload PDF</span>
         </button>
+        @endif
         @endauth
-        @auth @if(auth()->user()->isAdmin())
+        @auth @if(auth()->user()->isAdmin() || (auth()->user()->hasPrivilege('section.head') && auth()->user()->section_id === $section->id) || (auth()->user()->hasPrivilege('department.head') && auth()->user()->department_id === $section->department_id))
         <a href="{{ route('departments.sections.divisions.create', [$department->levelAlias(), $department, $section]) }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-teal-400 dark:hover:border-teal-500 text-slate-600 dark:text-slate-300 hover:text-teal-600 dark:hover:text-teal-400 text-sm font-medium px-3 py-2 rounded-lg transition-all"
            title="Add Internal Division">
@@ -251,7 +253,7 @@
             Internal Divisions
             <span class="text-xs font-normal text-slate-400 dark:text-slate-500 normal-case">({{ $divisions->count() }})</span>
         </h3>
-        @auth @if(auth()->user()->isAdmin())
+        @auth @if(auth()->user()->isAdmin() || (auth()->user()->hasPrivilege('section.head') && auth()->user()->section_id === $section->id) || (auth()->user()->hasPrivilege('department.head') && auth()->user()->department_id === $section->department_id))
         <a href="{{ route('departments.sections.divisions.create', [$department->levelAlias(), $department, $section]) }}"
            class="inline-flex items-center gap-1 text-xs text-teal-600 dark:text-teal-400 hover:underline">
             <i class="ti ti-plus text-xs"></i> Add Division
@@ -280,7 +282,7 @@
     </div>
 </div>
 @else
-@auth @if(auth()->user()->isAdmin())
+@auth @if(auth()->user()->isAdmin() || (auth()->user()->hasPrivilege('section.head') && auth()->user()->section_id === $section->id) || (auth()->user()->hasPrivilege('department.head') && auth()->user()->department_id === $section->department_id))
 <div class="mb-6 flex items-center justify-between px-4 py-3 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500">
     <span class="text-xs flex items-center gap-2"><i class="ti ti-layout-sidebar"></i> No internal divisions yet</span>
     <a href="{{ route('departments.sections.divisions.create', [$department->levelAlias(), $department, $section]) }}"

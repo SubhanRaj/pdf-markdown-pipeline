@@ -11,10 +11,12 @@ class FrontendController extends Controller
     {
         $isGuest = ! auth()->check();
 
+        // baseQuery scopes to public-only for guests; includes only active (non-deleted) docs
         $baseQuery = fn () => $isGuest ? Document::where('visibility', 'public') : Document::query();
 
         $stats = [
             'total'      => $baseQuery()->count(),
+            'archived'   => $isGuest ? 0 : Document::onlyTrashed()->count(),
             'verified'   => $baseQuery()->where('status', 'verified')->count(),
             'review'     => $isGuest ? 0 : Document::where('status', 'review')->count(),
             'processing' => $isGuest ? 0 : Document::whereIn('status', ['processing', 'ocr_pending'])->count(),

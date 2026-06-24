@@ -8,7 +8,28 @@ class StoreDivisionRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() ?? false;
+        $user = $this->user();
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        $section = $this->route('section');
+
+        // section.head may create divisions within their own section
+        if ($user->hasPrivilege('section.head') && $section && $user->section_id === $section->id) {
+            return true;
+        }
+
+        // department.head may create divisions within their own department
+        if ($user->hasPrivilege('department.head') && $section && $user->department_id === $section->department_id) {
+            return true;
+        }
+
+        return false;
     }
 
     protected function prepareForValidation(): void

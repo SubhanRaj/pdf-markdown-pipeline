@@ -43,6 +43,7 @@
     </div>
     <div class="flex items-center gap-2 flex-wrap justify-end">
         @auth
+        @if(auth()->user()->canUploadTo($ruleSet))
         {{-- Upload Rule — disabled once a rule doc exists --}}
         <button type="button"
                 @if($canUploadRule) onclick="document.getElementById('modal-rule').style.display='block'" @endif
@@ -66,6 +67,7 @@
             <i class="ti ti-git-merge text-base"></i>
             <span class="hidden sm:inline">Upload Amendment</span>
         </button>
+        @endif
         @endauth
         @auth @if(auth()->user()->isAdmin())
         <a href="{{ route('departments.rules.edit', [$department->levelAlias(), $department, $ruleSet]) }}"

@@ -5,60 +5,75 @@
 >
 
 {{-- ── Stat cards ── --}}
-<div class="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
 
-    <a href="{{ route('documents.index') }}" class="stat-card">
-        <div class="stat-icon bg-slate-100 dark:bg-slate-700">
-            <i class="ti ti-files text-slate-600 dark:text-slate-300"></i>
+    <a href="{{ route('documents.index') }}" class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
+        <div class="flex items-center gap-3">
+            <div class="stat-icon bg-slate-100 dark:bg-slate-700 flex-shrink-0">
+                <i class="ti ti-files text-slate-600 dark:text-slate-300"></i>
+            </div>
+            <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ number_format($stats['total']) }}</p>
         </div>
-        <div>
-            <p class="text-2xl font-bold text-slate-800 dark:text-slate-100">{{ number_format($stats['total']) }}</p>
-            <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Total Documents</p>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mt-1 flex items-center gap-1">
-                <i class="ti ti-database text-xs"></i> All departments
-            </p>
-        </div>
+        <p class="text-sm font-medium text-slate-600 dark:text-slate-300">Active Documents</p>
+        <p class="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
+            <i class="ti ti-database text-xs"></i> All departments
+        </p>
     </a>
 
-    <div class="stat-card">
-        <div class="stat-icon bg-emerald-50 dark:bg-emerald-900/30">
-            <i class="ti ti-circle-check text-emerald-500"></i>
+    @auth
+    <a href="{{ route('documents.trash') }}" class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-amber-300 dark:hover:border-amber-600 transition-colors">
+        <div class="flex items-center gap-3">
+            <div class="stat-icon bg-amber-50 dark:bg-amber-900/20 flex-shrink-0">
+                <i class="ti ti-archive text-amber-500 dark:text-amber-400"></i>
+            </div>
+            <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ number_format($stats['archived']) }}</p>
         </div>
-        <div>
-            <p class="text-2xl font-bold text-slate-800 dark:text-slate-100">{{ number_format($stats['verified']) }}</p>
-            <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Verified</p>
-            <p class="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
-                @if($stats['total'] > 0) {{ round(($stats['verified'] / $stats['total']) * 100) }}% of total
-                @else Ready for RAG @endif
-            </p>
+        <p class="text-sm font-medium text-slate-600 dark:text-slate-300">Archived</p>
+        <p class="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <i class="ti ti-clock text-xs"></i> Soft-deleted
+        </p>
+    </a>
+    @endauth
+
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2">
+        <div class="flex items-center gap-3">
+            <div class="stat-icon bg-emerald-50 dark:bg-emerald-900/30 flex-shrink-0">
+                <i class="ti ti-circle-check text-emerald-500"></i>
+            </div>
+            <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ number_format($stats['verified']) }}</p>
         </div>
+        <p class="text-sm font-medium text-slate-600 dark:text-slate-300">Verified</p>
+        <p class="text-xs text-emerald-600 dark:text-emerald-400">
+            @if($stats['total'] > 0) {{ round(($stats['verified'] / $stats['total']) * 100) }}% of total
+            @else Ready for RAG @endif
+        </p>
     </div>
 
-    <div class="stat-card">
-        <div class="stat-icon bg-amber-50 dark:bg-amber-900/30">
-            <i class="ti ti-eye text-amber-500"></i>
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2">
+        <div class="flex items-center gap-3">
+            <div class="stat-icon bg-amber-50 dark:bg-amber-900/30 flex-shrink-0">
+                <i class="ti ti-eye text-amber-500"></i>
+            </div>
+            <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ number_format($stats['review']) }}</p>
         </div>
-        <div>
-            <p class="text-2xl font-bold text-slate-800 dark:text-slate-100">{{ number_format($stats['review']) }}</p>
-            <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">In Review</p>
-            <p class="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
-                <i class="ti ti-clock text-xs"></i> Pending approval
-            </p>
-        </div>
+        <p class="text-sm font-medium text-slate-600 dark:text-slate-300">In Review</p>
+        <p class="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <i class="ti ti-clock text-xs"></i> Pending approval
+        </p>
     </div>
 
-    <div class="stat-card">
-        <div class="stat-icon bg-blue-50 dark:bg-blue-900/30">
-            <i class="ti ti-loader-2 text-blue-500"></i>
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2">
+        <div class="flex items-center gap-3">
+            <div class="stat-icon bg-blue-50 dark:bg-blue-900/30 flex-shrink-0">
+                <i class="ti ti-loader-2 text-blue-500"></i>
+            </div>
+            <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ number_format($stats['processing'] + $stats['uploaded']) }}</p>
         </div>
-        <div>
-            <p class="text-2xl font-bold text-slate-800 dark:text-slate-100">{{ number_format($stats['processing'] + $stats['uploaded']) }}</p>
-            <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">In Pipeline</p>
-            <p class="text-xs text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1">
-                <i class="ti ti-cpu text-xs"></i>
-                {{ $stats['processing'] }} processing · {{ $stats['uploaded'] }} queued
-            </p>
-        </div>
+        <p class="text-sm font-medium text-slate-600 dark:text-slate-300">In Pipeline</p>
+        <p class="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+            <i class="ti ti-cpu text-xs"></i>
+            {{ $stats['processing'] }} processing · {{ $stats['uploaded'] }} queued
+        </p>
     </div>
 
 </div>

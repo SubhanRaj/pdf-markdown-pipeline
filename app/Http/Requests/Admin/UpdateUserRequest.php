@@ -2,7 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
-use App\Http\Requests\Admin\StoreUserRequest;
+use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Password;
 
@@ -27,9 +27,10 @@ class UpdateUserRequest extends FormRequest
             'post'          => ['nullable', 'string', 'max:100', 'regex:/^[\p{L}\s\'\-\.&\/\(\)]+$/u'],
             'role'          => ['required', 'in:admin,operator,viewer'],
             'privileges'    => ['nullable', 'array'],
-            'privileges.*'  => ['string', 'regex:/^[a-z_]+(\.[a-z_]+)?$/'],
+            'privileges.*'  => ['string', 'in:' . implode(',', User::PRIVILEGES)],
             'department_id' => ['nullable', 'integer', 'exists:departments,id'],
             'section_id'    => ['nullable', 'integer', 'exists:sections,id'],
+            'division_id'   => ['nullable', 'integer', 'exists:divisions,id'],
         ];
     }
 
@@ -41,7 +42,7 @@ class UpdateUserRequest extends FormRequest
             'mobile.digits'    => 'Mobile number must be exactly 10 digits (country code stripped automatically).',
             'landline.regex'   => 'Landline must be 7–20 chars containing digits, spaces, hyphens, or parentheses (e.g. 0522-223456).',
             'post.regex'       => 'Post/designation contains invalid characters.',
-            'privileges.*.regex' => 'Invalid privilege format. Use dot-notation e.g. documents.delete',
+            'privileges.*.in' => 'Invalid privilege. Must be one of: ' . implode(', ', User::PRIVILEGES),
         ];
     }
 
@@ -51,7 +52,7 @@ class UpdateUserRequest extends FormRequest
             'name'     => strip_tags(trim($this->name ?? '')),
             'username' => strtolower(strip_tags(trim($this->username ?? ''))),
             'email'    => strtolower(strip_tags(trim($this->email ?? ''))),
-            'mobile'   => StoreUserRequest::sanitizeMobile($this->mobile ?? ''),
+            'mobile'   => \App\Http\Requests\Admin\StoreUserRequest::sanitizeMobile($this->mobile ?? ''),
             'landline' => trim($this->landline ?? ''),
             'post'     => strip_tags(trim($this->post ?? '')),
         ]);

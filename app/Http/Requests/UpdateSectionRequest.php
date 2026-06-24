@@ -10,7 +10,22 @@ class UpdateSectionRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() ?? false;
+        $user = $this->user();
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        $department = $this->route('department');
+
+        if ($user->hasPrivilege('department.head') && $department && $user->department_id === $department->id) {
+            return true;
+        }
+
+        return false;
     }
 
     protected function prepareForValidation(): void

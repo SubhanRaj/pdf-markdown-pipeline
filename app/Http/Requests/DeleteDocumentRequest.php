@@ -6,9 +6,36 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class DeleteDocumentRequest extends FormRequest
 {
+    /**
+     * Soft-delete (archive): any authenticated user who has delete scope for the document's context.
+     * The route-bound $document is resolved before this runs, so we read it from the route.
+     */
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() ?? false;
+        $user = $this->user();
+        if (! $user) {
+            return false;
+        }
+
+        // Resolve context from the route-bound document (section, division, or rule set)
+        $document = $this->route('doc') ?? $this->route('document');
+
+        if ($document) {
+            if ($document->division) {
+                $context = $document->division;
+            } elseif ($document->section) {
+                $context = $document->section;
+            } elseif ($document->ruleSet) {
+                $context = $document->ruleSet;
+            } else {
+                return false;
+            }
+
+            return $user->canDeleteFrom($context);
+        }
+
+        // Fallback: if no document on route (e.g. bulk), require delete privilege
+        return $user->hasPrivilege('documents.delete');
     }
 
     protected function prepareForValidation(): void
