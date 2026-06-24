@@ -13,6 +13,7 @@ class DocumentStatusHistory extends Model
 
     protected $casts = [
         'created_at' => 'datetime',
+        'metadata'   => 'array',
     ];
 
     protected $fillable = [
@@ -21,6 +22,7 @@ class DocumentStatusHistory extends Model
         'from_status',
         'to_status',
         'note',
+        'metadata',
     ];
 
     public function document(): BelongsTo

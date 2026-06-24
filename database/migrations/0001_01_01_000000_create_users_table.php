@@ -24,6 +24,7 @@ return new class extends Migration
             // Relationships are enforced at model/policy layer.
             $table->unsignedBigInteger('department_id')->nullable()->index();
             $table->unsignedBigInteger('section_id')->nullable()->index();
+            $table->unsignedBigInteger('division_id')->nullable()->index();
             $table->rememberToken();
             $table->timestamps();
             $table->softDeletes();

@@ -2,7 +2,10 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Division;
 use App\Models\Document;
+use App\Models\RuleSet;
+use App\Models\Section;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -41,7 +44,36 @@ class StoreDocumentRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        $user = $this->user();
+        if (! $user) {
+            return false;
+        }
+
+        // Resolve the upload context from the validated IDs.
+        // Input is not yet validated at authorize() time, so cast defensively.
+        $divisionId  = (int) $this->input('division_id')  ?: null;
+        $sectionId   = (int) $this->input('section_id')   ?: null;
+        $ruleSetId   = (int) $this->input('rule_set_id')  ?: null;
+
+        if ($divisionId) {
+            $context = Division::find($divisionId);
+            // Division must belong to the provided section when both are given
+            if ($context && $sectionId && $context->section_id !== $sectionId) {
+                return false;
+            }
+        } elseif ($sectionId) {
+            $context = Section::find($sectionId);
+        } elseif ($ruleSetId) {
+            $context = RuleSet::find($ruleSetId);
+        } else {
+            return false;
+        }
+
+        if (! $context) {
+            return false;
+        }
+
+        return $user->canUploadTo($context);
     }
 
     protected function prepareForValidation(): void

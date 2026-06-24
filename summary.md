@@ -695,6 +695,159 @@ Seeder is idempotent — uses `firstOrCreate` on email; re-running never duplica
 
 ---
 
+## M23 — Archive Module + Scope-Based Upload Permissions (COMPLETED 2026-06-24)
+
+Two interlocking features fully implemented in a single session.
+
+---
+
+### Feature A: Archive Module (UI rename + access control overhaul)
+
+**What did NOT change (backend kept intact):**
+- Route names: `documents.trash`, `documents.restore`, `documents.force-destroy`, `documents.trashed.pdf`, `documents.trash.bulk-restore`, `documents.trash.bulk-force-destroy`
+- Controller method names: `trash()`, `restore()`, `forceDestroy()`, `trashedPdf()`
+- Soft-delete mechanism: `SoftDeletes`, `onlyTrashed()`, `withTrashed()`, `deleted_at` — all unchanged
+- `document_status_histories` structure: only a nullable `metadata JSON` column was added (stores letter path on permanent delete)
+
+**What changed:**
+
+| Area | Before | After |
+|---|---|---|
+| UI label | "Trash" / "Move to Trash" | "Archive" / "Archive Document" |
+| Sidebar link label | "Trash" | "Archive" |
+| Archive page visibility | Auth-only (any authenticated user) | Auth-only (unchanged — guests cannot see) |
+| Document counts (dashboard + all views) | Total documents only | **Active** (non-deleted) + **Archived** (soft-deleted) shown separately |
+| Restore permission | Any authenticated user | `documents.restore` privilege or admin |
+| Permanent delete | Admin + reason text | Users with `documents.force-delete` privilege + reason text + **mandatory letter PDF upload** |
+
+**Permanent delete letter storage:**
+- Letter PDF stored to `public` disk at `archive_letters/{document_id}_{YmdHis}.pdf`
+- Path + reason stored as JSON in `document_status_histories.metadata` on the `to_status = 'force_deleted'` history row
+- `DocumentController@forceDestroy` validates: `documents.force-delete` privilege, reason (5–500 chars), and a valid uploaded letter PDF
+- `DeleteDocumentRequest::authorize()` handles both soft-delete scope check and force-delete privilege check
+
+**Count changes:**
+- `FrontendController@dashboard` — `active_count` = `Document::count()` (no deleted), `archived_count` = `Document::onlyTrashed()->count()`. Guests see only public docs for both counts.
+- Dashboard stat cards updated: two separate cards or a split stat.
+- All `withCount('documents')` calls in `DepartmentController`, `SectionController`, `RuleSetController` — active docs only (unchanged, since `withCount` already excludes soft-deleted via `SoftDeletes`).
+
+---
+
+### Feature B: Scope-Based Upload Permissions
+
+**Schema changes (users table):**
+- Added `division_id` FK → `divisions`, nullable, `nullOnDelete`
+- `division_id` added to `User::$fillable`
+- `User` model gains `division()` BelongsTo relation
+
+**New privilege strings (defined as `User::PRIVILEGES` constant — whitelist enforced in `StoreUserRequest` and `UpdateUserRequest` to prevent escalation):**
+
+```php
+public const PRIVILEGES = [
+    'documents.upload',
+    'documents.edit',
+    'documents.delete',
+    'documents.restore',       // restore from archive — already existed in seeder, now enforced
+    'documents.force-delete',  // permanent delete from archive (requires letter)
+    'documents.verify',
+    'organization.head',       // can upload/delete anywhere across all departments
+    'department.head',         // scoped to their assigned department
+    'section.head',            // scoped to their assigned section
+];
+```
+
+No `division.head` — division is the smallest unit; operators are assigned via `division_id` directly.
+
+**Upload scope logic (`User::canUploadTo($context)` helper — $context is Section|Division|RuleSet):**
+
+| User assignment | Can upload to |
+|---|---|
+| `division_id` set | That division only |
+| `section_id` set, no division | All divisions in that section + direct section docs |
+| `department_id` set, no section | All sections + divisions in that department |
+| Has `department.head` privilege + `department_id` | Entire that department |
+| Has `organization.head` privilege | Anywhere |
+| Admin | Anywhere |
+| Operator with `documents.upload` + no dept/section/division assigned | Anywhere (legacy behaviour — for initial data entry phase; scope to be tightened once initial upload is done) |
+
+**Delete scope:** Same as upload scope — `User::canDeleteFrom($context)` uses identical logic. Cross-section and cross-division deletes are blocked.
+
+**View scope:** No restrictions — all authenticated users can view all documents regardless of their assignment.
+
+**Creation privileges:**
+
+| Action | Allowed for |
+|---|---|
+| Create Division | `section.head` for their section, `department.head` for their dept, admin |
+| Create Section | `department.head` for their dept, admin |
+| Create Department | `organization.head`, admin |
+
+**Form Request authorize() changes:**
+- `StoreDocumentRequest::authorize()` — calls `auth()->user()->canUploadTo($context)` where context is resolved from the validated `section_id`, `division_id`, or `rule_set_id`
+- `DeleteDocumentRequest::authorize()` — calls `auth()->user()->canDeleteFrom($context)`
+- `StoreDivisionRequest::authorize()` — `section.head` for parent section OR `department.head`/admin
+- `UpdateDivisionRequest::authorize()` — same
+- `StoreSectionRequest::authorize()` — `department.head` for parent dept OR admin
+- `UpdateSectionRequest::authorize()` — same
+- `StoreDepartmentRequest::authorize()` — `organization.head` OR admin
+- `UpdateDepartmentRequest::authorize()` — same
+
+**View changes (conditional UI):**
+- Upload buttons on `sections/show`, `divisions/show`, `rule_sets/show` — hidden unless `auth()->user()->canUploadTo($context)`
+- "Add Division" button on `sections/show` — hidden unless `section.head` or `department.head` or admin
+- "Add Section" button on `departments/show` — hidden unless `department.head` or admin
+- "Add Rule Set" button on `departments/show` — hidden unless `department.head` or admin
+- "Add Department" button on `departments/index` — hidden unless `organization.head` or admin
+- Restore button on archive page — hidden unless `documents.restore` or admin
+- Permanent delete button on archive page — hidden unless `documents.force-delete` or admin
+
+**User management form changes:**
+- `admin/users/create.blade.php` + `edit.blade.php` — `division_id` dropdown (cascades: dept → section → division via JS), new privilege checkboxes for `organization.head`, `department.head`, `section.head`, `documents.force-delete`
+- `admin/users/show.blade.php` — shows division assignment
+
+**Safety notes (privilege escalation prevention):**
+- `User::PRIVILEGES` constant is the canonical whitelist; `UpdateUserRequest` validates `privileges.*` as `in:` against this list
+- Privileges are only settable via `admin.*` routes (gated by `IsAdmin` middleware + `authorize()` in Form Request)
+- `UpdateProfileRequest` has no privilege fields — self-escalation impossible
+- `User::hasPrivilege($key)` returns `true` for admins unconditionally (existing behaviour, unchanged)
+- `canUploadTo()` and `canDeleteFrom()` never trust user-supplied IDs — context is always resolved from already-bound route models
+
+---
+
+### Files changed in M23
+
+**Migrations (new):**
+- Add `division_id` to `users` table
+- Add `metadata JSON nullable` to `document_status_histories`
+
+**Models:**
+- `User.php` — `division_id` in fillable, `division()` relation, `PRIVILEGES` constant, `canUploadTo()`, `canDeleteFrom()`, `uploadScope()` helpers
+- `DocumentStatusHistory.php` — `metadata` in fillable
+
+**Form Requests:**
+- `StoreDocumentRequest` — `authorize()` scope check
+- `DeleteDocumentRequest` — scope check + `letter` field for force-delete
+- `StoreDivisionRequest`, `UpdateDivisionRequest` — section.head/dept.head/admin
+- `StoreSectionRequest`, `UpdateSectionRequest` — dept.head/admin
+- `StoreDepartmentRequest`, `UpdateDepartmentRequest` — org.head/admin
+- `Admin\StoreUserRequest`, `Admin\UpdateUserRequest` — privilege whitelist validation, `division_id` field
+
+**Controllers:**
+- `DocumentController@restore` — `documents.restore` privilege gate
+- `DocumentController@forceDestroy` — `documents.force-delete` gate + letter upload + metadata storage
+- `FrontendController@dashboard` — active + archived counts
+
+**Views:**
+- `sidebar.blade.php` — "Archive" label
+- `documents/trash.blade.php` — full relabel to Archive; scope-gated restore/delete buttons; new permanent delete modal with letter upload
+- Home/dashboard view — active + archived stat cards
+- `sections/show.blade.php` — conditional upload button, conditional "Add Division"
+- `divisions/show.blade.php` — conditional upload button
+- `rule_sets/show.blade.php` — conditional upload button
+- `departments/show.blade.php` — conditional "Add Section", "Add Rule Set"
+- `departments/index.blade.php` — conditional "Add Department"
+- `admin/users/create.blade.php` + `edit.blade.php` — `division_id` dropdown (cascades dept → section → division via JS), new privilege checkboxes for `organization.head`, `department.head`, `section.head`, `documents.force-delete`, `documents.restore`
+
 ## M22 — Mobile validation fix + landline field (2026-06-23)
 
 ### Mobile regex relaxed

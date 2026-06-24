@@ -275,7 +275,8 @@ class DocumentController extends Controller
                 'pdf_url'         => $doc->original_pdf_path ? route('documents.trashed.pdf', $doc->id) : null,
                 'restore_url'     => route('documents.restore', $doc->id),
                 'destroy_url'     => route('documents.force-destroy', $doc->id),
-                'is_admin'        => auth()->user()->isAdmin(),
+                'can_restore'     => auth()->user()->hasPrivilege('documents.restore'),
+                'can_force_delete' => auth()->user()->hasPrivilege('documents.force-delete'),
             ];
         });
 
@@ -299,6 +300,10 @@ class DocumentController extends Controller
 
     public function restore(int $id): RedirectResponse
     {
+        if (! auth()->user()->hasPrivilege('documents.restore')) {
+            abort(403, 'You do not have permission to restore archived documents.');
+        }
+
         $document = Document::withTrashed()->findOrFail($id);
 
         if (! $document->trashed()) {
@@ -313,14 +318,14 @@ class DocumentController extends Controller
                     'actor_id'    => auth()->id(),
                     'from_status' => 'deleted',
                     'to_status'   => $document->status,
-                    'note'        => 'Restored from trash.',
+                    'note'        => 'Restored from archive.',
                 ]);
             });
 
-            flash()->success('Document restored successfully.');
+            flash()->success('Document restored from archive successfully.');
             return redirect()->route('documents.trash');
         } catch (\Throwable $e) {
-            Log::error('DocumentController@restore failed', ['document_id' => $id, 'error' => $e->getMessage()]);
+            Log::error('DocumentController@restore failed', ['document_id' => $id, 'actor_id' => auth()->id(), 'error' => $e->getMessage()]);
             flash()->error('Failed to restore document. Please try again.');
             return back();
         }
@@ -363,6 +368,10 @@ class DocumentController extends Controller
 
     public function bulkRestore(BulkRestoreDocumentsRequest $request): RedirectResponse
     {
+        if (! auth()->user()->hasPrivilege('documents.restore')) {
+            abort(403, 'You do not have permission to restore archived documents.');
+        }
+
         $ids     = $request->validated()['ids'];
         $actor   = auth()->id();
         $restored = 0;
@@ -380,7 +389,7 @@ class DocumentController extends Controller
                         'actor_id'    => $actor,
                         'from_status' => 'deleted',
                         'to_status'   => $document->status,
-                        'note'        => 'Restored from trash (bulk action).',
+                        'note'        => 'Restored from archive (bulk action).',
                     ]);
                     $restored++;
                 }
@@ -397,6 +406,10 @@ class DocumentController extends Controller
 
     public function bulkForceDestroy(BulkForceDestroyDocumentsRequest $request): RedirectResponse
     {
+        if (! auth()->user()->hasPrivilege('documents.force-delete')) {
+            abort(403, 'You do not have permission to permanently delete archived documents.');
+        }
+
         $ids     = $request->validated()['ids'];
         $deleted = 0;
 
@@ -429,14 +442,54 @@ class DocumentController extends Controller
 
     public function forceDestroy(int $id): RedirectResponse
     {
-        if (! auth()->user()->isAdmin()) {
-            abort(403);
+        if (! auth()->user()->hasPrivilege('documents.force-delete')) {
+            abort(403, 'You do not have permission to permanently delete archived documents.');
         }
 
         $document = Document::withTrashed()->findOrFail($id);
 
+        // Validate reason and letter upload
+        $reason = strip_tags(trim(request()->input('reason', '')));
+        if (strlen($reason) < 5 || strlen($reason) > 500) {
+            flash()->error('A deletion reason (5–500 characters) is required.');
+            return back();
+        }
+
+        $letterFile = request()->file('letter');
+        if (! $letterFile || ! $letterFile->isValid()) {
+            flash()->error('A formal letter PDF must be uploaded to authorise permanent deletion.');
+            return back();
+        }
+
+        if ($letterFile->getMimeType() !== 'application/pdf') {
+            flash()->error('The authorisation letter must be a PDF file.');
+            return back();
+        }
+
+        // Store letter before the transaction — file I/O is not transactional
+        $letterPath = null;
         try {
-            DB::transaction(function () use ($document) {
+            $letterFilename = "archive_letters/{$document->id}_" . now()->format('YmdHis') . '.pdf';
+            Storage::disk('public')->putFileAs('', $letterFile, $letterFilename);
+            $letterPath = $letterFilename;
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@forceDestroy letter upload failed', ['document_id' => $id, 'actor_id' => auth()->id(), 'error' => $e->getMessage()]);
+            flash()->error('Failed to store the authorisation letter. Deletion aborted.');
+            return back();
+        }
+
+        try {
+            DB::transaction(function () use ($document, $reason, $letterPath) {
+                // Record the force-delete in history BEFORE the cascade-delete wipes it
+                DocumentStatusHistory::create([
+                    'document_id' => $document->id,
+                    'actor_id'    => auth()->id(),
+                    'from_status' => 'deleted',
+                    'to_status'   => 'force_deleted',
+                    'note'        => $reason,
+                    'metadata'    => ['letter_path' => $letterPath],
+                ]);
+
                 if ($document->original_pdf_path) {
                     Storage::disk('public')->delete($document->original_pdf_path);
                 }
@@ -446,10 +499,14 @@ class DocumentController extends Controller
                 $document->forceDelete();
             });
 
-            flash()->success('Document permanently deleted and files removed.');
+            flash()->success('Document permanently deleted from archive. Letter stored for audit.');
             return redirect()->route('documents.trash');
         } catch (\Throwable $e) {
-            Log::error('DocumentController@forceDestroy failed', ['document_id' => $id, 'error' => $e->getMessage()]);
+            // Clean up orphaned letter file on transaction failure
+            if ($letterPath) {
+                Storage::disk('public')->delete($letterPath);
+            }
+            Log::error('DocumentController@forceDestroy failed', ['document_id' => $id, 'actor_id' => auth()->id(), 'letter_path' => $letterPath, 'error' => $e->getMessage()]);
             flash()->error('Failed to permanently delete document. Please try again.');
             return back();
         }

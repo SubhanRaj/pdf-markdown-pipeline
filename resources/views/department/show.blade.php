@@ -38,7 +38,7 @@
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Sections</h3>
             <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ $sections->count() }} {{ Str::plural('section', $sections->count()) }} in this department</p>
         </div>
-        @auth @if(auth()->user()->isAdmin())
+        @auth @if(auth()->user()->isAdmin() || (auth()->user()->hasPrivilege('department.head') && auth()->user()->department_id === $department->id))
         <a href="{{ route('departments.sections.create', [$department->levelAlias(), $department]) }}"
            class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
             <i class="ti ti-plus text-base"></i> Add Section
@@ -87,7 +87,7 @@
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Rules &amp; Regulations</h3>
             <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ $ruleSets->count() }} {{ Str::plural('rule set', $ruleSets->count()) }} in this department</p>
         </div>
-        @auth @if(auth()->user()->isAdmin())
+        @auth @if(auth()->user()->isAdmin() || (auth()->user()->hasPrivilege('department.head') && auth()->user()->department_id === $department->id))
         <a href="{{ route('departments.rules.create', [$department->levelAlias(), $department]) }}"
            class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
             <i class="ti ti-plus text-base"></i> Add Rule Set

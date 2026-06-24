@@ -43,7 +43,7 @@
     </div>
     <p class="text-sm font-medium text-slate-600 dark:text-slate-300">No departments configured yet</p>
     <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Run the database seeder to load the standard vault structure.</p>
-    @auth @if(auth()->user()->isAdmin())
+    @auth @if(auth()->user()->isAdmin() || auth()->user()->hasPrivilege('organization.head'))
     <a href="{{ route('departments.create') }}"
        class="mt-4 inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
         <i class="ti ti-plus text-base"></i> Add Department
@@ -109,7 +109,7 @@
         @endforeach
 
         {{-- Add department card (admin only) --}}
-        @auth @if(auth()->user()->isAdmin())
+        @auth @if(auth()->user()->isAdmin() || auth()->user()->hasPrivilege('organization.head'))
         <a href="{{ route('departments.create') }}"
            class="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 hover:border-indigo-400 dark:hover:border-indigo-500 p-5 flex flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-all min-h-[140px]">
             <i class="ti ti-plus text-xl"></i>

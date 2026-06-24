@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\StoreUserRequest;
 use App\Http\Requests\Admin\UpdateUserRequest;
 use App\Http\Requests\UpdateProfileRequest;
 use App\Models\Department;
+use App\Models\Division;
 use App\Models\Section;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -29,8 +30,9 @@ class UserManagementController extends Controller
     {
         $departments = Department::orderBy('name')->get(['id', 'name', 'level']);
         $sections    = Section::orderBy('name')->get(['id', 'name', 'department_id']);
+        $divisions   = Division::orderBy('name')->get(['id', 'name', 'section_id']);
 
-        return view('admin.users.create', compact('departments', 'sections'));
+        return view('admin.users.create', compact('departments', 'sections', 'divisions'));
     }
 
     public function store(StoreUserRequest $request): RedirectResponse
@@ -48,6 +50,7 @@ class UserManagementController extends Controller
                     'privileges'        => $request->privileges ?? [],
                     'department_id'     => $request->department_id,
                     'section_id'        => $request->section_id,
+                    'division_id'       => $request->division_id,
                     'email_verified_at' => now(),
                 ]);
             });
@@ -79,8 +82,9 @@ class UserManagementController extends Controller
     {
         $departments = Department::orderBy('name')->get(['id', 'name', 'level']);
         $sections    = Section::orderBy('name')->get(['id', 'name', 'department_id']);
+        $divisions   = Division::orderBy('name')->get(['id', 'name', 'section_id']);
 
-        return view('admin.users.edit', compact('user', 'departments', 'sections'));
+        return view('admin.users.edit', compact('user', 'departments', 'sections', 'divisions'));
     }
 
     public function update(UpdateUserRequest $request, User $user): RedirectResponse
@@ -97,6 +101,7 @@ class UserManagementController extends Controller
                     'privileges'    => $request->privileges ?? [],
                     'department_id' => $request->department_id,
                     'section_id'    => $request->section_id,
+                    'division_id'   => $request->division_id,
                 ];
 
                 if (filled($request->password)) {

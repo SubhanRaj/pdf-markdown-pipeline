@@ -203,12 +203,30 @@ All check `withTrashed()` and append `-2`, `-3` on collision. DB unique constrai
 | `from_status` | string nullable | |
 | `to_status` | string | |
 | `note` | text nullable | |
+| `metadata` | json nullable | Extra context per transition type. On `to_status = 'force_deleted'`: `{"letter_path": "archive_letters/...pdf", "reason": "..."}` |
 | `created_at` | timestamp | append-only — no `updated_at` |
 
 ### `users`
-Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings), `department_id` (FK, nullable), `section_id` (FK, nullable). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
+Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings — see `User::PRIVILEGES` constant for the canonical whitelist), `department_id` (FK → departments, nullable, `nullOnDelete`), `section_id` (FK → sections, nullable, `nullOnDelete`), `division_id` (FK → divisions, nullable, `nullOnDelete`). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
 
-## What's built (as of 2026-06-23, updated)
+**Privilege strings (canonical whitelist — `User::PRIVILEGES` constant):**
+```php
+'documents.upload'       // upload documents
+'documents.edit'         // edit document metadata
+'documents.delete'       // soft-delete (archive) documents
+'documents.restore'      // restore documents from archive
+'documents.force-delete' // permanently delete from archive (requires reason + letter upload)
+'documents.verify'       // mark documents as verified
+'organization.head'      // upload/delete anywhere across all departments
+'department.head'        // scoped to their assigned department
+'section.head'           // scoped to their assigned section
+```
+
+No `division.head` — division is the smallest unit; operators are scoped to a division via `division_id` assignment.
+
+**Privilege escalation safety:** `StoreUserRequest` and `UpdateUserRequest` validate `privileges.*` as `in:` against `User::PRIVILEGES` — unknown strings are rejected. Privileges can only be set via `admin.*` routes (gated by `IsAdmin` middleware). `UpdateProfileRequest` has no privilege fields — self-escalation is impossible.
+
+## What's built (as of 2026-06-24, updated)
 
 ### Modules / controllers
 
@@ -221,7 +239,8 @@ Standard Laravel/Fortify users table extended with: `username` (unique), `mobile
 | Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; multi-file upload modal on show page pre-selects `rule_amendment` type |
 | Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal and amendment hierarchy |
 | Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see `visibility = 'public'` docs only; results capped at 50 docs + 20 sections + 20 rule sets |
-| User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins |
+| User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins; `division_id` field added to create/edit forms; new privilege checkboxes for `organization.head`, `department.head`, `section.head`, `documents.force-delete` |
+| Archive | `DocumentController` (existing methods) | Soft-deleted documents accessible to all authenticated users; "Archive" in all UI; counts split active vs archived; restore gated by `documents.restore` privilege; permanent delete gated by `documents.force-delete` + requires reason + letter PDF upload stored in `archive_letters/`; letter path stored in `document_status_histories.metadata` |
 
 ### Route map
 
@@ -477,6 +496,69 @@ Both modals share a `makeQueue(ids)` JS factory function that handles multi-file
 
 **Cascade delete:** `RuleSetController@destroy` — before soft-deleting the rule set, iterates all documents via `$ruleSet->documents()->each(...)`, writes a `DocumentStatusHistory` row per doc, then soft-deletes each doc — all inside the same `DB::transaction()`. Users do not need to delete documents manually before deleting a rule set.
 
+### Archive module (formerly Trash)
+
+**Terminology:** The feature is called "Archive" in all UI text. Backend route names, controller method names, and DB mechanism (`SoftDeletes`, `onlyTrashed()`, `withTrashed()`, `deleted_at`) are intentionally unchanged to avoid breaking changes.
+
+**Visibility:** Archive page (`GET /documents/trash` → `documents.trash`) is accessible to all authenticated users — not guests, but any role (viewer, operator, admin). Guests cannot access the archive.
+
+**Document counts:** All places that show document counts (dashboard, department show, section show, rule set show) display two figures: **Active** (non-deleted, `Document::count()`) and **Archived** (`Document::onlyTrashed()->count()`). The `withCount('documents')` relation on departments/sections/rule sets already excludes soft-deleted records via `SoftDeletes` — active count is automatic. Archived count requires a separate `withCount(['documents as archived_documents_count' => fn($q) => $q->onlyTrashed()])`.
+
+**Restore permission:** Gated by `documents.restore` privilege. `DocumentController@restore` checks `auth()->user()->hasPrivilege('documents.restore')` before proceeding. Admins always pass.
+
+**Permanent delete (force-delete) permission + letter:**
+- Gated by `documents.force-delete` privilege (admins always pass).
+- Requires: reason text (5–500 chars) + a letter PDF upload confirming the deletion authority.
+- Letter stored at `archive_letters/{document_id}_{YmdHis}.pdf` on the `public` disk.
+- A `DocumentStatusHistory` row is written with `to_status = 'force_deleted'`, `note` = reason, `metadata` = `{"letter_path": "archive_letters/...pdf"}`.
+- Then `$document->forceDelete()` physically removes the original PDF and Markdown from disk, and hard-deletes the DB record. `document_status_histories` rows (including the letter row) cascade-delete.
+- The `archive_letters/` directory is separate from the `document_vault/` to avoid confusion with actual document files. Letter PDFs are internal admin records, not public documents.
+
+**Permanent delete modal:** SweetAlert2 is not used for permanent delete (because file upload is required). Instead, a separate Blade modal (`#modal-force-delete`) handles: reason textarea + letter file input + confirmation checkbox before the form submits. The modal is triggered by the "Delete Permanently" button in the archive view.
+
+### Scope-Based Upload & Delete Permissions
+
+Every mutating action (upload, delete/archive, restore, force-delete) is scoped to the user's organisational assignment. Viewing is never scoped — all authenticated users can see all documents.
+
+**User assignment → scope:**
+
+| User has | Can upload to | Can archive (delete) from |
+|---|---|---|
+| `division_id` set | That division only | That division only |
+| `section_id` set, no `division_id` | All of that section (direct docs + all its divisions) | Same |
+| `department_id` set, no `section_id` | All sections + divisions in that department | Same |
+| `department.head` privilege + `department_id` | Entire assigned department | Same |
+| `organization.head` privilege | Anywhere across all departments | Same |
+| Admin | Anywhere | Anywhere |
+| Operator with `documents.upload` and no dept/section/division | Anywhere (legacy mode — for initial data entry; scope to be tightened by revoking `documents.upload` once the initial load is complete) | Anywhere if also has `documents.delete` |
+
+Cross-section and cross-division mutations are blocked — a division user cannot touch another division's documents even within the same section.
+
+**Helper methods on `User`:**
+```php
+User::canUploadTo(Section|Division|RuleSet $context): bool
+User::canDeleteFrom(Section|Division|RuleSet $context): bool
+User::uploadScope(): string  // 'global'|'department'|'section'|'division'|'none'
+```
+
+**Form Request `authorize()` gates:**
+- `StoreDocumentRequest::authorize()` — resolves context from validated `section_id`/`division_id`/`rule_set_id`, calls `canUploadTo()`
+- `DeleteDocumentRequest::authorize()` — resolves context from the route-bound document, calls `canDeleteFrom()`
+- `StoreDivisionRequest::authorize()` — `section.head` (matching parent section) OR `department.head`/admin
+- `UpdateDivisionRequest::authorize()` — same
+- `StoreSectionRequest::authorize()` — `department.head` (matching parent department) OR admin
+- `UpdateSectionRequest::authorize()` — same
+- `StoreDepartmentRequest::authorize()` — `organization.head` OR admin
+- `UpdateDepartmentRequest::authorize()` — same
+
+**UI gating (Blade conditionals):**
+- Upload buttons on `sections/show`, `divisions/show`, `rule_sets/show` — wrapped in `@can`-style check using `$user->canUploadTo($context)`
+- "Add Division" button on `sections/show` — visible to `section.head` for that section, or `department.head`, or admin
+- "Add Section" button and "Add Rule Set" button on `departments/show` — visible to `department.head` for that department, or admin
+- "Add Department" button on `departments/index` — visible to `organization.head`, or admin
+- Restore button on archive page — visible only if `hasPrivilege('documents.restore')` or admin
+- Permanent delete button on archive page — visible only if `hasPrivilege('documents.force-delete')` or admin
+
 ### User management & profile
 
 **Security model** — two distinct access tiers enforced at the route layer, not just in Form Requests:
@@ -570,6 +652,14 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 12. **Rule-set slug is immutable after creation** — `UpdateRuleSetRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths.
 12. **Two-stage document deletion** — `DELETE /documents/…` soft-deletes only (sets `deleted_at`). Physical files are never removed at this stage. Permanent file+record removal requires a second explicit action from the trash view (`DELETE /documents/trash/{id}`). This preserves recoverability and the full audit trail until an admin consciously decides to purge. The deletion reason is always captured and stored in `document_status_histories` before the soft-delete occurs.
 13. **SweetAlert2 for all confirmations** — all destructive-action confirmations use `Swal.fire()` (loaded globally via jsDelivr `sweetalert2@11`). Never use `window.confirm()` or inline `onsubmit` confirm checks. Respect dark mode by passing `background` and `color` based on `document.documentElement.classList.contains('dark')`.
+15. **Archive = Trash in UI only** — "Trash" is renamed to "Archive" across all Blade views. Route names (`documents.trash`, `documents.restore`, `documents.force-destroy`), controller method names (`trash()`, `restore()`, `forceDestroy()`), and the soft-delete mechanism (`SoftDeletes`, `deleted_at`, `onlyTrashed()`, `withTrashed()`) are intentionally unchanged. Renaming them would require updating every route reference across dozens of views and routes files for zero functional gain.
+
+16. **Scope-based permissions use `division_id` on `users`, not a pivot table** — a pivot table (`user_upload_scopes`) would be more flexible but is premature here. Each user has one organisational home (department → section → division). A single FK chain is sufficient for the government hierarchy modelled here and avoids the JOIN complexity of a pivot. Pivot can be introduced later if multi-scope assignments become necessary.
+
+17. **Legacy operator "anywhere" upload** — operators with `documents.upload` and no `department_id`/`section_id`/`division_id` assigned can upload anywhere. This is deliberate for the initial data-entry phase (all legacy documents need to be digitised before per-scope restrictions make sense). Once the initial load is done, revoke `documents.upload` from these accounts or assign them a scope.
+
+18. **Permanent delete requires a letter PDF** — permanently removing an archived document is an irreversible administrative action. A formal letter (upload authority, reason, date) must accompany the action. The letter is stored in `archive_letters/` (separate from `document_vault/`) and its path is written to `document_status_histories.metadata` before the hard delete executes. This creates an audit trail that survives the document's deletion (the history rows cascade-delete, so the letter file on disk is the only surviving record — admins should back up `archive_letters/` separately).
+
 14. **`visibility` is the sole guest access gate** — the old `status = 'verified'` filter for guests has been removed. Access control for unauthenticated users is now exclusively determined by `documents.visibility` (`public` | `authenticated`). The `status` column tracks only the conversion pipeline state and must never be used as an access gate. When writing any query that serves public-facing views, filter on `visibility = 'public'` for guests — never on `status`.
 
 ## Frontend architecture

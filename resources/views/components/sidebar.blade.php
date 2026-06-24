@@ -51,10 +51,10 @@
 
         @auth
         <a href="{{ route('documents.trash') }}"
-           data-tooltip="Trash"
+           data-tooltip="Archive"
            class="nav-link {{ request()->routeIs('documents.trash') ? 'nav-link-active' : 'nav-link-idle' }}">
-            <i class="ti ti-trash w-5 text-center text-base flex-shrink-0"></i>
-            <span class="sidebar-text">Trash</span>
+            <i class="ti ti-archive w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">Archive</span>
         </a>
         @endauth
 

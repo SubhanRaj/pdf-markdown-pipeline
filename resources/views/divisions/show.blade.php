@@ -43,12 +43,14 @@
     </div>
     <div class="flex items-center gap-2 flex-wrap justify-end">
         @auth
+        @if(auth()->user()->canUploadTo($division))
         <button type="button"
                 onclick="document.getElementById('modal-upload').style.display='block'"
                 class="inline-flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
             <i class="ti ti-upload text-base"></i>
             <span class="hidden sm:inline">Upload Document</span>
         </button>
+        @endif
         @endauth
         @auth @if(auth()->user()->isAdmin())
         <a href="{{ route('departments.sections.divisions.edit', [$department->levelAlias(), $department, $section, $division]) }}"

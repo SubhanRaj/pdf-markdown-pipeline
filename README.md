@@ -200,10 +200,13 @@ Unique constraint: `(section_id, slug)` for section documents. Slug generation f
 | `from_status` | string nullable | |
 | `to_status` | string | |
 | `note` | text nullable | |
+| `metadata` | json nullable | Extra context per transition. On `to_status = 'force_deleted'`: `{"letter_path": "archive_letters/...pdf", "reason": "..."}` |
 | `created_at` | timestamp | Append-only — no `updated_at` |
 
 ### `users`
-Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digits, nullable), `landline` (free-form STD+number, nullable), `post`, `role`, `privileges` (JSON), `department_id`, `section_id`. Public registration disabled — admin-created only.
+Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digits, nullable), `landline` (free-form STD+number, nullable), `post`, `role`, `privileges` (JSON — validated against `User::PRIVILEGES` whitelist), `department_id`, `section_id`, `division_id`. Public registration disabled — admin-created only.
+
+**Privilege strings:** `documents.upload`, `documents.edit`, `documents.delete`, `documents.restore`, `documents.force-delete`, `documents.verify`, `organization.head`, `department.head`, `section.head`. Admins bypass all privilege checks unconditionally.
 
 ## 🗺️ Route Map
 
@@ -232,13 +235,13 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | DELETE | `documents.rules.destroy` | Auth |
 | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | GET | `documents.rules.pdf` | Public* |
 | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/review` | GET | `documents.rules.edit` | Auth |
-| `/documents/trash` | GET | `documents.trash` | Auth |
+| `/documents/trash` | GET | `documents.trash` | Auth (all roles — UI calls this "Archive") |
 | `/documents/trash/{id}/pdf` | GET | `documents.trashed.pdf` | Auth |
-| `/documents/trash/{id}/restore` | POST | `documents.restore` | Auth |
-| `/documents/trash/{id}` | DELETE | `documents.force-destroy` | Admin |
-| `/documents/trash/bulk-restore` | POST | `documents.trash.bulk-restore` | Auth |
-| `/documents/trash/bulk-force-destroy` | DELETE | `documents.trash.bulk-force-destroy` | Admin |
-| `/documents/bulk-destroy` | POST | `documents.bulk-destroy` | Auth |
+| `/documents/trash/{id}/restore` | POST | `documents.restore` | `documents.restore` privilege or admin |
+| `/documents/trash/{id}` | DELETE | `documents.force-destroy` | `documents.force-delete` privilege or admin |
+| `/documents/trash/bulk-restore` | POST | `documents.trash.bulk-restore` | `documents.restore` privilege or admin |
+| `/documents/trash/bulk-force-destroy` | DELETE | `documents.trash.bulk-force-destroy` | `documents.force-delete` privilege or admin |
+| `/documents/bulk-destroy` | POST | `documents.bulk-destroy` | Auth (scoped to user's upload/delete scope) |
 
 *Public routes 403 on `visibility = authenticated` documents for guests.
 
@@ -309,6 +312,10 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - Amendment metadata: `amendment_number`, `effective_year`, `effective_month`, `effective_day` stored in the existing `metadata` JSON column (no migration); upload modals include optional fields; sort/filter by amendment number or effective year available on rule sets, divisions, and section document lists; effective date displayed on document rows and the show-page sidebar
 - Full Unicode / Rajbhasha support: all document title, section name, rule set name, and division name fields accept Devanagari and mixed-script text; validation uses `[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]` in both PHP Form Requests and JS frontend patterns; user model fields remain Latin-only by design
 
+**Completed (M23 — 2026-06-24):**
+- **Archive module:** "Trash" renamed to "Archive" in all UI (route names/backend unchanged); archive page accessible to all authenticated users; document counts split into Active + Archived everywhere; restore gated by `documents.restore` privilege; permanent delete requires `documents.force-delete` privilege + reason + mandatory letter PDF upload (stored in `archive_letters/`, path recorded in `document_status_histories.metadata`); full audit trail with `actor_id` on all history rows
+- **Scope-based upload permissions:** `division_id` FK added to `users`; `User::PRIVILEGES` constant as whitelist (prevents escalation); `User::canUploadTo()` / `canDeleteFrom()` helpers enforce scope in form request `authorize()` methods; division/section/department creation gated by `section.head`/`department.head`/`organization.head` privileges; admin user create/edit forms have cascading dept→section→division dropdowns and new privilege checkboxes; UI conditionally hides upload and creation buttons based on scope; legacy operators with no org assignment retain global access during initial data-entry phase
+
 ## 👥 Demo Accounts
 
 The `UserSeeder` ships with pre-built accounts covering every role and a representative set of privilege combinations. Run with:
@@ -333,4 +340,4 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - **Operator** — authenticated mutations only; specific capabilities controlled by `privileges` JSON array. No user management access.
 - **Viewer** — can log in and view `authenticated`-visibility documents that guests cannot see, but cannot upload or mutate anything.
 
-**Next up:** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.
+**Next up (after M23):** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.
