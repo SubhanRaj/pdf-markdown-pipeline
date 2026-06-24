@@ -1077,3 +1077,56 @@ Security audit pass targeting the login and authentication stack specifically fo
 - `.env.example` — same keys + production guidance comments on `APP_ENV` and `APP_DEBUG`
 - `SECURITY.md` — Pass 2 status table + detailed A-01 through A-08 findings
 - `summary.md` — M26 entry added
+
+---
+
+## M27 — Archived Document File Move: Physical Isolation on Soft-Delete (COMPLETED 2026-06-24)
+
+Replaces the M24 blanket `.htaccess` 403 block on `/storage/document_vault/` with a proper file-layer solution that allows direct public URL access to active documents while keeping archived documents physically off the public disk.
+
+---
+
+### Motivation
+
+The M24 `.htaccess` block prevented all direct storage URL access — including for active, public documents. The vault is designed to be used like a public government document repository: documents should be shareable by direct link and indexable by search engines. Blocking `/storage/document_vault/` wholesale broke that. The correct solution is not access control at the web server layer (which can't query the DB) but at the file layer: move the files when they are archived.
+
+---
+
+### How it works
+
+**On soft-delete (archive):** `ManagesDocumentFiles::archiveFiles()` moves the document's PDF and Markdown files from the `public` disk (`storage/app/public/document_vault/…`) to the private `local` disk (`storage/app/private/archived_documents/{id}.pdf`, `…/{id}.md`). Called after the DB transaction commits.
+
+**On restore:** `ManagesDocumentFiles::restoreFiles()` moves files back to their original vault path on the `public` disk. Called after the DB restore transaction commits.
+
+**On permanent delete:** `ManagesDocumentFiles::deleteArchivedFiles()` deletes from the private disk. Called inside the force-delete transaction.
+
+**`trashedPdf` route:** Now streams from the private `local` disk at `archived_documents/{id}.pdf`. Auth-gated.
+
+---
+
+### File access matrix
+
+| Document state | File location | Direct URL accessible |
+|---|---|---|
+| Active, `visibility=public` | `public` disk → `/storage/document_vault/…` | ✓ Yes — by design |
+| Active, `visibility=authenticated` | `public` disk | URL not published; controller enforces auth |
+| Archived (soft-deleted) | `local` disk → `archived_documents/{id}.pdf` | ✗ Never — private disk |
+| Permanently deleted | Deleted from `local` disk | ✗ N/A |
+
+---
+
+### `.htaccess` change
+
+Removed the `/storage/document_vault/` 403 block. Retained `/storage/archive_letters/` as defence-in-depth only (letters are on the private disk; the block is a safeguard against symlink misconfiguration).
+
+---
+
+### Files added/changed in M27
+
+**New:**
+- `app/Http/Controllers/Concerns/ManagesDocumentFiles.php` — trait with `archiveFiles()`, `restoreFiles()`, `deleteArchivedFiles()`
+
+**Modified:**
+- `app/Http/Controllers/DocumentController.php` — all soft-delete, restore, and force-delete methods updated; `trashedPdf` serves from local disk
+- `app/Http/Controllers/RuleSetController.php` — cascade soft-delete now calls `archiveFiles()` for each document
+- `public/.htaccess` — `document_vault` 403 block removed; `archive_letters` block retained

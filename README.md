@@ -336,6 +336,12 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - **Admin audit view** — `GET /admin/activity-logs` (admin-only); filterable by user, action, and IP; color-coded action badges; 50 per page; linked from sidebar
 - **Preserved on user deletion** — `user_id` is `nullOnDelete`; log rows survive account deletion and show "Deleted user" in the view
 
+**Completed (M27 — 2026-06-24 · Archived Document File Isolation):**
+- **Physical file move on archive** — soft-deleting a document moves its PDF and Markdown off the `public` disk into `storage/app/private/archived_documents/` so it is unreachable by any URL; files move back on restore
+- **Direct URL access restored for active documents** — the blanket `.htaccess` 403 on `/storage/document_vault/` is removed; public documents are shareable by direct link and indexable by search engines
+- **`trashedPdf` serves from private disk** — the archive PDF viewer streams from the local disk, not the public disk
+- **`ManagesDocumentFiles` trait** — shared by `DocumentController` and `RuleSetController`; handles archive, restore, and permanent-delete file operations consistently
+
 **Completed (M26 — 2026-06-24 · Auth/Fortify/Session Audit):**
 - **Dual-key login rate limiter restored** — `FortifyServiceProvider` was silently overwriting the `AppServiceProvider` dual-key limiter; per-IP cap is now correctly enforced
 - **`Password::defaults()` configured** — all Fortify actions now inherit the strong password policy (min 8, mixed case, numbers, symbols) instead of a bare min-8 fallback

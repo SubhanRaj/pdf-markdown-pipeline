@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ManagesDocumentFiles;
 use App\Http\Requests\StoreRuleSetRequest;
 use Illuminate\Http\Request;
 use App\Http\Requests\UpdateRuleSetRequest;
@@ -16,6 +17,8 @@ use Illuminate\View\View;
 
 class RuleSetController extends Controller
 {
+    use ManagesDocumentFiles;
+
     public function create(string $level, Department $department): View
     {
         return view('rule_sets.create', compact('department'));
@@ -137,10 +140,12 @@ class RuleSetController extends Controller
 
     public function destroy(string $level, Department $department, RuleSet $ruleSet): RedirectResponse
     {
+        $docsToArchive = [];
+
         try {
-            DB::transaction(function () use ($ruleSet) {
+            DB::transaction(function () use ($ruleSet, &$docsToArchive) {
                 // Soft-delete all documents in this rule set with an audit entry
-                $ruleSet->documents()->each(function (Document $doc) {
+                $ruleSet->documents()->each(function (Document $doc) use (&$docsToArchive) {
                     DocumentStatusHistory::create([
                         'document_id' => $doc->id,
                         'actor_id'    => auth()->id(),
@@ -149,10 +154,15 @@ class RuleSetController extends Controller
                         'note'        => 'Deleted with parent rule set.',
                     ]);
                     $doc->delete();
+                    $docsToArchive[] = $doc;
                 });
 
                 $ruleSet->delete();
             });
+
+            foreach ($docsToArchive as $doc) {
+                $this->archiveFiles($doc);
+            }
 
             flash()->success("Rule set \"{$ruleSet->name}\" and all its documents deleted.");
             return redirect()->route('departments.show', [$department->levelAlias(), $department]);

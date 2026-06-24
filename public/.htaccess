@@ -13,15 +13,15 @@
 
     RewriteEngine On
 
-    # ── Block direct access to stored document files ──────────────────────────
-    # All document access MUST go through controller routes which enforce
-    # authentication, visibility checks, and soft-delete (archive) gating.
-    # Without this rule, anyone who knows or guesses a storage URL can bypass
-    # every access control in the application and retrieve archived or
-    # authenticated-only documents directly.
-    # archive_letters/ is stored on the private disk but this rule is a
-    # defence-in-depth fallback in case the symlink is ever misconfigured.
-    RewriteCond %{REQUEST_URI} ^/storage/(document_vault|archive_letters)/ [NC]
+    # ── Block direct access to archive letters ────────────────────────────────
+    # archive_letters/ is stored on the private (local) disk and is never
+    # web-accessible by design. This rule is a defence-in-depth fallback in
+    # case the symlink is ever misconfigured and the path leaks onto the
+    # public disk. Document vault files (document_vault/) are intentionally
+    # publicly accessible for active documents — direct URL sharing and search
+    # engine indexing are by design. Archived documents are physically moved
+    # to the private disk on soft-delete, so they are not reachable here.
+    RewriteCond %{REQUEST_URI} ^/storage/archive_letters/ [NC]
     RewriteRule ^ - [F,L]
 
     # Handle Authorization Header

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ManagesDocumentFiles;
 use App\Http\Requests\BulkDeleteDocumentsRequest;
 use App\Http\Requests\BulkRestoreDocumentsRequest;
 use App\Http\Requests\BulkForceDestroyDocumentsRequest;
@@ -24,6 +25,8 @@ use Illuminate\View\View;
 
 class DocumentController extends Controller
 {
+    use ManagesDocumentFiles;
+
     public function index(): View
     {
         $query = Document::with(['department', 'section', 'division', 'ruleSet', 'user:id,name'])
@@ -230,7 +233,9 @@ class DocumentController extends Controller
                 $document->delete();
             });
 
-            flash()->success('Document moved to trash.');
+            $this->archiveFiles($document);
+
+            flash()->success('Document moved to archive.');
             return redirect()->route('departments.sections.show', [$department->levelAlias(), $department, $section]);
         } catch (\Throwable $e) {
             Log::error('DocumentController@destroy failed', [
@@ -285,16 +290,17 @@ class DocumentController extends Controller
 
     public function trashedPdf(int $id): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        $document = Document::onlyTrashed()->findOrFail($id);
+        $document  = Document::onlyTrashed()->findOrFail($id);
+        $localPath = 'archived_documents/' . $document->id . '.pdf';
 
-        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
+        if (! Storage::disk('local')->exists($localPath)) {
             abort(404, 'PDF file not found.');
         }
 
-        return Storage::disk('public')->response(
-            $document->original_pdf_path,
+        return Storage::disk('local')->response(
+            $localPath,
             null,
-            ['Content-Disposition' => 'inline; filename="' . basename($document->original_pdf_path) . '"']
+            ['Content-Disposition' => 'inline; filename="' . basename($document->original_pdf_path ?? 'document.pdf') . '"']
         );
     }
 
@@ -322,6 +328,8 @@ class DocumentController extends Controller
                 ]);
             });
 
+            $this->restoreFiles($document);
+
             flash()->success('Document restored from archive successfully.');
             return redirect()->route('documents.trash');
         } catch (\Throwable $e) {
@@ -337,10 +345,11 @@ class DocumentController extends Controller
         $reason = $request->validated()['reason'];
         $actor  = auth()->id();
 
-        $deleted = 0;
+        $archived = [];
+        $deleted  = 0;
 
         try {
-            DB::transaction(function () use ($ids, $reason, $actor, &$deleted) {
+            DB::transaction(function () use ($ids, $reason, $actor, &$archived, &$deleted) {
                 foreach ($ids as $id) {
                     $document = Document::findOrFail($id);
 
@@ -353,11 +362,16 @@ class DocumentController extends Controller
                     ]);
 
                     $document->delete();
+                    $archived[] = $document;
                     $deleted++;
                 }
             });
 
-            flash()->success("{$deleted} " . Str::plural('document', $deleted) . ' moved to trash.');
+            foreach ($archived as $document) {
+                $this->archiveFiles($document);
+            }
+
+            flash()->success("{$deleted} " . Str::plural('document', $deleted) . ' moved to archive.');
         } catch (\Throwable $e) {
             Log::error('DocumentController@bulkDestroy failed', ['ids' => $ids, 'error' => $e->getMessage()]);
             flash()->error('Bulk delete failed. Please try again.');
@@ -378,8 +392,10 @@ class DocumentController extends Controller
 
         $authUser = auth()->user();
 
+        $restoredDocs = [];
+
         try {
-            DB::transaction(function () use ($ids, $actor, $authUser, &$restored) {
+            DB::transaction(function () use ($ids, $actor, $authUser, &$restored, &$restoredDocs) {
                 foreach ($ids as $id) {
                     $document = Document::withTrashed()->find($id);
                     if (! $document || ! $document->trashed()) {
@@ -403,9 +419,14 @@ class DocumentController extends Controller
                         'to_status'   => $document->status,
                         'note'        => 'Restored from archive (bulk action).',
                     ]);
+                    $restoredDocs[] = $document;
                     $restored++;
                 }
             });
+
+            foreach ($restoredDocs as $document) {
+                $this->restoreFiles($document);
+            }
 
             flash()->success("{$restored} " . Str::plural('document', $restored) . ' restored successfully.');
         } catch (\Throwable $e) {
@@ -443,12 +464,7 @@ class DocumentController extends Controller
                         'note'        => $reason,
                     ]);
 
-                    if ($document->original_pdf_path) {
-                        Storage::disk('public')->delete($document->original_pdf_path);
-                    }
-                    if ($document->markdown_path) {
-                        Storage::disk('public')->delete($document->markdown_path);
-                    }
+                    $this->deleteArchivedFiles($document);
                     $document->forceDelete();
                     $deleted++;
                 }
@@ -515,12 +531,7 @@ class DocumentController extends Controller
                     'metadata'    => ['letter_path' => $letterPath],
                 ]);
 
-                if ($document->original_pdf_path) {
-                    Storage::disk('public')->delete($document->original_pdf_path);
-                }
-                if ($document->markdown_path) {
-                    Storage::disk('public')->delete($document->markdown_path);
-                }
+                $this->deleteArchivedFiles($document);
                 $document->forceDelete();
             });
 
@@ -615,7 +626,9 @@ class DocumentController extends Controller
                 $document->delete();
             });
 
-            flash()->success('Document moved to trash.');
+            $this->archiveFiles($document);
+
+            flash()->success('Document moved to archive.');
             return redirect()->route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
         } catch (\Throwable $e) {
             Log::error('DocumentController@destroyRuleSetDoc failed', [
@@ -705,7 +718,9 @@ class DocumentController extends Controller
                 $document->delete();
             });
 
-            flash()->success('Document moved to trash.');
+            $this->archiveFiles($document);
+
+            flash()->success('Document moved to archive.');
             return redirect()->route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division]);
         } catch (\Throwable $e) {
             Log::error('DocumentController@destroyDivisionDoc failed', [
