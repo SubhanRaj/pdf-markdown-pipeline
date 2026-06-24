@@ -88,19 +88,6 @@
                 </div>
             </div>
 
-            {{-- Remember me --}}
-            <div class="flex items-center gap-2">
-                <input
-                    id="remember"
-                    name="remember"
-                    type="checkbox"
-                    class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-400"
-                >
-                <label for="remember" class="text-sm text-slate-600 dark:text-slate-300 select-none cursor-pointer">
-                    Keep me signed in
-                </label>
-            </div>
-
             {{-- Submit --}}
             <button
                 type="submit"
