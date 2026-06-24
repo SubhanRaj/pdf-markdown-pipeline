@@ -467,14 +467,14 @@ Deletion is a two-stage process — soft-delete to trash, then optional permanen
 **Trash document slide-over drawer:**
 - Opened by the "View" button on each row. A right-side panel slides in without leaving the trash page.
 - Shows: title, department/context, document type, status badge, visibility badge, uploader + upload date, deletion reason, deleted-by + deleted-at.
-- Embeds the PDF inline via `<iframe>` — PDF is served through `GET /documents/trash/{id}/pdf` → `DocumentController@trashedPdf`, which uses `Document::onlyTrashed()->findOrFail($id)` and streams from the `public` disk. Route lives inside the `auth` middleware group — no raw `Storage::url()` links are used.
+- Embeds the PDF inline via `<iframe>` — PDF is served through `GET /documents/trash/{id}/pdf` → `DocumentController@trashedPdf`, which uses `Document::onlyTrashed()->findOrFail($id)` and streams from the **private `local` disk** at `archived_documents/{id}.pdf`. Route lives inside the `auth` middleware group — no raw `Storage::url()` links are used.
 - For non-PDF uploads (or missing files) a "No PDF file attached" fallback is shown.
 - Footer contains Restore and Delete Forever buttons with the same Swal2 confirmations as the row-level buttons.
 - Drawer data is prepared server-side in `DocumentController@trash` as `$trashData` (a mapped collection) and passed to the view as a JSON data island (`<script id="trash-docs" type="application/json">`). The mapping must stay in the controller — Blade's parser mis-handles multi-line `fn()` arrow functions with bracket expressions inside `@json(...)`.
 - Closes on backdrop click or Escape key.
 
 **Trashed PDF route (`GET /documents/trash/{id}/pdf` → `documents.trashed.pdf`):**
-- Auth-only. Resolves via `Document::onlyTrashed()->findOrFail($id)`. Streams the PDF with `Content-Disposition: inline`. Aborts 404 if the file is missing from disk.
+- Auth-only. Resolves via `Document::onlyTrashed()->findOrFail($id)`. Streams from the **private `local` disk** at `archived_documents/{id}.pdf` — not the public disk. Aborts 404 if the file is missing.
 
 **Soft delete from list views:**
 - The delete button on `rule_sets/show` and `sections/show` document rows uses a `<button class="doc-delete-btn" data-action="..." data-title="...">` — no `<form>` is rendered inline. A JS handler fires a Swal2 modal that prompts for a reason, then dynamically builds and submits a hidden DELETE form. `Swal.escapeHtml` does not exist in Swal2 — use a local `esc()` helper for HTML-escaping user data in modal HTML.
@@ -675,7 +675,7 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 
 18. **Permanent delete requires a letter PDF stored on the private disk** — permanently removing an archived document is an irreversible administrative action. A formal letter (upload authority, reason, date) must accompany the action. The letter is stored via `Storage::disk('local')` (the private disk at `storage/app/private/archive_letters/`) — **never on the `public` disk** — so it is never web-accessible via the storage symlink. Its path is written to `document_status_histories.metadata` before the hard delete executes. Back up `storage/app/private/archive_letters/` separately; it is the only surviving paper trail after the record is hard-deleted.
 
-19. **Direct storage URL access blocked at the web server layer** — `public/.htaccess` returns HTTP 403 for any direct request to `/storage/document_vault/` or `/storage/archive_letters/`. All document access goes through controller routes which enforce authentication, visibility, and soft-delete checks. This closes the bypass where soft-deleted or `authenticated`-visibility documents could be retrieved by anyone who knew the storage URL.
+19. **Archived document files are physically moved to the private disk on soft-delete** — `ManagesDocumentFiles` trait (`app/Http/Controllers/Concerns/`) provides `archiveFiles()`, `restoreFiles()`, and `deleteArchivedFiles()` methods used by `DocumentController` and `RuleSetController`. On soft-delete, PDF and Markdown files are moved from the `public` disk to `storage/app/private/archived_documents/{id}.pdf`. On restore, they move back to their original vault path on the `public` disk. On permanent delete, they are deleted from the private disk. This means: (a) active public documents are directly accessible via `/storage/document_vault/…` URLs — by design, for sharing and search indexing; (b) archived documents are physically off the public disk and unreachable by any URL. `public/.htaccess` retains a 403 block only for `/storage/archive_letters/` as defence-in-depth. The `document_vault` block was intentionally removed to allow direct URL access to active documents.
 
 20. **SVG files are permanently excluded from accepted upload types** — `image/svg+xml` is not in `StoreDocumentRequest::ACCEPTED_MIMETYPES` and must not be added. SVG is XML that can contain executable `<script>` elements and event handlers. Even with the forced `.pdf` storage extension, accepting SVG creates a markitdown-extraction attack chain that could introduce stored XSS via the Parsedown rendering path.
 
