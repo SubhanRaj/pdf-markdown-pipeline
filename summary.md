@@ -695,6 +695,30 @@ Seeder is idempotent — uses `firstOrCreate` on email; re-running never duplica
 
 ---
 
+## M22 — Mobile validation fix + landline field (2026-06-23)
+
+### Mobile regex relaxed
+
+Removed the `[6-9]` first-digit constraint — numbers starting with 8 (e.g. `8090114114`, `8423123202`) are valid Indian mobiles. New rule: `digits:10` only. `+91` / `+91-` prefix stripped server-side via `StoreUserRequest::sanitizeMobile()` (static helper reused by `UpdateUserRequest` and `UpdateProfileRequest`) and mirrored in JS custom validators on all three user forms. No cosmetic `+91-` prefix added to display or storage.
+
+### Landline field added
+
+New `landline VARCHAR(20) NULL` column added to `users` table (migration updated; column added live via `ALTER TABLE`). Stores STD code + subscriber number free-form as the user types it (e.g. `0522-223456` or `0522 223456`). Validated as 7–20 chars of digits/spaces/hyphens/parentheses in all three form requests and matching JS rules. Shown in user index alongside mobile.
+
+### Files changed
+
+- `database/migrations/0001_01_01_000000_create_users_table.php` — added `landline` column
+- `app/Models/User.php` — `landline` added to `$fillable`
+- `app/Http/Requests/Admin/StoreUserRequest.php` — relaxed mobile regex; added `sanitizeMobile()` static helper; added landline validation
+- `app/Http/Requests/Admin/UpdateUserRequest.php` — same; reuses `StoreUserRequest::sanitizeMobile()`
+- `app/Http/Requests/UpdateProfileRequest.php` — same
+- `resources/views/admin/users/create.blade.php` — landline field + JS rule
+- `resources/views/admin/users/edit.blade.php` — landline field + JS rule
+- `resources/views/profile/edit.blade.php` — landline field + JS rule
+- `resources/views/admin/users/index.blade.php` — landline shown in contact cell
+
+---
+
 ## M23 — Archive Module + Scope-Based Upload Permissions (COMPLETED 2026-06-24)
 
 Two interlocking features fully implemented in a single session.
@@ -847,25 +871,3 @@ No `division.head` — division is the smallest unit; operators are assigned via
 - `departments/show.blade.php` — conditional "Add Section", "Add Rule Set"
 - `departments/index.blade.php` — conditional "Add Department"
 - `admin/users/create.blade.php` + `edit.blade.php` — `division_id` dropdown (cascades dept → section → division via JS), new privilege checkboxes for `organization.head`, `department.head`, `section.head`, `documents.force-delete`, `documents.restore`
-
-## M22 — Mobile validation fix + landline field (2026-06-23)
-
-### Mobile regex relaxed
-
-Removed the `[6-9]` first-digit constraint — numbers starting with 8 (e.g. `8090114114`, `8423123202`) are valid Indian mobiles. New rule: `digits:10` only. `+91` / `+91-` prefix stripped server-side via `StoreUserRequest::sanitizeMobile()` (static helper reused by `UpdateUserRequest` and `UpdateProfileRequest`) and mirrored in JS custom validators on all three user forms. No cosmetic `+91-` prefix added to display or storage.
-
-### Landline field added
-
-New `landline VARCHAR(20) NULL` column added to `users` table (migration updated; column added live via `ALTER TABLE`). Stores STD code + subscriber number free-form as the user types it (e.g. `0522-223456` or `0522 223456`). Validated as 7–20 chars of digits/spaces/hyphens/parentheses in all three form requests and matching JS rules. Shown in user index alongside mobile.
-
-### Files changed
-
-- `database/migrations/0001_01_01_000000_create_users_table.php` — added `landline` column
-- `app/Models/User.php` — `landline` added to `$fillable`
-- `app/Http/Requests/Admin/StoreUserRequest.php` — relaxed mobile regex; added `sanitizeMobile()` static helper; added landline validation
-- `app/Http/Requests/Admin/UpdateUserRequest.php` — same; reuses `StoreUserRequest::sanitizeMobile()`
-- `app/Http/Requests/UpdateProfileRequest.php` — same
-- `resources/views/admin/users/create.blade.php` — landline field + JS rule
-- `resources/views/admin/users/edit.blade.php` — landline field + JS rule
-- `resources/views/profile/edit.blade.php` — landline field + JS rule
-- `resources/views/admin/users/index.blade.php` — landline shown in contact cell
