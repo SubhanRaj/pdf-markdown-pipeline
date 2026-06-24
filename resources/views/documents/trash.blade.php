@@ -156,6 +156,7 @@
 <form id="bulk-force-form" method="POST" action="{{ route('documents.trash.bulk-force-destroy') }}" style="display:none">
     @csrf @method('DELETE')
     <div id="bulk-force-ids"></div>
+    <input type="hidden" id="bulk-force-reason" name="reason">
 </form>
 @endif
 @endif
@@ -369,9 +370,33 @@
             bulkForceBtn.addEventListener('click', async function () {
                 const checked = getChecked();
                 if (!checked.length) return;
+
+                // Step 1: collect reason (mandatory audit field)
+                const { isConfirmed: reasonConfirmed, value: reason } = await Swal.fire({
+                    title: 'Deletion Reason Required',
+                    html: '<p class="text-sm mb-3">Provide a reason for permanently deleting ' + checked.length + ' ' + (checked.length === 1 ? 'document' : 'documents') + '. This is logged permanently.</p>',
+                    input: 'textarea',
+                    inputPlaceholder: 'Enter reason for permanent deletion (5–500 characters)…',
+                    inputAttributes: { maxlength: 500, rows: 3 },
+                    showCancelButton: true,
+                    confirmButtonText: 'Continue',
+                    cancelButtonText: 'Cancel',
+                    background: isDark() ? '#1e293b' : '#fff',
+                    color: isDark() ? '#f1f5f9' : '#1e293b',
+                    preConfirm: function (val) {
+                        if (!val || val.trim().length < 5) {
+                            Swal.showValidationMessage('Reason must be at least 5 characters.');
+                            return false;
+                        }
+                        return val.trim();
+                    },
+                });
+                if (!reasonConfirmed || !reason) return;
+
+                // Step 2: final irreversible-action confirmation
                 const { isConfirmed } = await Swal.fire({
                     title: 'Permanently Delete ' + checked.length + ' ' + (checked.length === 1 ? 'Document' : 'Documents') + '?',
-                    html: '<p class="text-sm mb-2">All files for the selected documents will be <strong>permanently removed from disk</strong>.</p><p class="text-xs text-red-500 font-medium">This cannot be undone.</p>',
+                    html: '<p class="text-sm mb-2">All files will be <strong>permanently removed from disk</strong>.</p><p class="text-xs text-red-500 font-medium">This cannot be undone.</p>',
                     icon: 'warning',
                     showCancelButton: true,
                     confirmButtonText: 'Delete Forever',
@@ -381,6 +406,8 @@
                     color: isDark() ? '#f1f5f9' : '#1e293b',
                 });
                 if (!isConfirmed) return;
+
+                document.getElementById('bulk-force-reason').value = reason;
                 buildIds(forceIds, checked);
                 forceForm.submit();
             });

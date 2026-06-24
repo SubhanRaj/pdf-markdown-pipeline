@@ -206,6 +206,19 @@ All check `withTrashed()` and append `-2`, `-3` on collision. DB unique constrai
 | `metadata` | json nullable | Extra context per transition type. On `to_status = 'force_deleted'`: `{"letter_path": "archive_letters/...pdf", "reason": "..."}` |
 | `created_at` | timestamp | append-only — no `updated_at` |
 
+### `activity_logs`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `user_id` | FK → users nullable | `nullOnDelete` — null if user was later deleted; log rows are preserved |
+| `action` | string | Route name (e.g. `documents.store`) or `auth.login` |
+| `ip_address` | string(45) | IPv6-safe |
+| `user_agent` | string(500) nullable | Browser/client UA, truncated to 500 chars |
+| `metadata` | json nullable | `{"method": "POST", "url": "...", "status": 200}` — HTTP method, full URL, response status code. Login rows also include `"guard"`. |
+| `created_at` | timestamp | append-only — no `updated_at` |
+
+Append-only audit table. Only authenticated users are logged (guests are never recorded). Read-only from the application layer — no update/delete routes exist.
+
 ### `users`
 Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings — see `User::PRIVILEGES` constant for the canonical whitelist), `department_id` (FK → departments, nullable, `nullOnDelete`), `section_id` (FK → sections, nullable, `nullOnDelete`), `division_id` (FK → divisions, nullable, `nullOnDelete`). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
 
@@ -240,7 +253,8 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 | Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal and amendment hierarchy |
 | Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see `visibility = 'public'` docs only; results capped at 50 docs + 20 sections + 20 rule sets |
 | User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins; `division_id` field added to create/edit forms; new privilege checkboxes for `organization.head`, `department.head`, `section.head`, `documents.force-delete` |
-| Archive | `DocumentController` (existing methods) | Soft-deleted documents accessible to all authenticated users; "Archive" in all UI; counts split active vs archived; restore gated by `documents.restore` privilege; permanent delete gated by `documents.force-delete` + requires reason + letter PDF upload stored in `archive_letters/`; letter path stored in `document_status_histories.metadata` |
+| Archive | `DocumentController` (existing methods) | Soft-deleted documents accessible to all authenticated users; "Archive" in all UI; counts split active vs archived; restore gated by `documents.restore` privilege; permanent delete gated by `documents.force-delete` + requires reason + letter PDF upload — letter stored on the **private `local` disk** (`storage/app/private/archive_letters/`), never on public disk; letter path stored in `document_status_histories.metadata` |
+| Activity Log | `Admin\ActivityLogController` | Admin-only audit view at `GET /admin/activity-logs`; filterable by user, action, and IP; paginates the `activity_logs` table (50/page); `LogMutation` middleware records all authenticated POST/PATCH/DELETE requests; `Login` event listener records every successful login with IP, UA, and guard |
 
 ### Route map
 
@@ -316,6 +330,7 @@ Controller method signatures **must** declare `string $level` as their first par
 
 | Method | URI | Route name | Auth |
 |---|---|---|---|
+| GET | `/admin/activity-logs` | `admin.activity.index` | Admin |
 | GET | `/admin/users` | `admin.users.index` | Admin |
 | POST | `/admin/users` | `admin.users.store` | Admin |
 | GET | `/admin/users/create` | `admin.users.create` | Admin |
@@ -509,10 +524,10 @@ Both modals share a `makeQueue(ids)` JS factory function that handles multi-file
 **Permanent delete (force-delete) permission + letter:**
 - Gated by `documents.force-delete` privilege (admins always pass).
 - Requires: reason text (5–500 chars) + a letter PDF upload confirming the deletion authority.
-- Letter stored at `archive_letters/{document_id}_{YmdHis}.pdf` on the `public` disk.
+- Letter stored on the **`local` (private) disk** at `archive_letters/{document_id}_{YmdHis}.pdf` — `Storage::disk('local')` not `public`, so the letter is never web-accessible via the storage symlink.
 - A `DocumentStatusHistory` row is written with `to_status = 'force_deleted'`, `note` = reason, `metadata` = `{"letter_path": "archive_letters/...pdf"}`.
 - Then `$document->forceDelete()` physically removes the original PDF and Markdown from disk, and hard-deletes the DB record. `document_status_histories` rows (including the letter row) cascade-delete.
-- The `archive_letters/` directory is separate from the `document_vault/` to avoid confusion with actual document files. Letter PDFs are internal admin records, not public documents.
+- The `archive_letters/` directory lives at `storage/app/private/archive_letters/` (local disk, no symlink). Letter PDFs are internal admin records; back up this directory separately. To retrieve a specific letter, an admin-only download route can be added — current access is filesystem-only.
 
 **Permanent delete modal:** SweetAlert2 is not used for permanent delete (because file upload is required). Instead, a separate Blade modal (`#modal-force-delete`) handles: reason textarea + letter file input + confirmation checkbox before the form submits. The modal is triggered by the "Delete Permanently" button in the archive view.
 
@@ -612,7 +627,7 @@ Seeder is idempotent (`firstOrCreate` on email). Run with `php artisan db:seed -
 |---|---|
 | Guest | Browse Vault + Departments (→ `departments.index`) |
 | Authenticated | Browse Vault + Manage → Departments |
-| Admin | Browse Vault + Manage → Departments + Users |
+| Admin | Browse Vault + Manage → Departments + Users + Activity Log |
 
 **Sidebar user strip (bottom)** — the avatar initial and display name are clickable links for all authenticated users. Admins are linked to `admin.users.edit` (their own record); non-admins are linked to `profile.edit`. Guests see a static "G" avatar with a login icon.
 
@@ -627,13 +642,13 @@ Named limiters defined in `AppServiceProvider::boot()`. Never use anonymous `thr
 | `login` | 5/min per email+IP + 10/min per IP | Fortify brute-force |
 | `two-factor` | 5/min per session+IP | Fortify 2FA |
 | `mutations` | 60/min | user ID or IP — all auth POST/PATCH/DELETE groups |
-| `uploads` | 60/min | user ID or IP — `POST /documents` only (on top of mutations) |
+| `uploads` | 20/min | user ID or IP — `POST /documents` only (on top of mutations) |
 
 ### File upload validation
 
 Always use `mimetypes:` (not `mimes:`) — reads actual file bytes via PHP Fileinfo (magic-byte check); `mimes:` only checks extension. Accepted types defined as `StoreDocumentRequest::ACCEPTED_MIMETYPES` — reference this constant from tests or other Form Requests rather than duplicating the list.
 
-Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/pptx), ODT/ODS/ODP, RTF, TXT, CSV, JPEG, PNG, WebP, GIF, TIFF, BMP, HEIC/HEIF, SVG. Max size: 50 MB.
+Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/pptx), ODT/ODS/ODP, RTF, TXT, CSV, JPEG, PNG, WebP, GIF, TIFF, BMP, HEIC/HEIF. **SVG is explicitly excluded** — it is XML with executable script content and has no valid use case in a government document vault. Max size: 50 MB.
 
 ## Architecture decisions already made (don't re-litigate without reason)
 
@@ -658,7 +673,19 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 
 17. **Legacy operator "anywhere" upload** — operators with `documents.upload` and no `department_id`/`section_id`/`division_id` assigned can upload anywhere. This is deliberate for the initial data-entry phase (all legacy documents need to be digitised before per-scope restrictions make sense). Once the initial load is done, revoke `documents.upload` from these accounts or assign them a scope.
 
-18. **Permanent delete requires a letter PDF** — permanently removing an archived document is an irreversible administrative action. A formal letter (upload authority, reason, date) must accompany the action. The letter is stored in `archive_letters/` (separate from `document_vault/`) and its path is written to `document_status_histories.metadata` before the hard delete executes. This creates an audit trail that survives the document's deletion (the history rows cascade-delete, so the letter file on disk is the only surviving record — admins should back up `archive_letters/` separately).
+18. **Permanent delete requires a letter PDF stored on the private disk** — permanently removing an archived document is an irreversible administrative action. A formal letter (upload authority, reason, date) must accompany the action. The letter is stored via `Storage::disk('local')` (the private disk at `storage/app/private/archive_letters/`) — **never on the `public` disk** — so it is never web-accessible via the storage symlink. Its path is written to `document_status_histories.metadata` before the hard delete executes. Back up `storage/app/private/archive_letters/` separately; it is the only surviving paper trail after the record is hard-deleted.
+
+19. **Direct storage URL access blocked at the web server layer** — `public/.htaccess` returns HTTP 403 for any direct request to `/storage/document_vault/` or `/storage/archive_letters/`. All document access goes through controller routes which enforce authentication, visibility, and soft-delete checks. This closes the bypass where soft-deleted or `authenticated`-visibility documents could be retrieved by anyone who knew the storage URL.
+
+20. **SVG files are permanently excluded from accepted upload types** — `image/svg+xml` is not in `StoreDocumentRequest::ACCEPTED_MIMETYPES` and must not be added. SVG is XML that can contain executable `<script>` elements and event handlers. Even with the forced `.pdf` storage extension, accepting SVG creates a markitdown-extraction attack chain that could introduce stored XSS via the Parsedown rendering path.
+
+21. **Security response headers on every response** — `app/Http/Middleware/SecurityHeaders.php` is registered globally via `$middleware->append(...)` in `bootstrap/app.php`. It sets `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, and `Content-Security-Policy` on every response. HSTS is sent only when the request is over HTTPS. Never remove this middleware.
+
+22. **Department level binding is strict — unknown aliases abort 404** — `Route::bind('department', ...)` in `AppServiceProvider` uses an explicit two-branch `match` (`'dept'` → `department_level`, `'sectt'` → `secretariat_level`, `default` → `abort(404)`). There is no silent fallthrough. Do not add a `default =>` case that resolves to a level value.
+
+23. **Bulk restore enforces the same per-document scope as single restore** — `DocumentController@bulkRestore()` checks `canDeleteFrom($context)` for each document in the loop. Out-of-scope documents are skipped silently. This prevents a division-scoped operator from bulk-restoring documents from other departments by sending foreign IDs.
+
+24. **Bulk force-delete requires a reason and writes per-document audit rows** — `BulkForceDestroyDocumentsRequest` validates a mandatory `reason` field. `DocumentController@bulkForceDestroy()` writes a `DocumentStatusHistory` row per document before `forceDelete()`. The UI collects the reason via a two-step Swal2 flow (textarea prompt → final confirmation).
 
 14. **`visibility` is the sole guest access gate** — the old `status = 'verified'` filter for guests has been removed. Access control for unauthenticated users is now exclusively determined by `documents.visibility` (`public` | `authenticated`). The `status` column tracks only the conversion pipeline state and must never be used as an access gate. When writing any query that serves public-facing views, filter on `visibility = 'public'` for guests — never on `status`.
 
@@ -848,7 +875,7 @@ This keeps Unicode letters + combining marks intact and collapses everything els
 
 ### Rate limiting
 - All auth mutation route groups carry `throttle:mutations` middleware (60/min/user).
-- `POST /documents` additionally carries `throttle:uploads` (60/min/user) — raised from 10 to allow bulk multi-file uploads without 429s; disk exhaustion is guarded by the 50 MB file size cap and the mutations limiter.
+- `POST /documents` additionally carries `throttle:uploads` (20/min/user); disk exhaustion is guarded by the 50 MB file size cap and the mutations limiter. Once the initial legacy-document bulk load is complete, reduce to 5–10/min.
 - All named limiters live in `AppServiceProvider::configureRateLimiters()` — never add inline `throttle:N,M` to routes.
 - The `login` and `two-factor` limiters are named in `config/fortify.php` and defined in `AppServiceProvider` — both must remain in sync.
 
@@ -868,6 +895,7 @@ This keeps Unicode letters + combining marks intact and collapses everything els
 
 ### General
 - Never log passwords, tokens, or full request bodies — always `$request->except(['password', 'password_confirmation'])`.
+- **Activity logging** — `LogMutation` middleware (registered globally) records every authenticated POST/PATCH/DELETE with user ID, IP, user agent, route name, and HTTP status into `activity_logs`. The `Login` event listener records every successful login. Guests are never logged. `ActivityLog::record()` is non-fatal — logging failures are caught and written to Laravel's application log, never propagated to the user. The `activity_logs` table is append-only; no application route deletes or updates these rows.
 - Sensitive config (DB credentials, mail passwords) belongs in `.env` only — never hardcoded.
 - `.env.example` must have blank values for all secrets.
 

@@ -298,8 +298,8 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - Database schema: `departments`, `sections`, `rule_sets`, `documents` (with `rule_set_id`, `title`, `document_type`), `document_status_histories`, `users`
 - Full CRUD for Documents, Departments, Sections, Rule Sets, and admin User Management — all with DB transactions, try/catch, and `$request->validated()` throughout
 - Dual document taxonomy: section-based (GOs, notices, circulars) and rule-set-based (Acts, Rules, amendments) with separate vault paths and URL structures
-- File upload: accepts PDF, Word, Excel, PowerPoint, ODT, all image formats, RTF, TXT, CSV — validated against actual magic bytes; stored directly in the vault directory as `{slug}_{YmdHis}.pdf`
-- Rate limiting: login brute-force (5/min per email+IP), general mutation cap (60/min/user), upload cap (60/min/user) — all named limiters; bulk multi-file uploads are bounded by the 50 MB file size cap rather than a tight request count
+- File upload: accepts PDF, Word, Excel, PowerPoint, ODT, JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC, RTF, TXT, CSV — validated against actual magic bytes (no extension spoofing); SVG explicitly excluded; stored directly in the vault directory as `{slug}_{YmdHis}.pdf`
+- Rate limiting: login brute-force (5/min per email+IP), general mutation cap (60/min/user), upload cap (20/min/user) — all named limiters
 - Sidebar fully dynamic: driven by DB records; no hardcoded department links
 - Level-aware department routing: `{level}` URL segment disambiguates departments sharing slugs across levels
 - Browse Vault sidebar and dashboard department cards are fully dynamic
@@ -313,8 +313,28 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - Full Unicode / Rajbhasha support: all document title, section name, rule set name, and division name fields accept Devanagari and mixed-script text; validation uses `[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]` in both PHP Form Requests and JS frontend patterns; user model fields remain Latin-only by design
 
 **Completed (M23 — 2026-06-24):**
-- **Archive module:** "Trash" renamed to "Archive" in all UI (route names/backend unchanged); archive page accessible to all authenticated users; document counts split into Active + Archived everywhere; restore gated by `documents.restore` privilege; permanent delete requires `documents.force-delete` privilege + reason + mandatory letter PDF upload (stored in `archive_letters/`, path recorded in `document_status_histories.metadata`); full audit trail with `actor_id` on all history rows
+- **Archive module:** "Trash" renamed to "Archive" in all UI (route names/backend unchanged); archive page accessible to all authenticated users; document counts split into Active + Archived everywhere; restore gated by `documents.restore` privilege; permanent delete requires `documents.force-delete` privilege + reason + mandatory letter PDF upload (stored on the private `local` disk at `storage/app/private/archive_letters/`, never publicly accessible; path recorded in `document_status_histories.metadata`); full audit trail with `actor_id` on all history rows
 - **Scope-based upload permissions:** `division_id` FK added to `users`; `User::PRIVILEGES` constant as whitelist (prevents escalation); `User::canUploadTo()` / `canDeleteFrom()` helpers enforce scope in form request `authorize()` methods; division/section/department creation gated by `section.head`/`department.head`/`organization.head` privileges; admin user create/edit forms have cascading dept→section→division dropdowns and new privilege checkboxes; UI conditionally hides upload and creation buttons based on scope; legacy operators with no org assignment retain global access during initial data-entry phase
+
+**Completed (M24 — 2026-06-24 · NIC Security Hardening):**
+- **SVG upload blocked** — `image/svg+xml` removed from `StoreDocumentRequest::ACCEPTED_MIMETYPES`; SVG is XML with executable script content and has no valid government document use case
+- **Security response headers** — new `SecurityHeaders` middleware (globally registered) sets `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy`, and `Strict-Transport-Security` (HTTPS only)
+- **Direct storage access blocked** — `.htaccess` returns 403 for any direct request to `/storage/document_vault/` or `/storage/archive_letters/`; all document access must go through controller routes
+- **Archive letters moved to private disk** — letter PDFs now stored via `Storage::disk('local')` (`storage/app/private/archive_letters/`), removing the public-URL exposure that existed when they were on the `public` disk
+- **Bulk restore IDOR fixed** — `bulkRestore()` now checks `canDeleteFrom()` per document in the loop; division-scoped operators cannot restore documents from foreign departments
+- **Bulk force-delete audit trail** — `BulkForceDestroyDocumentsRequest` now validates a mandatory `reason`; controller writes `DocumentStatusHistory` rows before each `forceDelete()`; UI collects reason via two-step Swal2 flow
+- **Parsedown XSS closed** — `javascript:`/`data:`/`vbscript:` URIs stripped from Parsedown HTML output via `preg_replace` before `{!! !!}` rendering in `documents/show`
+- **`original_filename` sanitized** — client-supplied filename scrubbed with `preg_replace` before storage to prevent header injection via `Content-Disposition`
+- **Upload rate limit capped** — `throttle:uploads` reduced from 60/min to 20/min (max 1 GB/min disk I/O vs. previous 3 GB/min)
+- **Department binding strict** — unknown `{level}` aliases now abort 404 instead of silently falling through to `department_level`
+
+**Completed (M25 — 2026-06-24 · Activity Log):**
+- **Append-only audit table** — `activity_logs` records user ID, IP address (IPv6-safe), user agent, action (route name), URL, and HTTP status for every authenticated mutation
+- **Login tracking** — every successful Fortify login is captured via `Illuminate\Auth\Events\Login` listener with IP, user agent, and auth guard
+- **`LogMutation` middleware** — registered globally; fires after the response (captures HTTP status); no-ops on GET/HEAD/OPTIONS and unauthenticated requests
+- **Non-fatal logging** — `ActivityLog::record()` catches all exceptions internally; a log write failure never affects the user's actual operation
+- **Admin audit view** — `GET /admin/activity-logs` (admin-only); filterable by user, action, and IP; color-coded action badges; 50 per page; linked from sidebar
+- **Preserved on user deletion** — `user_id` is `nullOnDelete`; log rows survive account deletion and show "Deleted user" in the view
 
 ## 👥 Demo Accounts
 
