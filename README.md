@@ -374,3 +374,15 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - **Viewer** — can log in and view `authenticated`-visibility documents that guests cannot see, but cannot upload or mutate anything.
 
 **Next up (after M23):** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.
+
+## 🚀 Future Roadmap
+
+Advanced enterprise features and security enhancements planned for SDC/NIC compliance and high-value bureaucratic workflows are documented in [ROADMAP.md](ROADMAP.md).
+
+**Highlights:**
+- Mandatory TOTP 2FA + concurrent session blocking (`Auth::logoutOtherDevices`)
+- ClamAV anti-virus pipeline integration (queued scan before text extraction)
+- Dynamic PDF watermarking for `authenticated`-visibility downloads (`setasign/fpdi`)
+- Maker-Checker (E-File approval) workflow with `pending_approval` status stage
+- Full-text Devanagari/English search via Meilisearch + Laravel Scout
+- Non-destructive document versioning with SHA-256 hash audit trail
