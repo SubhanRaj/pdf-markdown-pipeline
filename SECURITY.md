@@ -20,7 +20,7 @@
 | H-02 | Bulk restore was scope-blind (cross-boundary IDOR) | HIGH | **FIXED** |
 | M-01 | No security response headers | MEDIUM | **FIXED** |
 | M-02 | Archive letters were publicly accessible via storage symlink | MEDIUM | **FIXED** |
-| M-02b | Soft-deleted documents were directly accessible via storage URL | MEDIUM | **FIXED** |
+| M-02b | Soft-deleted documents were directly accessible via storage URL | MEDIUM | **FIXED (revised M27)** |
 | M-03 | Parsedown `javascript:` URI bypass (stored XSS vector) | MEDIUM | **FIXED** |
 | L-01 | SVG accepted despite web-accessible storage | LOW | **FIXED** |
 | L-02 | `original_filename` stored without sanitization | LOW | **FIXED** |
@@ -39,6 +39,8 @@
 | A-06 | `SESSION_SAME_SITE=lax` — should be `strict` for internal government tool | LOW | **FIXED** |
 | A-07 | `SESSION_ENCRYPT=false` — session data stored in plain text in the database | LOW | **FIXED** |
 | A-08 | `APP_DEBUG=true` in `.env.example` — no production guidance in the template | LOW | **FIXED** |
+
+| M-02b (revised) | Blanket `.htaccess` block replaced with physical file move on archive | MEDIUM | **FIXED (M27)** |
 
 All findings across both audit passes have been remediated.
 
@@ -154,23 +156,32 @@ Rollback on transaction failure updated to use `Storage::disk('local')->delete(.
 
 **Note:** Archive letters are now stored at `storage/app/private/archive_letters/`. They are not web-accessible by any URL. If an admin needs to retrieve a specific letter, access is via the filesystem directly (or add a dedicated admin-only download route in a future iteration).
 
-#### M-02b · Soft-Deleted Documents Accessible via Storage Symlink
+#### M-02b · Archived Documents Moved to Private Disk on Soft-Delete
 
 **Vulnerability:**  
-Soft-deleted (archived) documents remain on the `public` disk with their original file path. Because `public/storage/` is a symlink to that disk, anyone who knew or guessed the storage URL (e.g. `https://server/storage/document_vault/.../file.pdf`) could retrieve archived documents. The same applied to `authenticated`-visibility documents — even those that were never deleted.
+Soft-deleted (archived) documents remained on the `public` disk at their original vault path. Because `public/storage/` is a symlink to that disk, anyone who knew or guessed the storage URL (e.g. `https://server/storage/document_vault/.../file.pdf`) could retrieve them directly — bypassing the application's soft-delete check entirely.
 
-**Fix applied:**  
-Added a `mod_rewrite` rule to `public/.htaccess` that returns HTTP 403 Forbidden for any direct request to the storage paths where document files live:
+**Initial fix (M24):** Blanket `.htaccess` 403 rule blocking all of `/storage/document_vault/`.
 
-```apache
-RewriteCond %{REQUEST_URI} ^/storage/(document_vault|archive_letters)/ [NC]
-RewriteRule ^ - [F,L]
-```
+**Revised fix (M27):** The blanket block was removed because it also prevented direct URL sharing and search-engine indexing of **active** public documents — an intentional feature of the vault. The correct fix is at the file layer: when a document is soft-deleted, its files are **physically moved** from the `public` disk to the private `local` disk (`storage/app/private/archived_documents/{id}.pdf`). When restored, files are moved back. This way:
 
-All document access now **must** go through the application controller routes (`/documents/.../pdf`, `/documents/trash/{id}/pdf`), which enforce authentication, visibility, and soft-delete checks. This closes the bypass comprehensively for all document types and statuses.
+| Document state | File location | Web-accessible |
+|---|---|---|
+| Active, `visibility=public` | `public` disk → `/storage/document_vault/…` | ✓ Yes — by design |
+| Active, `visibility=authenticated` | `public` disk | URL not published; controller enforces auth |
+| Archived (soft-deleted) | `local` disk → `storage/app/private/archived_documents/` | ✗ Never |
+
+**`ManagesDocumentFiles` trait** (`app/Http/Controllers/Concerns/ManagesDocumentFiles.php`) provides three methods used by `DocumentController` and `RuleSetController`:
+- `archiveFiles(Document)` — moves PDF + Markdown to private disk after soft-delete
+- `restoreFiles(Document)` — moves files back to public disk vault path after restore
+- `deleteArchivedFiles(Document)` — deletes from private disk on permanent deletion
+
+File moves happen **after** the DB transaction so a failed file move never prevents the database state from committing. Failures are logged as warnings (non-fatal) — the document's archived/restored state is determined by `deleted_at`, not file location.
+
+**`.htaccess` change:** The `document_vault` block is removed. The `archive_letters` block is retained as a defence-in-depth fallback only.
 
 **Files changed:**  
-`app/Http/Controllers/DocumentController.php` · `public/.htaccess`
+`app/Http/Controllers/Concerns/ManagesDocumentFiles.php` (new) · `app/Http/Controllers/DocumentController.php` · `app/Http/Controllers/RuleSetController.php` · `public/.htaccess`
 
 ---
 
