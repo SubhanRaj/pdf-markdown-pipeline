@@ -39,7 +39,6 @@ class StoreDocumentRequest extends FormRequest
         'image/bmp',
         'image/heic',
         'image/heif',
-        'image/svg+xml',
     ];
 
     public function authorize(): bool
@@ -133,7 +132,7 @@ class StoreDocumentRequest extends FormRequest
             'rule_set_id.required_without' => 'A section or rule set must be selected.',
             'title.regex'                  => 'Title contains invalid characters.',
             'document_type.in'             => 'Please select a valid document type.',
-            'file.mimetypes'               => 'Unsupported file type. Accepted: PDF, Word, Excel, PowerPoint, ODT, images (JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC), RTF, TXT, CSV.',
+            'file.mimetypes'               => 'Unsupported file type. Accepted: PDF, Word, Excel, PowerPoint, ODT, images (JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC), RTF, TXT, CSV. SVG files are not permitted.',
             'file.max'                     => 'File size must not exceed 50 MB.',
         ];
     }

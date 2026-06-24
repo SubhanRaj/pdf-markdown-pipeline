@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DivisionController;
@@ -143,6 +144,9 @@ Route::middleware(['auth', 'throttle:mutations'])->prefix('profile')->name('prof
 // ── Admin-only ────────────────────────────────────────────────────────────────
 
 Route::prefix('admin')->name('admin.')->middleware(['auth', 'is_admin', 'throttle:mutations'])->group(function () {
+
+    // Activity log — admin audit trail of all authenticated mutations and logins
+    Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity.index');
 
     // User management — admin creates and manages all vault accounts
     Route::prefix('users')->name('users.')->group(function () {

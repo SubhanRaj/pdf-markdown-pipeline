@@ -143,7 +143,7 @@ class DocumentController extends Controller
                     'title'             => $validated['title'],
                     'slug'              => $slug,
                     'document_type'     => $validated['document_type'],
-                    'original_filename' => $request->file('file')->getClientOriginalName(),
+                    'original_filename' => preg_replace('/[^\w\s\-\.\(\)]/', '_', $request->file('file')->getClientOriginalName()),
                     'original_pdf_path' => $pdfPath,
                     'vault_path'        => $vaultDir,
                     'status'            => 'uploaded',
@@ -376,13 +376,25 @@ class DocumentController extends Controller
         $actor   = auth()->id();
         $restored = 0;
 
+        $authUser = auth()->user();
+
         try {
-            DB::transaction(function () use ($ids, $actor, &$restored) {
+            DB::transaction(function () use ($ids, $actor, $authUser, &$restored) {
                 foreach ($ids as $id) {
                     $document = Document::withTrashed()->find($id);
                     if (! $document || ! $document->trashed()) {
                         continue;
                     }
+
+                    // Enforce scope: same boundary as single-restore and canDeleteFrom.
+                    // Admins bypass this check unconditionally.
+                    if (! $authUser->isAdmin()) {
+                        $context = $document->division ?? $document->section ?? $document->ruleSet;
+                        if ($context && ! $authUser->canDeleteFrom($context)) {
+                            continue;
+                        }
+                    }
+
                     $document->restore();
                     DocumentStatusHistory::create([
                         'document_id' => $document->id,
@@ -406,20 +418,31 @@ class DocumentController extends Controller
 
     public function bulkForceDestroy(BulkForceDestroyDocumentsRequest $request): RedirectResponse
     {
-        if (! auth()->user()->hasPrivilege('documents.force-delete')) {
-            abort(403, 'You do not have permission to permanently delete archived documents.');
-        }
-
-        $ids     = $request->validated()['ids'];
-        $deleted = 0;
+        $validated = $request->validated();
+        $ids       = $validated['ids'];
+        $reason    = $validated['reason'];
+        $actor     = auth()->id();
+        $deleted   = 0;
 
         try {
-            DB::transaction(function () use ($ids, &$deleted) {
+            DB::transaction(function () use ($ids, $reason, $actor, &$deleted) {
                 foreach ($ids as $id) {
                     $document = Document::withTrashed()->find($id);
                     if (! $document) {
                         continue;
                     }
+
+                    // Audit row written BEFORE forceDelete so it exists in the
+                    // transaction even though cascade-delete will remove it on commit.
+                    // The status_history row is the surviving paper trail.
+                    DocumentStatusHistory::create([
+                        'document_id' => $document->id,
+                        'actor_id'    => $actor,
+                        'from_status' => 'deleted',
+                        'to_status'   => 'force_deleted',
+                        'note'        => $reason,
+                    ]);
+
                     if ($document->original_pdf_path) {
                         Storage::disk('public')->delete($document->original_pdf_path);
                     }
@@ -466,12 +489,14 @@ class DocumentController extends Controller
             return back();
         }
 
-        // Store letter before the transaction — file I/O is not transactional
+        // Store letter on the PRIVATE local disk (not public) — archive letters must
+        // never be web-accessible via the storage symlink. File I/O happens before
+        // the DB transaction because filesystem operations are not transactional.
         $letterPath = null;
         try {
-            $letterFilename = "archive_letters/{$document->id}_" . now()->format('YmdHis') . '.pdf';
-            Storage::disk('public')->putFileAs('', $letterFile, $letterFilename);
-            $letterPath = $letterFilename;
+            $letterBasename = $document->id . '_' . now()->format('YmdHis') . '.pdf';
+            Storage::disk('local')->putFileAs('archive_letters', $letterFile, $letterBasename);
+            $letterPath = 'archive_letters/' . $letterBasename;
         } catch (\Throwable $e) {
             Log::error('DocumentController@forceDestroy letter upload failed', ['document_id' => $id, 'actor_id' => auth()->id(), 'error' => $e->getMessage()]);
             flash()->error('Failed to store the authorisation letter. Deletion aborted.');
@@ -504,7 +529,7 @@ class DocumentController extends Controller
         } catch (\Throwable $e) {
             // Clean up orphaned letter file on transaction failure
             if ($letterPath) {
-                Storage::disk('public')->delete($letterPath);
+                Storage::disk('local')->delete($letterPath);
             }
             Log::error('DocumentController@forceDestroy failed', ['document_id' => $id, 'actor_id' => auth()->id(), 'letter_path' => $letterPath, 'error' => $e->getMessage()]);
             flash()->error('Failed to permanently delete document. Please try again.');

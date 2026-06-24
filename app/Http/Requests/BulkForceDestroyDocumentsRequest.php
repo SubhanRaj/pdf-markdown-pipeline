@@ -8,23 +8,34 @@ class BulkForceDestroyDocumentsRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() ?? false;
+        return $this->user()?->hasPrivilege('documents.force-delete') ?? false;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('reason')) {
+            $this->merge(['reason' => strip_tags(trim($this->input('reason', '')))]);
+        }
     }
 
     public function rules(): array
     {
         return [
-            'ids'   => ['required', 'array', 'min:1', 'max:100'],
-            'ids.*' => ['required', 'integer'],
+            'ids'    => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*'  => ['required', 'integer'],
+            'reason' => ['required', 'string', 'min:5', 'max:500'],
         ];
     }
 
     public function messages(): array
     {
         return [
-            'ids.required' => 'No documents selected.',
-            'ids.min'      => 'Select at least one document.',
-            'ids.max'      => 'Cannot permanently delete more than 100 documents at once.',
+            'ids.required'    => 'No documents selected.',
+            'ids.min'         => 'Select at least one document.',
+            'ids.max'         => 'Cannot permanently delete more than 100 documents at once.',
+            'reason.required' => 'A deletion reason is required for audit purposes.',
+            'reason.min'      => 'Reason must be at least 5 characters.',
+            'reason.max'      => 'Reason may not exceed 500 characters.',
         ];
     }
 }

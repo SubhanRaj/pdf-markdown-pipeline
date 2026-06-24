@@ -99,13 +99,13 @@ Four named limiters defined in `AppServiceProvider::boot()` via `RateLimiter::fo
 | `login` | 5/min per email+IP AND 10/min per IP | email+IP / IP | Fortify login route |
 | `two-factor` | 5/min | session login.id + IP | Fortify 2FA route |
 | `mutations` | 60/min | user ID or IP | All auth-protected POST/PATCH/DELETE route groups |
-| `uploads` | 10/min | user ID or IP | `POST /documents` only — applied on top of `mutations` |
+| `uploads` | 20/min | user ID or IP | `POST /documents` only — applied on top of `mutations` |
 
 **Strict file upload validation (`StoreDocumentRequest`)**
 
 Replaced `mimes:pdf` with `mimetypes:` (magic-byte check via PHP Fileinfo). Accepted MIME types defined as `ACCEPTED_MIMETYPES` public constant:
 - **Documents:** `application/pdf`, `.doc`/`.docx`, `.xls`/`.xlsx`, `.ppt`/`.pptx`, `.odt`/`.ods`/`.odp`, `application/rtf`, `text/plain`, `text/csv`
-- **Images:** `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/tiff`, `image/bmp`, `image/heic`, `image/heif`, `image/svg+xml`
+- **Images:** `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/tiff`, `image/bmp`, `image/heic`, `image/heif` — SVG (`image/svg+xml`) is permanently excluded; see M24.
 
 ---
 
@@ -745,7 +745,7 @@ Two interlocking features fully implemented in a single session.
 | Permanent delete | Admin + reason text | Users with `documents.force-delete` privilege + reason text + **mandatory letter PDF upload** |
 
 **Permanent delete letter storage:**
-- Letter PDF stored to `public` disk at `archive_letters/{document_id}_{YmdHis}.pdf`
+- Letter PDF stored to `local` (private) disk at `archive_letters/{document_id}_{YmdHis}.pdf` — not web-accessible (see M24 for security rationale)
 - Path + reason stored as JSON in `document_status_histories.metadata` on the `to_status = 'force_deleted'` history row
 - `DocumentController@forceDestroy` validates: `documents.force-delete` privilege, reason (5–500 chars), and a valid uploaded letter PDF
 - `DeleteDocumentRequest::authorize()` handles both soft-delete scope check and force-delete privilege check
@@ -871,3 +871,165 @@ No `division.head` — division is the smallest unit; operators are assigned via
 - `departments/show.blade.php` — conditional "Add Section", "Add Rule Set"
 - `departments/index.blade.php` — conditional "Add Department"
 - `admin/users/create.blade.php` + `edit.blade.php` — `division_id` dropdown (cascades dept → section → division via JS), new privilege checkboxes for `organization.head`, `department.head`, `section.head`, `documents.force-delete`, `documents.restore`
+
+---
+
+## M24 — Security Hardening for NIC/SDC Pre-Deployment (COMPLETED 2026-06-24)
+
+Full security audit and remediation pass targeting NIC / STQC compliance and the UP State Data Centre pre-deployment review.
+
+---
+
+### Audit Scope
+
+Controllers, Form Requests, Models, Middleware, Blade views, route configuration, `.htaccess`, rate limiters.
+
+---
+
+### Findings and Fixes
+
+**H-01 — Bulk force-delete had no audit trail (HIGH → FIXED)**
+- `bulkForceDestroy()` permanently deleted up to 100 documents with zero evidence: no reason captured, no `DocumentStatusHistory` rows written, no authorisation letter.
+- Fix: Added `reason` field to `BulkForceDestroyDocumentsRequest` (required, 5–500 chars, strip_tags sanitised). Controller now writes one `DocumentStatusHistory` row per document (`to_status = 'force_deleted'`, `note = $reason`) before `forceDelete()`. Two-step Swal2 flow in trash view: textarea prompt → final confirmation.
+
+**H-02 — Bulk restore was scope-blind IDOR (HIGH → FIXED)**
+- `bulkRestore()` had a privilege check but no per-document scope check. A division-scoped operator could restore documents from any department.
+- Fix: Per-document scope check inside the loop — resolves `$document->division ?? $document->section ?? $document->ruleSet` and calls `canDeleteFrom()`. Out-of-scope documents are silently skipped; admins bypass unconditionally.
+
+**M-01 — No security response headers (MEDIUM → FIXED)**
+- Zero headers set. NIC/STQC mandate CSP, X-Frame-Options, X-Content-Type-Options, HSTS, Referrer-Policy, Permissions-Policy.
+- Fix: New `App\Http\Middleware\SecurityHeaders` middleware registered globally in `bootstrap/app.php` via `$middleware->append(...)`. Sets all required headers on every response including error pages. HSTS only sent over HTTPS (not on local HTTP dev). `unsafe-inline` allowed in CSP for Tailwind Play CDN + inline Blade scripts.
+
+**M-02a — Archive letters on public disk (MEDIUM → FIXED)**
+- Letters were stored via `Storage::disk('public')->putFileAs(...)` → web-accessible at `/storage/archive_letters/...`.
+- Fix: Changed to `Storage::disk('local')->putFileAs('archive_letters', ...)` (private disk at `storage/app/private/`, no symlink, no web access). `forceDestroy()` cleanup on failure updated to `Storage::disk('local')->delete(...)`.
+
+**M-02b — Soft-deleted documents accessible via storage symlink (MEDIUM → FIXED)**
+- Archived PDFs remained on the public disk. Anyone who guessed or found the path could access them directly at `/storage/document_vault/...`, bypassing auth and soft-delete.
+- Fix: Added `mod_rewrite` rule to `public/.htaccess` returning HTTP 403 for any direct request to `/storage/document_vault/` or `/storage/archive_letters/`. All document access must now go through controller routes which enforce auth, visibility, and soft-delete checks.
+
+**M-03 — Parsedown `javascript:` URI bypass — stored XSS (MEDIUM → FIXED)**
+- `Parsedown::setSafeMode(true)` strips `<script>` tags but does not sanitize `javascript:`, `data:`, or `vbscript:` URI schemes in `href`/`src` attributes. The `{!! !!}` raw output bypassed Blade auto-escaping.
+- Fix: Post-processing `preg_replace` strips any `href` or `src` attribute beginning with `javascript:`, `data:`, or `vbscript:`, replacing with `href="#"`. Applied in `documents/show.blade.php` after the Parsedown render.
+
+**L-01 — SVG accepted despite web-accessible storage (LOW → FIXED)**
+- `image/svg+xml` was in `ACCEPTED_MIMETYPES`. SVG is XML and can embed `<script>` tags. Enabled the M-03 XSS chain via markitdown extraction.
+- Fix: Removed `image/svg+xml` from `StoreDocumentRequest::ACCEPTED_MIMETYPES`. Error message updated: "SVG files are not permitted." No government document workflow requires SVG uploads.
+
+**L-02 — `original_filename` stored without sanitization (LOW → FIXED)**
+- `getClientOriginalName()` was stored as-is and later used in `Content-Disposition` headers. Quotes and special characters could create RFC-noncompliant headers.
+- Fix: Sanitized with `preg_replace('/[^\w\s\-\.\(\)]/', '_', ...)` before storage.
+
+**L-03 — Department binding silently defaulted for unknown level aliases (LOW → FIXED)**
+- `default => 'department_level'` in the `match` expression meant any unknown `{level}` alias resolved to `department_level` rather than 404, masking routing bugs.
+- Fix: Changed to `default => abort(404)`.
+
+**Upload rate limit capped (MEDIUM → FIXED)**
+- Upload limiter was 60/min — worst-case 3 GB/min per user at 50 MB cap.
+- Fix: Reduced to 20/min (1 GB/min worst-case). Tighten to 5–10/min after initial document backlog is loaded.
+
+---
+
+### Passing Checks (Pre-Existing)
+
+14 security areas audited and confirmed correct before this pass: MIME magic-byte validation, slug traversal prevention, privilege escalation (self-edit), CSRF, SQL injection, mass assignment, login brute-force rate limiting, XSS auto-escape, self-delete guard, two-stage deletion, `prepareForValidation()` sanitation, password logging exclusion, admin double-gate, privilege whitelist enforcement.
+
+---
+
+### Files changed in M24
+
+**New:**
+- `app/Http/Middleware/SecurityHeaders.php` — all NIC-required response headers
+- `SECURITY.md` — full audit report with findings, mitigations, and post-remediation recommendations
+
+**Modified:**
+- `app/Http/Requests/StoreDocumentRequest.php` — removed `image/svg+xml` from `ACCEPTED_MIMETYPES`
+- `app/Http/Requests/BulkForceDestroyDocumentsRequest.php` — added `reason` field, `prepareForValidation()`, corrected `authorize()` to `hasPrivilege`
+- `app/Http/Controllers/DocumentController.php` — `original_filename` sanitization; `bulkRestore()` scope check; `bulkForceDestroy()` reason + history rows; `forceDestroy()` letter moved to private disk
+- `app/Providers/AppServiceProvider.php` — upload limiter 60→20/min; department binding `default→abort(404)`
+- `bootstrap/app.php` — registered `SecurityHeaders` middleware globally
+- `public/.htaccess` — 403 rule blocking direct `/storage/document_vault/` and `/storage/archive_letters/` requests
+- `resources/views/documents/show.blade.php` — Parsedown post-processor stripping `javascript:`/`data:`/`vbscript:` URIs
+- `resources/views/documents/trash.blade.php` — two-step Swal2 bulk force-delete flow with reason capture
+- `CLAUDE.md` — stale references corrected; architecture decisions #19–24 added
+- `README.md` — SVG removed from file types; rate cap corrected; M24 section added
+- `summary.md` — SVG reference corrected in M5; M23 letter storage updated; M24 entry added
+
+---
+
+## M25 — Activity Log: Authenticated User Action Auditing (COMPLETED 2026-06-24)
+
+Implements a tamper-evident, append-only audit trail for all authenticated mutations and logins, satisfying the NIC/SDC audit-trail requirement for government web applications.
+
+---
+
+### What is logged
+
+| Event | Action field | Triggered by |
+|---|---|---|
+| Successful login | `auth.login` | `Illuminate\Auth\Events\Login` listener |
+| Document upload | `documents.store` | `LogMutation` middleware |
+| Document metadata edit | `documents.update` / `documents.rules.update` / `documents.divisions.update` | middleware |
+| Archive (soft-delete) | `documents.destroy` / `documents.rules.destroy` / `documents.divisions.destroy` | middleware |
+| Bulk archive | `documents.bulk-destroy` | middleware |
+| Restore from archive | `documents.restore` | middleware |
+| Bulk restore | `documents.trash.bulk-restore` | middleware |
+| Permanent delete | `documents.force-destroy` | middleware |
+| Bulk permanent delete | `documents.trash.bulk-force-destroy` | middleware |
+| Create/edit/delete user | `admin.users.store` / `admin.users.update` / `admin.users.destroy` | middleware |
+| Profile self-update | `profile.update` | middleware |
+| Create/edit/delete org entities | `departments.*`, `departments.sections.*`, etc. | middleware |
+
+Guests are **never** logged. Failed requests (4xx, 5xx) are logged along with their HTTP status — this allows detection of repeated failed attempts that bypass rate limiting.
+
+---
+
+### Architecture
+
+**`activity_logs` table** — append-only; `created_at` only (no `updated_at`); `user_id` is `nullOnDelete` so log rows are preserved even after a user account is deleted (the row shows "Deleted user" in the view).
+
+**`ActivityLog::record(string $action, Request $request, array $meta = []): void`** — static non-fatal helper. Any exception during write is caught and written to Laravel's application log, never propagated to the HTTP response.
+
+**`LogMutation` middleware** — registered globally via `$middleware->append(...)` in `bootstrap/app.php`. Calls `$next($request)` first so it can capture the HTTP response status code. Skips all `GET`/`HEAD`/`OPTIONS` requests and all unauthenticated requests — zero overhead for public read-only traffic.
+
+**Login listener** — `Event::listen(Login::class, ...)` in `AppServiceProvider::configureActivityLogging()`. Records guard name in metadata alongside IP and UA.
+
+---
+
+### Admin view
+
+`GET /admin/activity-logs` → `Admin\ActivityLogController@index` → `admin/activity-logs/index.blade.php`
+
+- Admin-only (gated by `is_admin` middleware on the entire `admin.*` route group)
+- Filterable by user, action type, and IP address
+- 50 rows per page, newest first
+- Action badges color-coded by category (green = upload, red = delete/permanent, indigo = edit, sky = login, purple = user management)
+- HTTP status shown with color (green 2xx, amber 4xx, red 5xx)
+- Sidebar: "Activity Log" link (`ti-activity` icon) visible to admins only
+
+---
+
+### Security properties
+
+- **Tamper-evident:** no application route can delete or update `activity_logs` rows. Physical deletion requires direct DB access.
+- **Non-repudiation:** IP + user agent + timestamp + authenticated user ID are all captured per event.
+- **Failure-safe:** `ActivityLog::record()` never throws; a DB write failure during logging does not affect the actual user operation.
+- **No sensitive data:** request body is never stored; only method + URL + status. Passwords cannot appear in the URL (all auth forms use POST). `request()->fullUrl()` does not include the POST body.
+- **Guest exclusion:** `auth()->check()` guard in middleware ensures zero rows for unauthenticated traffic.
+
+---
+
+### Files added/changed in M25
+
+**New:**
+- `database/migrations/2026_06_24_000003_create_activity_logs_table.php`
+- `app/Models/ActivityLog.php`
+- `app/Http/Middleware/LogMutation.php`
+- `app/Http/Controllers/Admin/ActivityLogController.php`
+- `resources/views/admin/activity-logs/index.blade.php`
+
+**Modified:**
+- `app/Providers/AppServiceProvider.php` — `configureActivityLogging()` method with Login listener
+- `bootstrap/app.php` — `LogMutation` middleware registered globally
+- `routes/web.php` — `GET /admin/activity-logs` route added to admin group
+- `resources/views/components/sidebar.blade.php` — "Activity Log" link under admin section

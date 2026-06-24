@@ -126,6 +126,12 @@
             <i class="ti ti-users w-5 text-center text-base flex-shrink-0"></i>
             <span class="sidebar-text">Users</span>
         </a>
+        <a href="{{ route('admin.activity.index') }}"
+           data-tooltip="Activity Log"
+           class="nav-link {{ request()->routeIs('admin.activity.*') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-activity w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">Activity Log</span>
+        </a>
         @endif
         @endauth
 

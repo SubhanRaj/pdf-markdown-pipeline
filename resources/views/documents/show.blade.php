@@ -204,13 +204,26 @@
         </div>
 
         @if($document->markdown_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($document->markdown_path))
+        @php
+            $mdRaw  = \Illuminate\Support\Facades\Storage::disk('public')->get($document->markdown_path);
+            $mdHtml = \Parsedown::instance()->setSafeMode(true)->text($mdRaw);
+            // Parsedown safe mode strips <script> tags but does NOT sanitize
+            // javascript:/data: URIs in href/src attributes (known limitation of
+            // erusev/parsedown ^1.0). Strip them here to close the stored-XSS vector
+            // that could be introduced by markitdown-extracted content from crafted docs.
+            $mdHtml = preg_replace(
+                '/\b(href|src)\s*=\s*(["\'])(?:javascript|data|vbscript):[^"\']*\2/i',
+                '$1=$2#$2',
+                $mdHtml
+            );
+        @endphp
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
             <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center gap-2">
                 <i class="ti ti-markdown text-sm text-slate-400"></i>
                 <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Extracted Content</span>
             </div>
             <div class="px-6 py-5 prose prose-sm dark:prose-invert max-w-none text-slate-700 dark:text-slate-300">
-                {!! \Parsedown::instance()->setSafeMode(true)->text(\Illuminate\Support\Facades\Storage::disk('public')->get($document->markdown_path)) !!}
+                {!! $mdHtml !!}
             </div>
         </div>
         @endif
