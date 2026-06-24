@@ -1033,3 +1033,47 @@ Guests are **never** logged. Failed requests (4xx, 5xx) are logged along with th
 - `bootstrap/app.php` — `LogMutation` middleware registered globally
 - `routes/web.php` — `GET /admin/activity-logs` route added to admin group
 - `resources/views/components/sidebar.blade.php` — "Activity Log" link under admin section
+
+---
+
+## M26 — Auth/Fortify/Session Security Audit & Hardening (COMPLETED 2026-06-24)
+
+Security audit pass targeting the login and authentication stack specifically for NIC/SDC deployment compliance.
+
+---
+
+### Findings & Fixes
+
+**A-01 — FortifyServiceProvider overwrote dual-key login rate limiter (HIGH → FIXED)**
+- `FortifyServiceProvider::boot()` redefined `RateLimiter::for('login', ...)` with a single-key (email+IP) limiter, running after `AppServiceProvider` and silently overwriting the dual-key version (email+IP AND IP-only 10/min). The per-IP brute-force cap was dead.
+- Fix: Removed the duplicate `RateLimiter::for('login', ...)` from `FortifyServiceProvider`. `AppServiceProvider` is the sole, authoritative rate limiter definition.
+
+**A-02 — `Password::defaults()` not configured (MEDIUM → FIXED)**
+- `PasswordValidationRules::passwordRules()` uses `Password::default()`. Without `Password::defaults(fn...)` registered, this resolved to bare min-8 with no complexity. Fortify actions (password reset, profile update) would have accepted `12345678` if their features were re-enabled.
+- Fix: Added `Password::defaults(fn () => Password::min(8)->mixedCase()->numbers()->symbols())` in `AppServiceProvider::boot()`. All uses of `Password::default()` across the codebase now inherit the strong policy.
+
+**A-03 — SESSION_SECURE_COOKIE not set (MEDIUM → FIXED)**
+- Key absent from both `.env` and `.env.example`, defaulting to `null` (falsy). Session cookie had no `Secure` flag.
+- Fix: Added to both files. Local dev: `false`. `.env.example` comment specifies: **PRODUCTION must be `true`**.
+
+**A-04 — "Remember me" bypasses 120-min session timeout (MEDIUM → FIXED)**
+- Laravel's remember-me cookie is 5 years by default. On a shared government workstation, a checked "Keep me signed in" checkbox left the account accessible indefinitely.
+- Fix: Removed the checkbox and label from `auth/login.blade.php` entirely. Sessions are now bounded only by `SESSION_LIFETIME` and `SESSION_EXPIRE_ON_CLOSE`.
+
+**A-05 — SESSION_EXPIRE_ON_CLOSE=false (LOW → FIXED)**
+**A-06 — SESSION_SAME_SITE=lax (LOW → FIXED)**
+**A-07 — SESSION_ENCRYPT=false (LOW → FIXED)**
+**A-08 — APP_DEBUG=true in .env.example without production warning (LOW → FIXED)**
+- All four addressed via `.env` and `.env.example` — see SECURITY.md A-05 through A-08 for details.
+
+---
+
+### Files changed in M26
+
+- `app/Providers/FortifyServiceProvider.php` — removed duplicate rate limiter
+- `app/Providers/AppServiceProvider.php` — added `Password::defaults(...)` call
+- `resources/views/auth/login.blade.php` — removed "Remember me" checkbox
+- `.env` — added `SESSION_ENCRYPT`, `SESSION_SECURE_COOKIE`, `SESSION_EXPIRE_ON_CLOSE`, `SESSION_SAME_SITE`
+- `.env.example` — same keys + production guidance comments on `APP_ENV` and `APP_DEBUG`
+- `SECURITY.md` — Pass 2 status table + detailed A-01 through A-08 findings
+- `summary.md` — M26 entry added

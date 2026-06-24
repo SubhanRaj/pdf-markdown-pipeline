@@ -336,6 +336,13 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - **Admin audit view** — `GET /admin/activity-logs` (admin-only); filterable by user, action, and IP; color-coded action badges; 50 per page; linked from sidebar
 - **Preserved on user deletion** — `user_id` is `nullOnDelete`; log rows survive account deletion and show "Deleted user" in the view
 
+**Completed (M26 — 2026-06-24 · Auth/Fortify/Session Audit):**
+- **Dual-key login rate limiter restored** — `FortifyServiceProvider` was silently overwriting the `AppServiceProvider` dual-key limiter; per-IP cap is now correctly enforced
+- **`Password::defaults()` configured** — all Fortify actions now inherit the strong password policy (min 8, mixed case, numbers, symbols) instead of a bare min-8 fallback
+- **Remember-me removed** — "Keep me signed in" checkbox eliminated; a 5-year token on a shared government workstation was a session hijack waiting to happen
+- **Session hardened** — `SESSION_ENCRYPT=true`, `SESSION_EXPIRE_ON_CLOSE=true`, `SESSION_SAME_SITE=strict` applied; `SESSION_SECURE_COOKIE` documented (must be `true` on HTTPS SDC deployment)
+- **`.env.example` annotated** — production guidance comments added to `APP_ENV`, `APP_DEBUG`, and all session security keys
+
 ## 👥 Demo Accounts
 
 The `UserSeeder` ships with pre-built accounts covering every role and a representative set of privilege combinations. Run with:

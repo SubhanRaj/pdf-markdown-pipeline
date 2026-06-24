@@ -5,11 +5,14 @@
 **Remediation date:** 2026-06-24  
 **Auditor:** Senior Web Application Security Architect (Claude Code)  
 **Stack:** Laravel 13, PHP 8.4, MariaDB 12, Apache, local-first on-premise deployment  
-**Scope:** Controllers, Form Requests, Models, Middleware, Blade views, Route configuration
+**Scope (Pass 1):** Controllers, Form Requests, Models, Middleware, Blade views, Route configuration  
+**Scope (Pass 2):** Login/auth Fortify stack, session configuration, password policy, rate limiting
 
 ---
 
 ## Status Summary
+
+### Pass 1 — Application Layer
 
 | ID | Finding | Severity | Status |
 |----|---------|---------|--------|
@@ -24,7 +27,20 @@
 | L-03 | Department binding silently fell through to `department_level` for unknown aliases | LOW | **FIXED** |
 | Rate | Upload rate limit was 60/min (3 GB/min worst-case) | MEDIUM | **FIXED** |
 
-All findings have been remediated. The codebase is ready for NIC pre-deployment review.
+### Pass 2 — Auth / Fortify / Session Stack
+
+| ID | Finding | Severity | Status |
+|----|---------|---------|--------|
+| A-01 | `FortifyServiceProvider` overwrote the dual-key login rate limiter, killing the per-IP cap | HIGH | **FIXED** |
+| A-02 | `Password::defaults()` not configured — Fortify actions used bare min-8 rule | MEDIUM | **FIXED** |
+| A-03 | `SESSION_SECURE_COOKIE` missing from `.env` — session cookie transmitted over HTTP | MEDIUM | **FIXED** |
+| A-04 | "Remember me" checkbox enabled 5-year persistence, bypassing 120-min session timeout | MEDIUM | **FIXED** |
+| A-05 | `SESSION_EXPIRE_ON_CLOSE=false` — session survived browser close on shared workstations | LOW | **FIXED** |
+| A-06 | `SESSION_SAME_SITE=lax` — should be `strict` for internal government tool | LOW | **FIXED** |
+| A-07 | `SESSION_ENCRYPT=false` — session data stored in plain text in the database | LOW | **FIXED** |
+| A-08 | `APP_DEBUG=true` in `.env.example` — no production guidance in the template | LOW | **FIXED** |
+
+All findings across both audit passes have been remediated.
 
 ---
 
@@ -283,7 +299,7 @@ The following areas were audited and found to be correctly implemented before th
 | CSRF protection (all mutations in `web` middleware group; AJAX sets `X-CSRF-TOKEN`) | ✓ PASS |
 | SQL injection (Eloquent/Query Builder parameterized bindings throughout) | ✓ PASS |
 | Mass assignment protection (explicit `$fillable` on all models, no `$guarded = []`) | ✓ PASS |
-| Login brute-force rate limiting (5/min per email+IP, 10/min per IP) | ✓ PASS |
+| Login brute-force rate limiting (5/min per email+IP + 10/min per IP — dual-key, fixed in A-01) | ✓ PASS |
 | XSS via Blade auto-escape (`{{ }}` on all user data in templates) | ✓ PASS |
 | Self-delete guard in `UserManagementController@destroy` | ✓ PASS |
 | Two-stage soft/hard delete (files never removed on soft-delete) | ✓ PASS |
@@ -294,7 +310,158 @@ The following areas were audited and found to be correctly implemented before th
 
 ---
 
-## Post-Remediation Hardening Recommendations (Future Iterations)
+## Pass 2 — Detailed Findings & Mitigations (Auth / Fortify / Session)
+
+---
+
+### A-01 · `FortifyServiceProvider` Overwrote the Dual-Key Login Rate Limiter
+
+**Severity:** HIGH  
+**Status:** FIXED
+
+**Vulnerability:**  
+`AppServiceProvider::configureRateLimiters()` defined a dual-key `login` limiter:
+- 5 attempts per minute keyed by `email + IP` (prevents targeted account brute-force)
+- 10 attempts per minute keyed by `IP` alone (prevents credential-stuffing one IP across many accounts)
+
+`FortifyServiceProvider::boot()` also called `RateLimiter::for('login', ...)` with a single-key limiter (email+IP only, 5/min). Service providers boot in registration order — `FortifyServiceProvider` is listed after `AppServiceProvider` in `bootstrap/providers.php`. The second `RateLimiter::for('login')` call silently **replaced** the first, discarding the IP-only cap entirely. An attacker could spray thousands of email+password combinations from a single IP at 5 attempts per email per minute, unlimited across emails.
+
+**Fix applied:**  
+Removed the duplicate `RateLimiter::for('login', ...)` block from `FortifyServiceProvider`. The view registration (`Fortify::loginView(...)`) is preserved. The `AppServiceProvider` dual-key definition is now the sole, authoritative limiter.
+
+**Files changed:**  
+`app/Providers/FortifyServiceProvider.php`
+
+---
+
+### A-02 · `Password::defaults()` Not Configured — Fortify Actions Used Bare min-8 Rule
+
+**Severity:** MEDIUM  
+**Status:** FIXED
+
+**Vulnerability:**  
+`PasswordValidationRules::passwordRules()` (used by all Fortify action classes) returns `Password::default()`. Without a `Password::defaults(fn...)` call in any service provider, `Password::default()` resolved to a bare `Password(min: 8)` — no mixed case, no numbers, no symbols. Meanwhile `StoreUserRequest`, `UpdateUserRequest`, and `UpdateProfileRequest` all correctly used `Password::min(8)->mixedCase()->numbers()->symbols()`. This divergence meant that if Fortify password reset or profile update features were ever re-enabled, they would accept `12345678` where the admin form would reject it.
+
+**Fix applied:**  
+Added to `AppServiceProvider::boot()` (before rate limiters):
+
+```php
+Password::defaults(
+    fn () => Password::min(8)->mixedCase()->numbers()->symbols()
+);
+```
+
+All uses of `Password::default()` — both in Fortify actions and any future Form Requests — now resolve to the same strong policy without duplicating the rule.
+
+**Files changed:**  
+`app/Providers/AppServiceProvider.php`
+
+---
+
+### A-03 · `SESSION_SECURE_COOKIE` Not Set
+
+**Severity:** MEDIUM  
+**Status:** FIXED
+
+**Vulnerability:**  
+`config/session.php` reads `env('SESSION_SECURE_COOKIE')` which defaults to `null` (falsy). Neither `.env` nor `.env.example` set this key. On the SDC HTTPS deployment, the session cookie would be transmitted without the `Secure` flag — allowing it to be sent over a plain HTTP connection if a user navigates to `http://` before the HTTPS redirect fires, or if an intermediate proxy strips TLS.
+
+**Fix applied:**  
+- Added `SESSION_SECURE_COOKIE=false` to `.env` (local HTTP dev — correct)
+- Added `SESSION_SECURE_COOKIE=false` to `.env.example` with a comment: **PRODUCTION (HTTPS): must be `true`**
+
+The production `.env` on the SDC server must set this to `true`.
+
+**Files changed:**  
+`.env` · `.env.example`
+
+---
+
+### A-04 · "Remember Me" Checkbox Enabled 5-Year Session Persistence
+
+**Severity:** MEDIUM  
+**Status:** FIXED
+
+**Vulnerability:**  
+The login form included a "Keep me signed in" checkbox (`name="remember"`). When checked, Fortify/Laravel sets a long-lived remember-me cookie (default: 5 years via `remember_token`). This completely bypasses the 120-minute `SESSION_LIFETIME`. On a shared government workstation where an officer checks this box, the account remains accessible indefinitely across browser restarts, OS logins, and shift changes.
+
+**Fix applied:**  
+Removed the remember-me checkbox and label from `resources/views/auth/login.blade.php`. Sessions are now bounded exclusively by `SESSION_LIFETIME` (120 minutes) and `SESSION_EXPIRE_ON_CLOSE` (now `true`).
+
+**Files changed:**  
+`resources/views/auth/login.blade.php`
+
+---
+
+### A-05 · `SESSION_EXPIRE_ON_CLOSE=false`
+
+**Severity:** LOW  
+**Status:** FIXED
+
+**Vulnerability:**  
+With the default `false`, closing the browser window did not invalidate the session. The 120-minute TTL continued to tick from the last request. On a shared desktop, another user opening the browser shortly after could resume an active authenticated session.
+
+**Fix applied:**  
+Set `SESSION_EXPIRE_ON_CLOSE=true` in `.env` and `.env.example`. Sessions now expire when the browser closes, in addition to the 120-minute inactivity timeout.
+
+**Files changed:**  
+`.env` · `.env.example`
+
+---
+
+### A-06 · `SESSION_SAME_SITE=lax`
+
+**Severity:** LOW  
+**Status:** FIXED
+
+**Vulnerability:**  
+`lax` allows the session cookie to be sent on top-level cross-site navigations (e.g., clicking an external link that redirects to this app). For an internal government tool with no OAuth flows or external redirect dependencies, `strict` is the correct value — it prevents the session cookie from being attached to any cross-site request, even GET navigations from external pages.
+
+**Fix applied:**  
+Set `SESSION_SAME_SITE=strict` in `.env` and `.env.example`. CSRF tokens still protect all mutations; `strict` adds an additional layer for session-based attacks.
+
+**Files changed:**  
+`.env` · `.env.example`
+
+---
+
+### A-07 · `SESSION_ENCRYPT=false` — Session Data in Plain Text
+
+**Severity:** LOW  
+**Status:** FIXED
+
+**Vulnerability:**  
+Session data (including authentication state, CSRF tokens, and flash messages) was stored unencrypted in the `sessions` table. Direct database read access — possible for a DBA, backup process, or compromised DB credential — would expose active session tokens that could be used to impersonate authenticated users without knowing their passwords.
+
+**Fix applied:**  
+Set `SESSION_ENCRYPT=true` in `.env` and `.env.example`. Laravel encrypts session data using `APP_KEY` before writing to the DB. `APP_KEY` must be set and kept secret.
+
+**Files changed:**  
+`.env` · `.env.example`
+
+---
+
+### A-08 · `APP_DEBUG=true` in `.env.example` Without Production Warning
+
+**Severity:** LOW  
+**Status:** FIXED
+
+**Vulnerability:**  
+`.env.example` had `APP_DEBUG=true` with no warning. A developer deploying to the SDC server by copying `.env.example` verbatim would run the application in debug mode, exposing full stack traces (including DB credentials, file paths, and application internals) to any user who triggered an error.
+
+**Fix applied:**  
+Added inline production-guidance comments to `APP_ENV` and `APP_DEBUG` in `.env.example`:
+```
+APP_ENV=local    # PRODUCTION: set to 'production'
+APP_DEBUG=true   # PRODUCTION: must be 'false' — true leaks stack traces
+```
+
+**Files changed:**  
+`.env.example`
+
+---
+
+## Passing Checks — Confirmed Pre-Existing (No Remediation Required)
 
 These are not vulnerabilities in the current state but should be addressed before the application handles sensitive classified data.
 

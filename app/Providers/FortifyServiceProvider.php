@@ -2,11 +2,7 @@
 
 namespace App\Providers;
 
-use Illuminate\Cache\RateLimiting\Limit;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Str;
 use Laravel\Fortify\Fortify;
 
 class FortifyServiceProvider extends ServiceProvider
@@ -17,12 +13,11 @@ class FortifyServiceProvider extends ServiceProvider
     {
         Fortify::loginView(fn () => view('auth.login'));
 
-        RateLimiter::for('login', function (Request $request) {
-            $throttleKey = Str::transliterate(
-                Str::lower($request->input(Fortify::username())).'|'.$request->ip()
-            );
-
-            return Limit::perMinute(5)->by($throttleKey);
-        });
+        // Rate limiters for 'login' and 'two-factor' are defined in
+        // AppServiceProvider::configureRateLimiters() — do NOT redefine them here.
+        // FortifyServiceProvider boots after AppServiceProvider; a duplicate
+        // RateLimiter::for('login') call here would overwrite the dual-key limiter
+        // (email+IP AND IP-only) with a single-key version, silently killing the
+        // per-IP brute-force cap.
     }
 }

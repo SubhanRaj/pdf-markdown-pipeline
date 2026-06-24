@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -21,6 +22,12 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Establish the app-wide strong password policy so Password::default()
+        // used in Fortify actions inherits the same rules as our Form Requests.
+        Password::defaults(
+            fn () => Password::min(8)->mixedCase()->numbers()->symbols()
+        );
+
         $this->configureRateLimiters();
         $this->configureRouteBindings();
         $this->configureActivityLogging();
