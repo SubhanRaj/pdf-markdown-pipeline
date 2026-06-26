@@ -65,6 +65,19 @@
                     <p class="field-hint">Slug is set at creation and cannot be changed.</p>
                 </div>
 
+                @if(auth()->user()->isAdmin())
+                <div class="pt-4 border-t border-slate-200 dark:border-slate-700">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="hidden" name="requires_approval" value="0">
+                        <input type="checkbox" name="requires_approval" value="1"
+                            class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-amber-600 focus:ring-amber-500"
+                            {{ old('requires_approval', $ruleSet->requires_approval) ? 'checked' : '' }}>
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Require approval for all uploads to this rule set</span>
+                    </label>
+                    <p class="mt-1 ml-7 text-xs text-slate-500 dark:text-slate-400">When enabled, any document uploaded to this rule set is held as "Pending Approval" until an approver reviews it.</p>
+                </div>
+                @endif
+
             </div>
         </div>
 

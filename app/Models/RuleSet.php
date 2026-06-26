@@ -14,7 +14,7 @@ class RuleSet extends Model
     /** @use HasFactory<\Database\Factories\RuleSetFactory> */
     use HasFactory, SoftDeletes, HasUnicodeSlug;
 
-    protected $fillable = ['department_id', 'name', 'slug', 'description', 'metadata'];
+    protected $fillable = ['department_id', 'name', 'slug', 'description', 'metadata', 'requires_approval'];
 
     protected $casts = ['metadata' => 'array'];
 

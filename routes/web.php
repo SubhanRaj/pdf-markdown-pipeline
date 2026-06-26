@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\UserManagementController;
+use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DivisionController;
 use App\Http\Controllers\DocumentController;
@@ -132,6 +133,17 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
             Route::delete('/{rule_set}',   [RuleSetController::class, 'destroy'])->name('destroy');
         });
     });
+});
+
+// ── Approval queue (maker-checker workflow) ───────────────────────────────────
+
+Route::middleware(['auth', 'throttle:mutations'])->prefix('approvals')->name('approvals.')->group(function () {
+    Route::get('/',                  [ApprovalController::class, 'index'])->name('index');
+    Route::get('/{id}/pdf',          [ApprovalController::class, 'pdf'])->name('pdf');
+    Route::post('/{id}/approve',     [ApprovalController::class, 'approve'])->name('approve');
+    Route::post('/{id}/reject',      [ApprovalController::class, 'reject'])->name('reject');
+    Route::post('/{id}/reclassify',  [ApprovalController::class, 'reclassify'])->name('reclassify');
+    Route::post('/{id}/resubmit',    [ApprovalController::class, 'resubmit'])->name('resubmit');
 });
 
 // ── Profile (self-edit, any authenticated user) ───────────────────────────────

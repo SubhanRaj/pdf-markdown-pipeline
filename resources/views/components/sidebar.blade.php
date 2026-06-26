@@ -56,6 +56,27 @@
             <i class="ti ti-archive w-5 text-center text-base flex-shrink-0"></i>
             <span class="sidebar-text">Archive</span>
         </a>
+
+        @php
+            $isApprover = auth()->user()->isAdmin() || auth()->user()->hasPrivilege('documents.approve');
+            if ($isApprover) {
+                $pendingCount = \App\Models\Document::where('status', 'pending_approval')->count();
+            } else {
+                $pendingCount = \App\Models\Document::whereIn('status', ['pending_approval', 'rejected'])
+                    ->where('user_id', auth()->id())->count();
+            }
+        @endphp
+        <a href="{{ route('approvals.index') }}"
+           data-tooltip="Approval Queue"
+           class="nav-link {{ request()->routeIs('approvals.*') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-checkbox w-5 text-center text-base flex-shrink-0 text-amber-400"></i>
+            <span class="sidebar-text">Approval Queue</span>
+            @if($pendingCount > 0)
+            <span class="sidebar-badge ml-auto text-[10px] bg-amber-900/60 text-amber-400 px-1.5 py-0.5 rounded font-medium">
+                {{ $pendingCount }}
+            </span>
+            @endif
+        </a>
         @endauth
 
         <span class="nav-section-label">Browse Vault</span>

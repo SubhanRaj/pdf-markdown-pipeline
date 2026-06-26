@@ -60,6 +60,7 @@ class SectionController extends Controller
 
         // Direct documents only (no division) — paginated
         $documentsQuery = $section->documents()
+            ->publishable()
             ->whereNull('division_id')
             ->with('user:id,name')
             ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
@@ -76,6 +77,7 @@ class SectionController extends Controller
 
         // Available years for the filter dropdown
         $availableYears = $section->documents()
+            ->publishable()
             ->whereNull('division_id')
             ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
             ->pluck('metadata')

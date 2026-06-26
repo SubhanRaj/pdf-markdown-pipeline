@@ -198,6 +198,19 @@
                     @error('role') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
 
+                {{-- Bulk Upload Mode toggle --}}
+                <div class="col-span-2">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="hidden" name="uploads_require_approval" value="0">
+                        <input type="checkbox" name="uploads_require_approval" value="1"
+                            id="uploads_require_approval"
+                            class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-amber-600 focus:ring-amber-500"
+                            {{ old('uploads_require_approval') ? 'checked' : '' }}>
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Bulk Upload Mode — all uploads held for approval</span>
+                    </label>
+                    <p class="mt-1 ml-7 text-xs text-slate-500 dark:text-slate-400">Enable for bulk-onboarding operators. Every document they upload will go to "Pending Approval" rather than becoming immediately active.</p>
+                </div>
+
                 {{-- Department --}}
                 <div class="col-span-2 sm:col-span-1">
                     <label for="department_id" class="field-label">Department</label>
@@ -264,7 +277,8 @@
                 'documents.delete'       => ['label' => 'Archive (soft-delete) docs', 'group' => 'Documents'],
                 'documents.restore'      => ['label' => 'Restore from archive',       'group' => 'Documents'],
                 'documents.force-delete' => ['label' => 'Permanently delete (requires letter)', 'group' => 'Documents'],
-                'documents.verify'       => ['label' => 'Verify / approve docs',      'group' => 'Documents'],
+                'documents.verify'       => ['label' => 'Verify / mark as verified',  'group' => 'Documents'],
+                'documents.approve'      => ['label' => 'Approve / reject pending uploads', 'group' => 'Documents'],
                 'section.head'           => ['label' => 'Section Head (create divisions in own section)', 'group' => 'Organisational'],
                 'department.head'        => ['label' => 'Department Head (create sections/divisions in own dept)', 'group' => 'Organisational'],
                 'organization.head'      => ['label' => 'Organisation Head (full access across all depts)', 'group' => 'Organisational'],

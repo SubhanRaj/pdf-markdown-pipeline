@@ -40,9 +40,17 @@ class UpdateDivisionRequest extends FormRequest
 
     public function rules(): array
     {
+        $user = $this->user();
+        $canToggleApproval = $user && (
+            $user->isAdmin()
+            || $user->hasPrivilege('department.head')
+            || $user->hasPrivilege('section.head')
+        );
+
         return [
-            'name'        => ['required', 'string', 'min:2', 'max:150', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
-            'description' => ['nullable', 'string', 'max:500'],
+            'name'             => ['required', 'string', 'min:2', 'max:150', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
+            'description'      => ['nullable', 'string', 'max:500'],
+            'requires_approval' => $canToggleApproval ? ['nullable', 'boolean'] : [],
         ];
     }
 

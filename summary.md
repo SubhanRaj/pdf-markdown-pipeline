@@ -1130,3 +1130,151 @@ Removed the `/storage/document_vault/` 403 block. Retained `/storage/archive_let
 - `app/Http/Controllers/DocumentController.php` — all soft-delete, restore, and force-delete methods updated; `trashedPdf` serves from local disk
 - `app/Http/Controllers/RuleSetController.php` — cascade soft-delete now calls `archiveFiles()` for each document
 - `public/.htaccess` — `document_vault` 403 block removed; `archive_letters` block retained
+
+---
+
+## M28 — Maker-Checker Upload Approval Workflow (COMPLETED 2026-06-26)
+
+Introduces a configurable two-stage approval layer between document upload and public visibility. Designed specifically for the bulk-operator onboarding model where junior staff upload large batches of legacy GOs, which must be reviewed by a senior officer before appearing in the public document vault.
+
+---
+
+### Design
+
+**Two independent triggers hold a document in `pending_approval` on upload:**
+
+1. `users.uploads_require_approval = true` — every upload by this user is held, regardless of where they upload. Intended for bulk operators during the initial digitisation phase.
+2. `sections.requires_approval = true` / `divisions.requires_approval = true` / `rule_sets.requires_approval = true` — any upload to this context is held, regardless of who uploads. Intended for high-sensitivity sections (e.g. legal orders, confidential circulars).
+
+Either condition is sufficient; both can apply simultaneously.
+
+**If neither condition holds:** document is created with `status = 'uploaded'` and enters the normal extraction pipeline immediately (existing behaviour, unchanged).
+
+---
+
+### Status flow
+
+```
+Upload
+  ↓
+shouldRequireApproval()?
+  YES → pending_approval ──→ approve → uploaded → processing → review → verified
+                          ↘ reject  → rejected  → resubmit → pending_approval (loop)
+  NO  → uploaded → (normal pipeline, unchanged)
+```
+
+`pending_approval` and `rejected` documents are excluded from all regular document lists via the `->publishable()` Eloquent scope (`whereNotIn('status', ['pending_approval', 'rejected'])`).
+
+---
+
+### New privilege: `documents.approve`
+
+Added to `User::PRIVILEGES` constant. Holders can approve, reject, and reclassify pending documents within their existing org scope (same boundary as `canUploadTo`). Admins always pass.
+
+Approval scope:
+| User type | Can approve |
+|---|---|
+| Admin | All documents anywhere |
+| `organization.head` privilege | All documents anywhere |
+| `department.head` + `department_id` | Documents in their assigned department |
+| `section.head` + `section_id` | Documents in their assigned section |
+| `division_id` assigned | Documents in their assigned division |
+
+---
+
+### New: `ApprovalController`
+
+Six actions at `/approvals/{id}/…` using numeric `{id}` (not slug — reclassification changes the document's context mid-flow, invalidating slug-based routes):
+
+| Route | Method | Action |
+|---|---|---|
+| `GET /approvals` | `approvals.index` | Queue view — three tabs |
+| `GET /approvals/{id}/pdf` | `approvals.pdf` | Stream pending/rejected PDF (from public disk) |
+| `POST /approvals/{id}/approve` | `approvals.approve` | `pending_approval → uploaded`, optional note |
+| `POST /approvals/{id}/reject` | `approvals.reject` | `pending_approval → rejected`, mandatory reason |
+| `POST /approvals/{id}/reclassify` | `approvals.reclassify` | Move to new context, optional approve |
+| `POST /approvals/{id}/resubmit` | `approvals.resubmit` | `rejected → pending_approval` (own doc only) |
+
+**Reclassification:** Moves the document to the correct section/division/rule_set. The approver must have `canApprove()` for both the old and new context. Files are moved on the `public` disk via `Storage::disk('public')->move()` (same-disk atomic rename). A `DocumentStatusHistory` row records the move; optionally followed by an approval row in the same DB transaction.
+
+**Resubmit:** Only the original uploader (or an admin) can resubmit a rejected document. No privilege required beyond ownership.
+
+---
+
+### Approval queue view (`GET /approvals`)
+
+Three tabs:
+- **Pending Approval** (amber) — `status = pending_approval` in the approver's scope. Non-approvers see nothing here.
+- **Rejected** (red) — `status = rejected` in scope. Non-approvers see nothing here.
+- **My Submissions** (slate) — own pending + rejected documents, regardless of approval privilege.
+
+Features:
+- Slide-over drawer with embedded PDF preview and metadata strip
+- Bulk approve and bulk reject with shared Swal2 reason prompt (Pending tab only)
+- Reclassify modal with cascading department → section/division OR rule_set selects, "Approve after reclassifying" checkbox, all options pre-loaded as JSON data islands (no AJAX round-trips during modal interaction)
+- Sidebar amber badge: approvers see count of `pending_approval` in scope; non-approvers see own pending + rejected count; hidden when 0
+
+---
+
+### `->publishable()` scope applied everywhere
+
+Added to all regular document list queries to exclude `pending_approval` and `rejected` documents from public view:
+- `SectionController@show` — `$documentsQuery` and `$availableYears`
+- `DivisionController@show` — `$rootDocuments`, amendments eager-load, `$totalCount`
+- `RuleSetController@show` — `$rootDocuments`, amendments eager-load
+- `SearchController@index` — `$documentsQuery`
+- `FrontendController@dashboard` — `$baseQuery` and all status-specific stat sub-queries; dashboard also shows `pending_approval` count to admins/approvers
+
+---
+
+### `requires_approval` context toggle
+
+Toggle added to section/division/rule_set edit forms. Gated by privilege:
+- **Section edit** — visible to `section.head`, `department.head`, or admin
+- **Division edit** — visible to admin, `department.head`, or `section.head`
+- **Rule set edit** — visible to admin only
+
+---
+
+### `uploads_require_approval` user toggle
+
+Added to user create/edit forms (admin-only). Labelled "Bulk Upload Mode — all uploads held for approval". When enabled, every document uploaded by that user starts in `pending_approval` regardless of target context.
+
+Added to `StoreUserRequest` and `UpdateUserRequest` validation rules. Added to `UserManagementController@store` and `@update`.
+
+---
+
+### Files added in M28
+
+- `database/migrations/2026_06_26_000001_add_requires_approval_to_sections_divisions_rule_sets.php`
+- `database/migrations/2026_06_26_000002_add_uploads_require_approval_to_users.php`
+- `app/Http/Controllers/ApprovalController.php`
+- `app/Http/Requests/ApproveDocumentRequest.php`
+- `app/Http/Requests/RejectDocumentRequest.php`
+- `app/Http/Requests/ReclassifyDocumentRequest.php`
+- `resources/views/approvals/index.blade.php`
+- `resources/views/approvals/_table.blade.php`
+
+### Files modified in M28
+
+- `app/Models/Document.php` — `pending_approval`, `rejected` in `STATUSES`; `scopePublishable()` added
+- `app/Models/User.php` — `documents.approve` in `PRIVILEGES`; `uploads_require_approval` in `$fillable`; `shouldRequireApproval()`, `canApprove()` helpers added
+- `app/Models/Section.php`, `Division.php`, `RuleSet.php` — `requires_approval` in `$fillable`
+- `app/Http/Requests/UpdateSectionRequest.php`, `UpdateDivisionRequest.php`, `UpdateRuleSetRequest.php` — `requires_approval` field added
+- `app/Http/Requests/Admin/StoreUserRequest.php`, `UpdateUserRequest.php` — `uploads_require_approval` field added
+- `app/Http/Controllers/DocumentController.php` — `store()` checks `shouldRequireApproval()`, sets `$initialStatus`, adapts flash message
+- `app/Http/Controllers/SectionController.php` — `->publishable()` on document queries
+- `app/Http/Controllers/DivisionController.php` — `->publishable()` on document queries
+- `app/Http/Controllers/RuleSetController.php` — `->publishable()` on document queries
+- `app/Http/Controllers/SearchController.php` — `->publishable()` on document query
+- `app/Http/Controllers/FrontendController.php` — `->publishable()` base query; `pending_approval` stat added
+- `app/Http/Controllers/Admin/UserManagementController.php` — `uploads_require_approval` in `store()` and `update()`
+- `resources/views/components/sidebar.blade.php` — Approval Queue nav link with amber badge
+- `resources/views/sections/edit.blade.php` — `requires_approval` toggle
+- `resources/views/divisions/edit.blade.php` — `requires_approval` toggle
+- `resources/views/rule_sets/edit.blade.php` — `requires_approval` toggle
+- `resources/views/admin/users/create.blade.php` — `documents.approve` checkbox; `uploads_require_approval` toggle
+- `resources/views/admin/users/edit.blade.php` — same
+- `CLAUDE.md` — modules table, privileges, users schema, route map, upload flow, Maker-Checker section, architecture decisions 25–28
+- `README.md` — Core Features, schema tables, route map, users table description
+- `ROADMAP.md` — section 2.1 updated to ✅ Implemented with actual design

@@ -28,6 +28,7 @@ class SearchController extends Controller
 
         // Documents — title match, or match via section/division/rule-set name
         $documentsQuery = Document::with(['department', 'section', 'division', 'ruleSet'])
+            ->publishable()
             ->where('title', 'LIKE', $term)
             ->orWhere(fn ($sub) => $sub
                 ->whereHas('section',  fn ($s) => $s->where('name', 'LIKE', $term))

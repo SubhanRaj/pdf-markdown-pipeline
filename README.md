@@ -22,7 +22,8 @@ While built for government requirements, the architecture is fully open-source a
 - **Strict Siloed Architecture** — A hierarchical directory structure (Level → Body → Section/RuleSet) maps directly to database records, preventing context leakage between administrative units.
 - **Dual Document Taxonomy** — Documents belong to either a **Section** (for GOs, notices, policy circulars) or a **Rule Set** (for Acts, Rules, and their amendments), each with dedicated vault paths and URL structures.
 - **Metadata Injection** — Processed Markdown files carry YAML frontmatter (department, section, GO reference, dates, etc.), enabling accurate context retrieval for downstream LLM/RAG pipelines.
-- **Full Audit Trail** — Every document state transition (`Uploaded → Processing → Review → Verified`) is logged with the acting user and timestamp.
+- **Maker-Checker Approval Workflow** — Bulk-onboarding operators can have all their uploads held in `pending_approval` until a designated approver reviews them. Approval scope follows the existing organisational hierarchy (section / department / global). Approvers can approve, reject (with mandatory reason), or reclassify (move document to the correct section/division/rule set without re-uploading). Rejected documents can be resubmitted by the uploader. The entire flow is audit-logged.
+- **Full Audit Trail** — Every document state transition (`Uploaded → Processing → Review → Verified`, including `pending_approval` and `rejected`) is logged with the acting user and timestamp.
 - **Full Rajbhasha / Unicode Support** — All document titles, section names, rule set names, and division names accept Devanagari text natively — including combining marks (matras, halant). Mixed Hindi-English titles like `FL Bottling Rules 2011 (शुद्धिपत्र)` are stored, displayed, and slugified correctly. Validation uses Unicode category classes (`\p{L}\p{M}\p{N}\p{P}\p{Z}`) in both PHP (PCRE) and browser JavaScript. URL slugs preserve Devanagari characters intact (e.g. `…/fl-bottling-rules-2011-16th-amendment-शुद्धिपत्र`) instead of transliterating them.
 
 ## 🛠️ Technology Stack
@@ -151,6 +152,7 @@ Unique constraint: `(slug, level)`.
 | `wing` | string nullable | e.g. `joint_secretary_wing`, `headquarter` |
 | `name` | string | |
 | `slug` | string | |
+| `requires_approval` | boolean | default false — any upload to this section is held for approval |
 | timestamps + softDeletes | | |
 
 Unique constraint: `(department_id, wing, slug)`.
@@ -163,6 +165,7 @@ Unique constraint: `(department_id, wing, slug)`.
 | `name` | string | Full name of the Act/Rule (e.g. *U.P. Excise Act 1910*) |
 | `slug` | string | Auto-generated from name |
 | `description` | text nullable | Optional summary |
+| `requires_approval` | boolean | default false — any upload to this rule set is held for approval |
 | `metadata` | json nullable | Category, origin year, etc. |
 | timestamps + softDeletes | | |
 
@@ -183,7 +186,7 @@ Unique constraint: `(department_id, slug)`.
 | `original_pdf_path` | string | Full relative path on `public` disk |
 | `markdown_path` | string nullable | Set after extraction job completes |
 | `vault_path` | string nullable | Vault directory; set at upload |
-| `status` | string | `uploaded → processing → ocr_pending → review → verified \| failed` — pipeline state only |
+| `status` | string | `pending_approval → uploaded → processing → ocr_pending → review → verified \| failed \| rejected` — see approval workflow below |
 | `visibility` | string | `public` (default) \| `authenticated` — guest access gate, independent of status |
 | `parent_id` | FK → documents nullable | `nullOnDelete` — links amendments to their parent rule document |
 | `metadata` | json nullable | GO number, subject, dates, etc. |
@@ -204,9 +207,9 @@ Unique constraint: `(section_id, slug)` for section documents. Slug generation f
 | `created_at` | timestamp | Append-only — no `updated_at` |
 
 ### `users`
-Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digits, nullable), `landline` (free-form STD+number, nullable), `post`, `role`, `privileges` (JSON — validated against `User::PRIVILEGES` whitelist), `department_id`, `section_id`, `division_id`. Public registration disabled — admin-created only.
+Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digits, nullable), `landline` (free-form STD+number, nullable), `post`, `role`, `uploads_require_approval` (boolean, default false — bulk-mode flag; all uploads from this user go to `pending_approval`), `privileges` (JSON — validated against `User::PRIVILEGES` whitelist), `department_id`, `section_id`, `division_id`. Public registration disabled — admin-created only.
 
-**Privilege strings:** `documents.upload`, `documents.edit`, `documents.delete`, `documents.restore`, `documents.force-delete`, `documents.verify`, `organization.head`, `department.head`, `section.head`. Admins bypass all privilege checks unconditionally.
+**Privilege strings:** `documents.upload`, `documents.edit`, `documents.delete`, `documents.restore`, `documents.force-delete`, `documents.verify`, `documents.approve`, `organization.head`, `department.head`, `section.head`. Admins bypass all privilege checks unconditionally.
 
 ## 🗺️ Route Map
 
@@ -280,6 +283,19 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | `/admin/users/{user}/edit` | GET | `admin.users.edit` | Admin |
 | `/profile/edit` | GET | `profile.edit` | Auth |
 | `/profile` | PATCH | `profile.update` | Auth |
+
+### Approval Queue
+
+| Route | Method | Name | Auth |
+|---|---|---|---|
+| `/approvals` | GET | `approvals.index` | Auth |
+| `/approvals/{id}/pdf` | GET | `approvals.pdf` | Auth |
+| `/approvals/{id}/approve` | POST | `approvals.approve` | `documents.approve` privilege or admin |
+| `/approvals/{id}/reject` | POST | `approvals.reject` | `documents.approve` privilege or admin |
+| `/approvals/{id}/reclassify` | POST | `approvals.reclassify` | `documents.approve` privilege or admin |
+| `/approvals/{id}/resubmit` | POST | `approvals.resubmit` | Auth (own document only) |
+
+Approval routes use numeric `{id}` — reclassification changes context mid-flow so slug-based binding would break.
 
 ### Other
 
