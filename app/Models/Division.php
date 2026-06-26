@@ -13,7 +13,7 @@ class Division extends Model
 {
     use HasFactory, SoftDeletes, HasUnicodeSlug;
 
-    protected $fillable = ['section_id', 'name', 'slug', 'description'];
+    protected $fillable = ['section_id', 'name', 'slug', 'description', 'requires_approval'];
 
     public function getRouteKeyName(): string
     {

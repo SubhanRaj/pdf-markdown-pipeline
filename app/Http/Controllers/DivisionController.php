@@ -52,9 +52,11 @@ class DivisionController extends Controller
 
         // All root documents in this division with amendments pre-loaded
         $rootDocuments = $division->documents()
+            ->publishable()
             ->with([
                 'user:id,name',
                 'amendments' => fn ($q) => $q
+                    ->publishable()
                     ->with('user:id,name')
                     ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
                     ->orderBy('created_at'),
@@ -93,6 +95,7 @@ class DivisionController extends Controller
         });
 
         $totalCount = $division->documents()
+            ->publishable()
             ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
             ->count();
 

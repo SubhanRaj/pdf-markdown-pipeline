@@ -25,12 +25,13 @@ class UpdateUserRequest extends FormRequest
             'landline'      => ['nullable', 'string', 'max:20', 'regex:/^[\d\s\-\+\(\)]{7,20}$/'],
             'password'      => ['nullable', 'confirmed', Password::min(8)->mixedCase()->numbers()->symbols()],
             'post'          => ['nullable', 'string', 'max:100', 'regex:/^[\p{L}\s\'\-\.&\/\(\)]+$/u'],
-            'role'          => ['required', 'in:admin,operator,viewer'],
-            'privileges'    => ['nullable', 'array'],
-            'privileges.*'  => ['string', 'in:' . implode(',', User::PRIVILEGES)],
-            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
-            'section_id'    => ['nullable', 'integer', 'exists:sections,id'],
-            'division_id'   => ['nullable', 'integer', 'exists:divisions,id'],
+            'role'                     => ['required', 'in:admin,operator,viewer'],
+            'uploads_require_approval' => ['nullable', 'boolean'],
+            'privileges'               => ['nullable', 'array'],
+            'privileges.*'             => ['string', 'in:' . implode(',', User::PRIVILEGES)],
+            'department_id'            => ['nullable', 'integer', 'exists:departments,id'],
+            'section_id'               => ['nullable', 'integer', 'exists:sections,id'],
+            'division_id'              => ['nullable', 'integer', 'exists:divisions,id'],
         ];
     }
 

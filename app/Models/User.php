@@ -26,6 +26,7 @@ class User extends Authenticatable
         'documents.restore',      // restore from archive
         'documents.force-delete', // permanent delete from archive (requires letter)
         'documents.verify',
+        'documents.approve',      // approve / reject / reclassify pending uploads
         'organization.head',      // upload/delete anywhere across all departments
         'department.head',        // scoped to assigned department
         'section.head',           // scoped to assigned section
@@ -44,6 +45,7 @@ class User extends Authenticatable
         'department_id',
         'section_id',
         'division_id',
+        'uploads_require_approval',
         'email_verified_at',
     ];
 
@@ -180,6 +182,44 @@ class User extends Authenticatable
     public function canDeleteFrom(object $context): bool
     {
         return $this->canUploadTo($context);
+    }
+
+    /**
+     * Whether this user may approve/reject/reclassify documents from the given context.
+     * Uses identical scope logic to canUploadTo() — approval boundary matches upload boundary.
+     */
+    public function canApprove(object $context): bool
+    {
+        if (! ($this->isAdmin() || $this->hasPrivilege('documents.approve'))) {
+            return false;
+        }
+
+        return $this->canUploadTo($context);
+    }
+
+    /**
+     * Whether a document uploaded by this user to the given context should be held
+     * for approval before becoming visible in regular document lists.
+     */
+    public function shouldRequireApproval(object $context): bool
+    {
+        if ($this->uploads_require_approval) {
+            return true;
+        }
+
+        if ($context instanceof Section && $context->requires_approval) {
+            return true;
+        }
+
+        if ($context instanceof Division && $context->requires_approval) {
+            return true;
+        }
+
+        if ($context instanceof RuleSet && $context->requires_approval) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

@@ -1,7 +1,7 @@
 # Roadmap — pdf-markdown-pipeline
 
 **Target audience:** UP State Data Centre (SDC) / NIC auditors and senior departmental stakeholders.  
-**Purpose:** Document the forward trajectory of enterprise-grade features and security enhancements planned for the pdf-markdown-pipeline. Items in this roadmap are *not yet implemented* — they represent committed design decisions that have been architecturally scoped and are ready to enter the development queue.
+**Purpose:** Document the forward trajectory of enterprise-grade features and security enhancements planned for the pdf-markdown-pipeline. Items marked ✅ are implemented; all others represent committed design decisions that have been architecturally scoped and are ready to enter the development queue.
 
 ---
 
@@ -55,19 +55,31 @@
 
 ## Phase 2 — High-Value Bureaucratic Workflows
 
-### 2.1 Maker-Checker (E-File Approval) Workflow
+### 2.1 Maker-Checker (E-File Approval) Workflow ✅ Implemented (2026-06-26)
 
-**Rationale:** Government document workflows traditionally follow the "Maker-Checker" (drafting officer → reviewing officer → approving authority) principle enshrined in manual record management. For digital documents, this means a document uploaded by a junior operator must be reviewed and approved by a designated officer before it is considered `verified` and publicly visible. This satisfies the procedural requirement in the UP Excise Department's internal SOP and provides a clear audit trail for each approval decision.
+**Status:** Fully implemented. The design below reflects what was actually built.
 
-**Planned approach:**
+**Rationale:** Government document workflows follow the "Maker-Checker" principle — a document uploaded by a junior operator must be reviewed by a designated officer before it is publicly visible. This satisfies the UP Excise Department's internal SOP and provides a clear audit trail for each approval decision.
 
-- **New `status` value: `pending_approval`** — After an operator uploads a document and it completes text extraction (reaching `review` status), submitting the review form will set the status to `pending_approval` rather than directly to `verified`. No new DB column is needed — this is a new value in the existing `status` pipeline: `uploaded → processing → ocr_pending → review → pending_approval → verified | rejected`.
-- **`documents.approve` privilege** — A new entry in `User::PRIVILEGES` for officers designated as approvers. Admins always pass. The approver's scope (section, department, or global) is determined by the existing `section_id`/`department_id` hierarchy.
-- **Approval queue view** — A new `GET /documents/pending-approval` route (gated by `documents.approve` privilege) will list all documents in `pending_approval` status within the approver's scope. Each row will show the uploader, upload date, document type, and a link to the split-pane review UI.
-- **Approve/Reject actions:**
-  - `POST /documents/{doc}/approve` → sets `status = 'verified'`; writes history row; notifies the uploader (via a new on-app notification model).
-  - `POST /documents/{doc}/reject` → sets `status = 'review'` (returns to the queue for correction); requires a mandatory rejection reason stored in `DocumentStatusHistory.note`.
-- **Backward compatibility** — Admin users retain the ability to set `status = 'verified'` directly from the review UI, bypassing the approval step. This preserves the existing workflow for admin-uploaded documents and during the initial data-entry phase.
+**What was built:**
+
+- **Two independent triggers for `pending_approval`:**
+  1. `users.uploads_require_approval = true` — all uploads by this user are held (bulk operator mode)
+  2. `sections.requires_approval = true` / `divisions.requires_approval = true` / `rule_sets.requires_approval = true` — any upload to this context is held regardless of who uploads it
+- **Status pipeline update:** `pending_approval` and `rejected` inserted before the normal extraction pipeline. Approved docs proceed as `uploaded`. Status flow: `uploaded (direct) | pending_approval → (approve) → uploaded → processing → review → verified | (reject) → rejected → (resubmit) → pending_approval`
+- **`documents.approve` privilege** — operators designated as approvers. Approval scope equals the user's upload scope (section.head → their section; department.head → their department; organization.head / admin → anywhere).
+- **Approval queue at `GET /approvals`** — Three tabs: Pending Approval, Rejected, My Submissions. Slide-over drawer with PDF preview, metadata strip, and action buttons. All authenticated users see the queue; badge counts differ by role.
+- **Actions:**
+  - `POST /approvals/{id}/approve` → status `pending_approval → uploaded`, optional note
+  - `POST /approvals/{id}/reject` → status `pending_approval → rejected`, mandatory reason
+  - `POST /approvals/{id}/reclassify` → moves document to correct context (new section/division/rule_set), physically moves files on public disk, optional approve-in-same-step checkbox
+  - `POST /approvals/{id}/resubmit` → status `rejected → pending_approval` (uploader's own doc only)
+- **Bulk approve / bulk reject** — via checkbox select on Pending tab, Swal2 confirmation with shared reason.
+- **`->publishable()` scope** — `whereNotIn('status', ['pending_approval', 'rejected'])` applied to all regular document list queries (section/division/rule_set show pages, search, dashboard). Pending and rejected docs are invisible outside the approvals queue.
+- **Reclassification** uses `Storage::disk('public')->move()` (same-disk atomic rename). Cross-department moves allowed for org.head/admin; department.head limited to own department.
+- **Approval routes use numeric `{id}`** — reclassification changes the document's context mid-flow, making slug-based routing stale.
+- **`requires_approval` toggle** on section/division/rule_set edit forms — gated by appropriate privilege (section.head or above).
+- **`uploads_require_approval` toggle** on user create/edit forms — admin-only.
 
 ---
 
@@ -134,4 +146,4 @@ The current Parsedown post-processor uses a targeted `preg_replace` to strip `ja
 
 ---
 
-*Roadmap authored: 2026-06-25. All items subject to prioritisation based on NIC audit outcomes and departmental SOP review.*
+*Roadmap authored: 2026-06-25. Last updated: 2026-06-26 (2.1 Maker-Checker marked implemented). All items subject to prioritisation based on NIC audit outcomes and departmental SOP review.*

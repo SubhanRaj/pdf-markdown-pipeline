@@ -13,7 +13,7 @@ class Section extends Model
     /** @use HasFactory<\Database\Factories\SectionFactory> */
     use HasFactory, SoftDeletes;
 
-    protected $fillable = ['department_id', 'wing', 'name', 'slug'];
+    protected $fillable = ['department_id', 'wing', 'name', 'slug', 'requires_approval'];
 
     public function getRouteKeyName(): string
     {

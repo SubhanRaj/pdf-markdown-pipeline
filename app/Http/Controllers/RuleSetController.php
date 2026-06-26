@@ -55,9 +55,11 @@ class RuleSetController extends Controller
 
         // Root documents with amendments pre-loaded
         $rootDocuments = $ruleSet->documents()
+            ->publishable()
             ->with([
                 'user:id,name',
                 'amendments' => fn ($q) => $q
+                    ->publishable()
                     ->with('user:id,name')
                     ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
                     ->orderBy('created_at'),

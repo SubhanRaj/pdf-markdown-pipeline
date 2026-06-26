@@ -130,12 +130,17 @@ class DocumentController extends Controller
             return response()->json(['message' => 'File could not be saved. Please try again.'], 500);
         }
 
+        // Determine if this upload requires approval (bulk operator flag or context flag)
+        $uploadContext   = $division ?? $section ?? $ruleSet;
+        $requireApproval = $uploadContext && $request->user()->shouldRequireApproval($uploadContext);
+        $initialStatus   = $requireApproval ? 'pending_approval' : 'uploaded';
+
         try {
             $document = null;
 
             $metadata = $this->extractMetadata($validated);
 
-            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $department, $vaultDir, $pdfPath, $slug, $request, $metadata, &$document) {
+            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $department, $vaultDir, $pdfPath, $slug, $request, $metadata, $initialStatus, &$document) {
                 $document = Document::create([
                     'department_id'     => $department->id,
                     'section_id'        => $section?->id,
@@ -149,7 +154,7 @@ class DocumentController extends Controller
                     'original_filename' => preg_replace('/[^\w\s\-\.\(\)]/', '_', $request->file('file')->getClientOriginalName()),
                     'original_pdf_path' => $pdfPath,
                     'vault_path'        => $vaultDir,
-                    'status'            => 'uploaded',
+                    'status'            => $initialStatus,
                     'visibility'        => $validated['visibility'] ?? 'public',
                     'metadata'          => ! empty($metadata) ? $metadata : null,
                 ]);
@@ -158,12 +163,18 @@ class DocumentController extends Controller
                     'document_id' => $document->id,
                     'actor_id'    => $request->user()->id,
                     'from_status' => null,
-                    'to_status'   => 'uploaded',
-                    'note'        => 'Document uploaded.',
+                    'to_status'   => $initialStatus,
+                    'note'        => $initialStatus === 'pending_approval'
+                        ? 'Document submitted for approval.'
+                        : 'Document uploaded.',
                 ]);
             });
 
-            flash()->success("\"{$validated['title']}\" uploaded successfully.");
+            if ($initialStatus === 'pending_approval') {
+                flash()->info("\"{$validated['title']}\" submitted and is pending approval before becoming visible.");
+            } else {
+                flash()->success("\"{$validated['title']}\" uploaded successfully.");
+            }
 
             $redirectUrl = match(true) {
                 $ruleSet  !== null => route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]),

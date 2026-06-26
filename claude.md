@@ -220,7 +220,7 @@ All check `withTrashed()` and append `-2`, `-3` on collision. DB unique constrai
 Append-only audit table. Only authenticated users are logged (guests are never recorded). Read-only from the application layer — no update/delete routes exist.
 
 ### `users`
-Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings — see `User::PRIVILEGES` constant for the canonical whitelist), `department_id` (FK → departments, nullable, `nullOnDelete`), `section_id` (FK → sections, nullable, `nullOnDelete`), `division_id` (FK → divisions, nullable, `nullOnDelete`). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
+Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings — see `User::PRIVILEGES` constant for the canonical whitelist), `uploads_require_approval` (boolean, default false — when true every document this user uploads goes to `pending_approval` regardless of context), `department_id` (FK → departments, nullable, `nullOnDelete`), `section_id` (FK → sections, nullable, `nullOnDelete`), `division_id` (FK → divisions, nullable, `nullOnDelete`). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
 
 **Privilege strings (canonical whitelist — `User::PRIVILEGES` constant):**
 ```php
@@ -230,6 +230,7 @@ Standard Laravel/Fortify users table extended with: `username` (unique), `mobile
 'documents.restore'      // restore documents from archive
 'documents.force-delete' // permanently delete from archive (requires reason + letter upload)
 'documents.verify'       // mark documents as verified
+'documents.approve'      // approve/reject/reclassify pending uploads (scoped to upload boundary)
 'organization.head'      // upload/delete anywhere across all departments
 'department.head'        // scoped to their assigned department
 'section.head'           // scoped to their assigned section
@@ -239,22 +240,23 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 
 **Privilege escalation safety:** `StoreUserRequest` and `UpdateUserRequest` validate `privileges.*` as `in:` against `User::PRIVILEGES` — unknown strings are rejected. Privileges can only be set via `admin.*` routes (gated by `IsAdmin` middleware). `UpdateProfileRequest` has no privilege fields — self-escalation is impossible.
 
-## What's built (as of 2026-06-24, updated)
+## What's built (as of 2026-06-26, updated)
 
 ### Modules / controllers
 
 | Module | Controller | Notes |
 |---|---|---|
-| Dashboard | `FrontendController` | Public landing page with document stats; auth-aware recent feed |
-| Documents | `DocumentController` | Full CRUD; AJAX-only store (handles both section and rule-set uploads); PDF stream; hierarchical URLs; slug generation; rule-set doc methods; soft-delete with reason; trash/restore/force-delete |
+| Dashboard | `FrontendController` | Public landing page with document stats; auth-aware recent feed; `pending_approval` count shown to admins/approvers |
+| Documents | `DocumentController` | Full CRUD; AJAX-only store (handles both section and rule-set uploads); PDF stream; hierarchical URLs; slug generation; rule-set doc methods; soft-delete with reason; trash/restore/force-delete; `shouldRequireApproval()` check on every upload |
 | Departments | `DepartmentController` | Full CRUD; slug-based route model binding; loads rule sets for show page |
-| Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + multi-file upload modal |
-| Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; multi-file upload modal on show page pre-selects `rule_amendment` type |
-| Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal and amendment hierarchy |
-| Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see `visibility = 'public'` docs only; results capped at 50 docs + 20 sections + 20 rule sets |
-| User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins; `division_id` field added to create/edit forms; new privilege checkboxes for `organization.head`, `department.head`, `section.head`, `documents.force-delete` |
+| Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + multi-file upload modal; `requires_approval` toggle on edit page |
+| Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; multi-file upload modal on show page pre-selects `rule_amendment` type; `requires_approval` toggle on edit page |
+| Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal and amendment hierarchy; `requires_approval` toggle on edit page |
+| Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see `visibility = 'public'` docs only; results capped at 50 docs + 20 sections + 20 rule sets; `->publishable()` scope hides pending/rejected |
+| User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins; `division_id`, `uploads_require_approval` fields added; `documents.approve` privilege checkbox added |
 | Archive | `DocumentController` (existing methods) | Soft-deleted documents accessible to all authenticated users; "Archive" in all UI; counts split active vs archived; restore gated by `documents.restore` privilege; permanent delete gated by `documents.force-delete` + requires reason + letter PDF upload — letter stored on the **private `local` disk** (`storage/app/private/archive_letters/`), never on public disk; letter path stored in `document_status_histories.metadata` |
 | Activity Log | `Admin\ActivityLogController` | Admin-only audit view at `GET /admin/activity-logs`; filterable by user, action, and IP; paginates the `activity_logs` table (50/page); `LogMutation` middleware records all authenticated POST/PATCH/DELETE requests; `Login` event listener records every successful login with IP, UA, and guard |
+| Approval Queue | `ApprovalController` | Maker-checker workflow at `GET /approvals`; three tabs (Pending / Rejected / My Submissions); approve, reject, reclassify, resubmit actions; scope-aware (approvers see only their org boundary); PDF preview via slide-over drawer; bulk approve/reject |
 
 ### Route map
 
@@ -341,6 +343,19 @@ Controller method signatures **must** declare `string $level` as their first par
 | GET | `/profile/edit` | `profile.edit` | Auth |
 | PATCH | `/profile` | `profile.update` | Auth |
 
+**Approval Queue**
+
+| Method | URI | Route name | Auth |
+|---|---|---|---|
+| GET | `/approvals` | `approvals.index` | Auth |
+| GET | `/approvals/{id}/pdf` | `approvals.pdf` | Auth |
+| POST | `/approvals/{id}/approve` | `approvals.approve` | Auth + `documents.approve` privilege |
+| POST | `/approvals/{id}/reject` | `approvals.reject` | Auth + `documents.approve` privilege |
+| POST | `/approvals/{id}/reclassify` | `approvals.reclassify` | Auth + `documents.approve` privilege |
+| POST | `/approvals/{id}/resubmit` | `approvals.resubmit` | Auth (own document only) |
+
+Approval routes use **numeric `{id}`** not slugs — reclassification changes the document's context mid-flow, making slug-based URLs stale.
+
 **Other**
 
 | URI | Route name | Notes |
@@ -372,6 +387,8 @@ All check `withTrashed()` and append `-2`, `-3` on collision.
 Upload is initiated from a section show page or rule set show page via a modal. The form POSTs to `POST /documents` via AJAX (`fetch`). The endpoint is **AJAX-only** and always returns JSON — `StoreDocumentRequest::failedValidation()` throws `HttpResponseException` with 422 JSON.
 
 **Multi-file upload** — both modals support selecting multiple files at once (drag-and-drop or file picker with `multiple` attribute). Files are uploaded sequentially — one `fetch` per file, not in parallel — so the server never receives concurrent writes from the same session. Each file gets its own editable title input (pre-filled from the filename) in a scrollable queue panel on the left side of the modal. Document type and visibility are shared across the whole batch and set once in the right panel. Status badges on each queue row update in real time (`Pending → Uploading… → ✓ Done / ✗ error message`). After all files are processed: if all succeeded, redirect to the section/rule-set page; if some failed, show "N uploaded, M failed" with a "Go to page" button (navigates with the successful ones) or "Retry" if all failed. There is no server-side batching — `POST /documents` remains a single-document endpoint; the JS loop is the only batching layer.
+
+**Initial status decision (applies to all upload paths):** After resolving the context (`$division ?? $section ?? $ruleSet`), `DocumentController@store` calls `$user->shouldRequireApproval($context)`. If true, `status = 'pending_approval'` and the document is hidden from all public/browse views until approved. If false, `status = 'uploaded'` (existing behaviour). The flash message adapts accordingly.
 
 **Section-based upload (per file):**
 1. Slug: `Document::uniqueSlugForSection($title, $section->id)`
@@ -510,6 +527,53 @@ Both modals share a `makeQueue(ids)` JS factory function that handles multi-file
 **Edit lock on rule docs with amendments:** `documents/show.blade.php` — if `$document->document_type === 'rule'` and `$document->amendments->isNotEmpty()`, the Edit button is replaced with a greyed-out disabled `<span>`.
 
 **Cascade delete:** `RuleSetController@destroy` — before soft-deleting the rule set, iterates all documents via `$ruleSet->documents()->each(...)`, writes a `DocumentStatusHistory` row per doc, then soft-deletes each doc — all inside the same `DB::transaction()`. Users do not need to delete documents manually before deleting a rule set.
+
+### Maker-Checker Approval Workflow
+
+A two-stage upload approval system layered on top of the existing upload flow. Pending and rejected documents are completely hidden from all regular document lists (`sections/show`, `divisions/show`, `rule_sets/show`, `documents/index`, search, dashboard) via the `->publishable()` Eloquent scope on the `Document` model.
+
+**Status flow:**
+```
+Upload → shouldRequireApproval()?
+    YES → pending_approval ──→ approve   → uploaded  → (normal pipeline)
+                            ↘ reject    → rejected  → resubmit → pending_approval (loop)
+                            ↘ reclassify → moves file, updates FKs, optional approve
+    NO  → uploaded → (normal pipeline, no change)
+```
+
+**Two independent triggers for `pending_approval`:**
+1. `users.uploads_require_approval = true` — enables bulk-onboarding mode for that user; every document they upload goes to `pending_approval`, regardless of destination.
+2. `sections/divisions/rule_sets.requires_approval = true` — any upload to that context is held, even from operators whose user flag is off. Useful for sensitive sections (Legal, Audit, etc.).
+
+`User::shouldRequireApproval(Section|Division|RuleSet $context): bool` — returns true if either trigger applies.
+
+**Approval scope:** Follows the existing upload scope hierarchy exactly — `canApprove($context)` wraps `canUploadTo($context)` with an additional `documents.approve` privilege gate. An approver can only act on documents within their own org boundary (same section/department they can upload to). Cross-boundary reclassification requires `global` scope (org.head or admin).
+
+**`ApprovalController` methods:**
+- `index(Request $request)` — renders the queue with three tabs: Pending / Rejected / My Submissions. Approvers see all docs in their scope; non-approvers see only their own submissions.
+- `approve(int $id, ApproveDocumentRequest $request)` — validates `pending_approval`, checks `canApprove()`, writes history row, sets `status = 'uploaded'`.
+- `reject(int $id, RejectDocumentRequest $request)` — validates `pending_approval`, checks `canApprove()`, writes history row with reason, sets `status = 'rejected'`.
+- `reclassify(int $id, ReclassifyDocumentRequest $request)` — resolves new context, checks `canApprove()` on BOTH old AND new context, computes new vault path + slug, moves PDF (and markdown if present) on the `public` disk via `Storage::disk('public')->move()` (atomic same-disk rename), updates all FKs + paths in a transaction, optionally approves in the same step.
+- `resubmit(int $id)` — operator can resubmit their own rejected document back to `pending_approval`.
+- `pdf(int $id)` — streams the PDF for a pending/rejected document (auth-only, stays on public disk since these files haven't been archived).
+
+**`->publishable()` scope** (`Document::scopePublishable`) — `whereNotIn('status', ['pending_approval', 'rejected'])`. Applied in: `SectionController@show`, `DivisionController@show`, `RuleSetController@show`, `SearchController@index`, `FrontendController@dashboard`.
+
+**New `requires_approval` toggle** — visible on `sections/edit`, `divisions/edit`, `rule_sets/edit`. Gated: admin or `department.head` for sections/rule_sets; admin, `department.head`, or `section.head` for divisions.
+
+**`uploads_require_approval` toggle** — added to `admin/users/create` and `admin/users/edit` forms. `StoreUserRequest` and `UpdateUserRequest` both validate it as `nullable boolean`.
+
+**Approval queue UI (`resources/views/approvals/index.blade.php`):**
+- Three tab pills: Pending Approval (amber count) / Rejected (red count) / My Submissions (slate count)
+- Table rows built from JSON data islands (same pattern as trash view) via JS `buildRows()` function
+- Slide-over drawer — PDF preview via `approvals.pdf` route + metadata strip + rejection reason + action buttons
+- Approve: Swal2 confirmation with optional note field
+- Reject: Swal2 with required reason textarea (min 5 chars validated client-side)
+- Reclassify: dedicated Blade modal with cascading section → division OR rule set selects, populated from JSON data islands; "Approve after reclassifying" checkbox
+- Resubmit: Swal2 confirmation (My Submissions tab only)
+- Bulk approve + bulk reject via action bar that appears when checkboxes are selected (Pending tab only)
+
+**Sidebar:** "Approval Queue" nav link with amber badge. Badge count: approvers see all pending in their scope; non-approvers see own pending+rejected count. Always visible to all authenticated users.
 
 ### Archive module (formerly Trash)
 
@@ -688,6 +752,14 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 24. **Bulk force-delete requires a reason and writes per-document audit rows** — `BulkForceDestroyDocumentsRequest` validates a mandatory `reason` field. `DocumentController@bulkForceDestroy()` writes a `DocumentStatusHistory` row per document before `forceDelete()`. The UI collects the reason via a two-step Swal2 flow (textarea prompt → final confirmation).
 
 14. **`visibility` is the sole guest access gate** — the old `status = 'verified'` filter for guests has been removed. Access control for unauthenticated users is now exclusively determined by `documents.visibility` (`public` | `authenticated`). The `status` column tracks only the conversion pipeline state and must never be used as an access gate. When writing any query that serves public-facing views, filter on `visibility = 'public'` for guests — never on `status`.
+
+25. **`pending_approval` and `rejected` are hidden from all regular document views via `->publishable()` scope** — `Document::scopePublishable()` applies `whereNotIn('status', ['pending_approval', 'rejected'])`. Must be added to every controller query that populates a regular browse/list view. The only place these statuses appear is `GET /approvals`. Never skip this scope in public-facing queries.
+
+26. **Approval scope equals upload scope** — `canApprove($context)` is `canUploadTo($context)` plus the `documents.approve` privilege gate. The same org-boundary rules (global / department / section / division) apply to approval as to upload. This is intentional: an officer who can upload to a section is the right person to also approve uploads in that section. Do not introduce a separate approval-scope mechanism.
+
+27. **Reclassification moves files on the public disk, not across disks** — pending/rejected documents have NOT been archived (they stay on the `public` disk). Reclassification uses `Storage::disk('public')->move($from, $to)` — an atomic filesystem rename when source and destination are on the same volume. This is different from the archive flow which moves across disks (public → local private). Do not use `archiveFiles()` / `restoreFiles()` for reclassification.
+
+28. **`uploads_require_approval` is a per-user bulk-mode flag, not a permanent restriction** — it is designed to be toggled on during initial legacy-document onboarding and turned off once done. It is independent of the context-level `requires_approval` flag on sections/divisions/rule_sets, which is a permanent per-context policy. Either flag alone is sufficient to trigger `pending_approval`.
 
 ## Frontend architecture
 

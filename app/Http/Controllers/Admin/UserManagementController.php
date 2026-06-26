@@ -40,18 +40,19 @@ class UserManagementController extends Controller
         try {
             DB::transaction(function () use ($request) {
                 User::create([
-                    'name'              => $request->name,
-                    'username'          => $request->username,
-                    'email'             => $request->email,
-                    'mobile'            => $request->mobile ?: null,
-                    'password'          => $request->password,
-                    'post'              => $request->post ?: null,
-                    'role'              => $request->role,
-                    'privileges'        => $request->privileges ?? [],
-                    'department_id'     => $request->department_id,
-                    'section_id'        => $request->section_id,
-                    'division_id'       => $request->division_id,
-                    'email_verified_at' => now(),
+                    'name'                     => $request->name,
+                    'username'                 => $request->username,
+                    'email'                    => $request->email,
+                    'mobile'                   => $request->mobile ?: null,
+                    'password'                 => $request->password,
+                    'post'                     => $request->post ?: null,
+                    'role'                     => $request->role,
+                    'uploads_require_approval' => (bool) $request->uploads_require_approval,
+                    'privileges'               => $request->privileges ?? [],
+                    'department_id'            => $request->department_id,
+                    'section_id'               => $request->section_id,
+                    'division_id'              => $request->division_id,
+                    'email_verified_at'        => now(),
                 ]);
             });
 
@@ -92,16 +93,17 @@ class UserManagementController extends Controller
         try {
             DB::transaction(function () use ($request, $user) {
                 $data = [
-                    'name'          => $request->name,
-                    'username'      => $request->username,
-                    'email'         => $request->email,
-                    'mobile'        => $request->mobile ?: null,
-                    'post'          => $request->post ?: null,
-                    'role'          => $request->role,
-                    'privileges'    => $request->privileges ?? [],
-                    'department_id' => $request->department_id,
-                    'section_id'    => $request->section_id,
-                    'division_id'   => $request->division_id,
+                    'name'                     => $request->name,
+                    'username'                 => $request->username,
+                    'email'                    => $request->email,
+                    'mobile'                   => $request->mobile ?: null,
+                    'post'                     => $request->post ?: null,
+                    'role'                     => $request->role,
+                    'uploads_require_approval' => (bool) $request->uploads_require_approval,
+                    'privileges'               => $request->privileges ?? [],
+                    'department_id'            => $request->department_id,
+                    'section_id'               => $request->section_id,
+                    'division_id'              => $request->division_id,
                 ];
 
                 if (filled($request->password)) {

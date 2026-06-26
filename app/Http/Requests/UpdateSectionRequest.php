@@ -42,6 +42,9 @@ class UpdateSectionRequest extends FormRequest
         $departmentId = $this->route('department')?->id;
         $sectionId    = $this->route('section')?->id;
 
+        $user = $this->user();
+        $canToggleApproval = $user && ($user->isAdmin() || $user->hasPrivilege('department.head'));
+
         return [
             'name' => ['required', 'string', 'max:120', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
             'slug' => ['required', 'string', 'max:80', 'regex:/^[a-z0-9\-_]+$/',
@@ -49,7 +52,8 @@ class UpdateSectionRequest extends FormRequest
                            ->where('department_id', $departmentId)
                            ->where('wing', $this->wing ?: null))
                        ->ignore($sectionId)],
-            'wing' => ['nullable', 'string', 'in:headquarter,joint_secretary_wing,deputy_secretary_wing,field_office'],
+            'wing'             => ['nullable', 'string', 'in:headquarter,joint_secretary_wing,deputy_secretary_wing,field_office'],
+            'requires_approval' => $canToggleApproval ? ['nullable', 'boolean'] : [],
         ];
     }
 

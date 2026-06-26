@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -31,13 +32,21 @@ class Document extends Model
     ];
 
     public const STATUSES = [
-        'uploaded'    => ['label' => 'Uploaded',    'color' => 'slate'],
-        'processing'  => ['label' => 'Processing',  'color' => 'blue'],
-        'ocr_pending' => ['label' => 'OCR Pending', 'color' => 'amber'],
-        'review'      => ['label' => 'Review',      'color' => 'indigo'],
-        'verified'    => ['label' => 'Verified',    'color' => 'green'],
-        'failed'      => ['label' => 'Failed',      'color' => 'red'],
+        'pending_approval' => ['label' => 'Pending Approval', 'color' => 'amber'],
+        'uploaded'         => ['label' => 'Uploaded',         'color' => 'slate'],
+        'processing'       => ['label' => 'Processing',       'color' => 'blue'],
+        'ocr_pending'      => ['label' => 'OCR Pending',      'color' => 'amber'],
+        'review'           => ['label' => 'Review',           'color' => 'indigo'],
+        'verified'         => ['label' => 'Verified',         'color' => 'green'],
+        'failed'           => ['label' => 'Failed',           'color' => 'red'],
+        'rejected'         => ['label' => 'Rejected',         'color' => 'red'],
     ];
+
+    /** Exclude pending_approval and rejected docs from all regular public/browse queries. */
+    public function scopePublishable(Builder $query): Builder
+    {
+        return $query->whereNotIn('status', ['pending_approval', 'rejected']);
+    }
 
     public function getRouteKeyName(): string
     {
