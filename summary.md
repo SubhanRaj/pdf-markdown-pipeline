@@ -1278,3 +1278,109 @@ Added to `StoreUserRequest` and `UpdateUserRequest` validation rules. Added to `
 - `CLAUDE.md` — modules table, privileges, users schema, route map, upload flow, Maker-Checker section, architecture decisions 25–28
 - `README.md` — Core Features, schema tables, route map, users table description
 - `ROADMAP.md` — section 2.1 updated to ✅ Implemented with actual design
+
+---
+
+## M29 — Folders (Patravali / Case Files) Module (IN PROGRESS — 2026-06-30)
+
+Adds a **physical file / dossier** concept to the document vault. A `Folder` (Patravali in government parlance) is a named container grouping all correspondence and orders related to a specific matter — court case, license dispute, audit query, service matter, etc. Distinct from `Section` and `Division` (which are organisational units) — a folder is a filing concept.
+
+---
+
+### Design
+
+**What a Folder is:**
+- Named dossier under a Section (or optionally a Division)
+- Has its own URL, show page, upload modal, and document list
+- Visibility: `public` | `authenticated` — gates the folder page itself; contained docs keep their own visibility
+- `requires_approval` toggle — same policy mechanism as section/division/rule_set
+- Slug immutable after creation (vault paths depend on it)
+- Not nested — folders do not contain sub-folders (YAGNI)
+
+**Where folders live:**
+- Section-level: `document_vault/{level}/{dept}/{wing?}/{section}/folders/{folder}/`
+- Division-level: `document_vault/{level}/{dept}/{wing?}/{section}/divisions/{division}/folders/{folder}/`
+
+**Document taxonomy extended from three-way to five-way:**
+
+| Context | `section_id` | `division_id` | `rule_set_id` | `folder_id` |
+|---|---|---|---|---|
+| Direct section doc | NN | null | null | null |
+| Division doc | NN | NN | null | null |
+| Rule-set doc | null | null | NN | null |
+| Section-folder doc | NN | null | null | NN |
+| Division-folder doc | NN | NN | null | NN |
+
+**Archive cascade:** `FolderController@destroy` soft-deletes all contained documents (with `DocumentStatusHistory` rows + `ManagesDocumentFiles::archiveFiles()` per doc) inside the same `DB::transaction()`, then soft-deletes the folder. Mirror of `RuleSetController@destroy`.
+
+**Amendment chains within folders:** Existing `parent_id` on `documents` works unchanged. Upload modal parent-selection lists root docs within the same folder.
+
+**Scope permissions:** `canUploadTo(Folder $folder)` resolves the folder's owning section or division and delegates to the existing section/division scope check. No new scope level added.
+
+**Search:** New Folders block (teal-accented) added to `search/index.blade.php`. `SearchController` adds `Folder::where('name', 'LIKE', ...)->orWhere('description', 'LIKE', ...)` query; guests see only `visibility = 'public'` folders. Cap: 20 folders.
+
+---
+
+### New routes
+
+**Folder pages:**
+```
+POST   /departments/{level}/{dept}/sections/{section}/folders                     → folders.store (section)
+GET    /departments/{level}/{dept}/sections/{section}/folders/{folder}            → folders.show (section)
+PATCH  /departments/{level}/{dept}/sections/{section}/folders/{folder}            → folders.update (section)
+DELETE /departments/{level}/{dept}/sections/{section}/folders/{folder}            → folders.destroy (section)
+
+POST   /departments/{level}/{dept}/sections/{section}/divisions/{division}/folders         → folders.divisions.store
+GET    /departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder} → folders.divisions.show
+PATCH  /departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder} → folders.divisions.update
+DELETE /departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder} → folders.divisions.destroy
+```
+
+**Folder document routes (section folder):**
+```
+GET    /documents/{level}/{dept}/{section}/folders/{folder}/{doc}        → documents.folders.show
+PATCH  /documents/{level}/{dept}/{section}/folders/{folder}/{doc}        → documents.folders.update
+DELETE /documents/{level}/{dept}/{section}/folders/{folder}/{doc}        → documents.folders.destroy
+GET    /documents/{level}/{dept}/{section}/folders/{folder}/{doc}/pdf    → documents.folders.pdf
+GET    /documents/{level}/{dept}/{section}/folders/{folder}/{doc}/review → documents.folders.edit
+```
+
+**Folder document routes (division folder):**
+```
+GET    /documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}        → documents.divisions.folders.show
+PATCH  /documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}        → documents.divisions.folders.update
+DELETE /documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}        → documents.divisions.folders.destroy
+GET    /documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}/pdf    → documents.divisions.folders.pdf
+GET    /documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}/review → documents.divisions.folders.edit
+```
+
+---
+
+### Files to be added in M29
+
+- `database/migrations/…_create_folders_table.php`
+- `database/migrations/…_add_folder_id_to_documents_table.php`
+- `app/Models/Folder.php` — `HasUnicodeSlug`, `getRouteKeyName('slug')`, `uniqueSlugForSection()`, `uniqueSlugForDivision()`, relations
+- `app/Http/Controllers/FolderController.php` — store/show/update/destroy + division variants; `ManagesDocumentFiles` trait
+- `app/Http/Requests/StoreFolderRequest.php` / `UpdateFolderRequest.php`
+- `resources/views/folders/show.blade.php` — hub: upload modal + doc list
+- `resources/views/folders/create.blade.php` / `edit.blade.php`
+
+### Files to be modified in M29
+
+- `app/Providers/AppServiceProvider.php` — `Route::bind('folder', ...)` scoped to section + optional division
+- `routes/web.php` — folder page routes + folder doc routes (× 2 variants each)
+- `app/Http/Controllers/DocumentController.php` — `showSectionFolderDoc`, `pdfSectionFolderDoc`, `editSectionFolderDoc`, `updateSectionFolderDoc`, `destroySectionFolderDoc` + division variants (×2 = 10 new methods)
+- `app/Http/Requests/StoreDocumentRequest.php` — `folder_id` field; updated `required_without_all` group; folder context resolution
+- `app/Models/Document.php` — `folder_id` in `$fillable`; `folder()` BelongsTo; `uniqueSlugForFolder()` slug helper
+- `app/Models/User.php` — `canUploadTo()` / `canDeleteFrom()` / `shouldRequireApproval()` updated to accept `Folder`
+- `app/Http/Controllers/SectionController.php` — pass `$folders` to show page; apply `->publishable()` to folder doc queries
+- `app/Http/Controllers/DivisionController.php` — same
+- `app/Http/Controllers/SearchController.php` — folder query + pass `$folders` to view
+- `resources/views/sections/show.blade.php` — folder cards grid above direct docs; "Create Folder" button
+- `resources/views/divisions/show.blade.php` — same
+- `resources/views/documents/show.blade.php` — `$isSectionFolderDoc` / `$isDivisionFolderDoc` flags; folder breadcrumb + metadata
+- `resources/views/documents/index.blade.php` — updated routing priority for folder docs
+- `resources/views/documents/trash.blade.php` — updated display name / context for folder docs
+- `resources/views/search/index.blade.php` — Folders block (teal-accented)
+- `CLAUDE.md`, `README.md`, `summary.md` — updated (this entry)

@@ -99,7 +99,13 @@ storage/app/document_vault/
 
 **Section-based file path:** `document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.pdf`
 
+**Division-based file path:** `document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/divisions/{division_slug}/{slug}_{YmdHis}.pdf`
+
 **Rule-set-based file path:** `document_vault/{level}/{dept_slug}/rules/{rule_set_slug}/{slug}_{YmdHis}.pdf`
+
+**Folder-based file path (section folder):** `document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/folders/{folder_slug}/{slug}_{YmdHis}.pdf`
+
+**Folder-based file path (division folder):** `document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/divisions/{division_slug}/folders/{folder_slug}/{slug}_{YmdHis}.pdf`
 
 Reference org structure this is derived from:
 - **Secretariat chain:** Hon'able Minister → Principal Secretary/Secretary/ACS → Special Secretary → [Joint Secretary | Deputy Secretary] → Section Officer → Section
@@ -146,6 +152,31 @@ Unique constraint: `(department_id, wing, slug)`.
 
 Unique constraint: `(section_id, slug)`. Slug generated via `Division::uniqueSlugForSection($name, $sectionId)` — checks `withTrashed()`. Slug is immutable after creation (vault paths depend on it).
 
+### `folders`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `department_id` | FK → departments | `restrictOnDelete` |
+| `section_id` | FK → sections | `restrictOnDelete` |
+| `division_id` | FK → divisions **nullable** | `nullOnDelete` — non-null for division folders; null for direct section folders |
+| `name` | string | Display name (e.g. "Court Case – Liquor License Appeal 2024") |
+| `slug` | string | Auto-generated from name; uses `HasUnicodeSlug` trait |
+| `description` | text nullable | Optional summary of the matter (max 500 chars) |
+| `visibility` | string | `public` (default) \| `authenticated` — gates the folder page; contained docs keep their own visibility |
+| `requires_approval` | boolean | default false — any upload to this folder triggers `pending_approval` |
+| `metadata` | json nullable | Case number, year, tags, etc. |
+| `timestamps` + `softDeletes` | | |
+
+Unique constraint: `(section_id, division_id, slug)` — MySQL treats NULL as distinct, so section and division folders may share slugs.
+
+Slug helpers:
+- `Folder::uniqueSlugForSection($name, $sectionId, $exceptId?)` — unique within direct section folders (`division_id IS NULL`).
+- `Folder::uniqueSlugForDivision($name, $divisionId, $exceptId?)` — unique within division folders.
+
+Both check `withTrashed()` and append `-2`, `-3` on collision. **Folder slug is immutable after creation** — vault paths depend on it; `UpdateFolderRequest` does not accept a `slug` field.
+
+**Archive cascade:** `FolderController@destroy` soft-deletes all contained documents (with `DocumentStatusHistory` rows) inside the same `DB::transaction()`, then soft-deletes the folder. `ManagesDocumentFiles::archiveFiles()` is called per document, physically moving files to the private disk. On folder restore, `restoreFiles()` is called for each document. Same pattern as `RuleSetController@destroy`.
+
 ### `rule_sets`
 | Column | Type | Notes |
 |---|---|---|
@@ -164,12 +195,13 @@ Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueS
 |---|---|---|
 | `id` | bigint PK | |
 | `department_id` | FK → departments | `restrictOnDelete` |
-| `section_id` | FK → sections **nullable** | `restrictOnDelete` — null for rule-set docs; always set for direct and division docs |
-| `division_id` | FK → divisions **nullable** | `nullOnDelete` — non-null for division docs; null for direct section docs and rule-set docs |
-| `rule_set_id` | FK → rule_sets **nullable** | `nullOnDelete` — null for section/division-based docs |
+| `section_id` | FK → sections **nullable** | `restrictOnDelete` — null for rule-set docs; always set for direct, division, and folder docs |
+| `division_id` | FK → divisions **nullable** | `nullOnDelete` — non-null for division docs and division-folder docs; null otherwise |
+| `rule_set_id` | FK → rule_sets **nullable** | `nullOnDelete` — non-null for rule-set docs only |
+| `folder_id` | FK → folders **nullable** | `nullOnDelete` — non-null for folder docs (section-folder or division-folder); null for direct docs |
 | `user_id` | FK → users nullable | `nullOnDelete` — uploader |
 | `title` | string | human-readable document title / reference |
-| `slug` | string | URL-safe; auto-generated from title at upload; unique per section or per rule set |
+| `slug` | string | URL-safe; auto-generated from title at upload |
 | `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `rule` \| `rule_amendment` \| `other` |
 | `original_filename` | string | |
 | `original_pdf_path` | string | full relative path on `public` disk |
@@ -180,19 +212,22 @@ Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueS
 | `metadata` | json nullable | GO number, subject, dates, etc. |
 | `timestamps` + `softDeletes` | | |
 
-Three-way FK exclusivity — exactly one context is non-null per row:
+**Five-way FK exclusivity** — exactly one context group is active per row:
 
-| Doc context | `section_id` | `division_id` | `rule_set_id` |
-|---|---|---|---|
-| Direct section doc | non-null | null | null |
-| Division doc | non-null | non-null | null |
-| Rule-set doc | null | null | non-null |
+| Doc context | `section_id` | `division_id` | `rule_set_id` | `folder_id` |
+|---|---|---|---|---|
+| Direct section doc | non-null | null | null | null |
+| Division doc | non-null | non-null | null | null |
+| Rule-set doc | null | null | non-null | null |
+| Section-folder doc | non-null | null | null | non-null |
+| Division-folder doc | non-null | non-null | null | non-null |
 
 Slug helpers:
-- Section docs: `Document::uniqueSlugForSection($title, $sectionId)` — unique within direct section docs (`division_id IS NULL`).
-- Division docs: `Document::uniqueSlugForDivision($title, $divisionId)` — unique within the division.
+- Section docs: `Document::uniqueSlugForSection($title, $sectionId)` — unique within direct section docs (`division_id IS NULL AND folder_id IS NULL`).
+- Division docs: `Document::uniqueSlugForDivision($title, $divisionId)` — unique within the division (direct, no folder).
 - Rule-set docs: `Document::uniqueSlugForRuleSet($title, $ruleSetId)` — unique within the rule set.
-All check `withTrashed()` and append `-2`, `-3` on collision. DB unique constraint is `(section_id, division_id, slug)` — MySQL treats NULL as distinct in multi-column unique indexes, so direct and division slugs don't conflict.
+- Folder docs: `Document::uniqueSlugForFolder($title, $folderId)` — unique within the folder (both section-folder and division-folder docs use this).
+All check `withTrashed()` and append `-2`, `-3` on collision. DB unique constraint remains `(section_id, division_id, slug)` — MySQL NULL-distinctness means folder docs don't collide with direct section or division docs sharing the same slug.
 
 ### `document_status_histories`
 | Column | Type | Notes |
@@ -240,19 +275,20 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 
 **Privilege escalation safety:** `StoreUserRequest` and `UpdateUserRequest` validate `privileges.*` as `in:` against `User::PRIVILEGES` — unknown strings are rejected. Privileges can only be set via `admin.*` routes (gated by `IsAdmin` middleware). `UpdateProfileRequest` has no privilege fields — self-escalation is impossible.
 
-## What's built (as of 2026-06-26, updated)
+## What's built (as of 2026-06-30, updated)
 
 ### Modules / controllers
 
 | Module | Controller | Notes |
 |---|---|---|
 | Dashboard | `FrontendController` | Public landing page with document stats; auth-aware recent feed; `pending_approval` count shown to admins/approvers |
-| Documents | `DocumentController` | Full CRUD; AJAX-only store (handles both section and rule-set uploads); PDF stream; hierarchical URLs; slug generation; rule-set doc methods; soft-delete with reason; trash/restore/force-delete; `shouldRequireApproval()` check on every upload |
+| Documents | `DocumentController` | Full CRUD; AJAX-only store (handles section, division, rule-set, and folder uploads); PDF stream; hierarchical URLs; slug generation; soft-delete with reason; trash/restore/force-delete; `shouldRequireApproval()` check on every upload |
 | Departments | `DepartmentController` | Full CRUD; slug-based route model binding; loads rule sets for show page |
-| Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + multi-file upload modal; `requires_approval` toggle on edit page |
+| Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + multi-file upload modal + folder cards; `requires_approval` toggle on edit page |
 | Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; multi-file upload modal on show page pre-selects `rule_amendment` type; `requires_approval` toggle on edit page |
-| Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal and amendment hierarchy; `requires_approval` toggle on edit page |
-| Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions; guests see `visibility = 'public'` docs only; results capped at 50 docs + 20 sections + 20 rule sets; `->publishable()` scope hides pending/rejected |
+| Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal, amendment hierarchy, and folder cards; `requires_approval` toggle on edit page |
+| **Folders** | **`FolderController`** | **Full CRUD under sections (and optionally divisions); show page is a hub with upload modal + document list (amendment chain supported via `parent_id`); `requires_approval` toggle; archive cascades to all contained docs; visibility gate on folder page** |
+| Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions, folder names/descriptions; guests see `visibility = 'public'` docs and folders only; results capped at 50 docs + 20 sections + 20 rule sets + 20 folders; `->publishable()` scope hides pending/rejected |
 | User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins; `division_id`, `uploads_require_approval` fields added; `documents.approve` privilege checkbox added |
 | Archive | `DocumentController` (existing methods) | Soft-deleted documents accessible to all authenticated users; "Archive" in all UI; counts split active vs archived; restore gated by `documents.restore` privilege; permanent delete gated by `documents.force-delete` + requires reason + letter PDF upload — letter stored on the **private `local` disk** (`storage/app/private/archive_letters/`), never on public disk; letter path stored in `document_status_histories.metadata` |
 | Activity Log | `Admin\ActivityLogController` | Admin-only audit view at `GET /admin/activity-logs`; filterable by user, action, and IP; paginates the `activity_logs` table (50/page); `LogMutation` middleware records all authenticated POST/PATCH/DELETE requests; `Login` event listener records every successful login with IP, UA, and guard |
@@ -295,6 +331,16 @@ Controller method signatures **must** declare `string $level` as their first par
 | DELETE | `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | `documents.rules.destroy` | Auth |
 | GET | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | `documents.rules.pdf` | Public* |
 | GET | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/review` | `documents.rules.edit` | Auth |
+| GET | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | `documents.folders.show` | Public* |
+| PATCH | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | `documents.folders.update` | Auth |
+| DELETE | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | `documents.folders.destroy` | Auth |
+| GET | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}/pdf` | `documents.folders.pdf` | Public* |
+| GET | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}/review` | `documents.folders.edit` | Auth |
+| GET | `/documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}` | `documents.divisions.folders.show` | Public* |
+| PATCH | `/documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}` | `documents.divisions.folders.update` | Auth |
+| DELETE | `/documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}` | `documents.divisions.folders.destroy` | Auth |
+| GET | `/documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}/pdf` | `documents.divisions.folders.pdf` | Public* |
+| GET | `/documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}/review` | `documents.divisions.folders.edit` | Auth |
 | GET | `/documents/trash` | `documents.trash` | Auth |
 | GET | `/documents/trash/{id}/pdf` | `documents.trashed.pdf` | Auth |
 | POST | `/documents/trash/{id}/restore` | `documents.restore` | Auth |
@@ -303,9 +349,9 @@ Controller method signatures **must** declare `string $level` as their first par
 | DELETE | `/documents/trash/bulk-force-destroy` | `documents.trash.bulk-force-destroy` | Admin |
 | POST | `/documents/bulk-destroy` | `documents.bulk-destroy` | Auth |
 
-*Public routes 403 on `visibility = authenticated` documents for guests.
+*Public routes 403 on `visibility = authenticated` documents for guests. Folder doc routes additionally 403 if the containing folder's visibility is `authenticated` and the user is a guest.
 
-**Departments, Sections, Divisions, Rule Sets**
+**Departments, Sections, Divisions, Rule Sets, Folders**
 
 | Method | URI | Route name | Auth |
 |---|---|---|---|
@@ -323,10 +369,20 @@ Controller method signatures **must** declare `string $level` as their first par
 | GET | `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | `departments.sections.divisions.show` | Public |
 | PATCH | `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | `departments.sections.divisions.update` | Admin |
 | DELETE | `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | `departments.sections.divisions.destroy` | Admin |
+| POST | `/departments/{level}/{dept}/sections/{section}/folders` | `departments.sections.folders.store` | Auth |
+| GET | `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | `departments.sections.folders.show` | Public* |
+| PATCH | `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | `departments.sections.folders.update` | Auth |
+| DELETE | `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | `departments.sections.folders.destroy` | Auth |
+| POST | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders` | `departments.sections.divisions.folders.store` | Auth |
+| GET | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.show` | Public* |
+| PATCH | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.update` | Auth |
+| DELETE | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.destroy` | Auth |
 | POST | `/departments/{level}/{dept}/rules` | `departments.rules.store` | Auth |
 | GET | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.show` | Public |
 | PATCH | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.update` | Auth |
 | DELETE | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.destroy` | Auth |
+
+*Folder show routes 403 if `folder.visibility = 'authenticated'` and the user is a guest.
 
 **Users & Profile**
 
@@ -365,20 +421,25 @@ Approval routes use **numeric `{id}`** not slugs — reclassification changes th
 
 ### Slug-based routing (all models)
 
-`Department`, `Section`, `Division`, `RuleSet`, and `Document` all override `getRouteKeyName()` to return `'slug'`. Route helpers accept model instances. Never pass `->id` manually to a route helper for these models.
+`Department`, `Section`, `Division`, `RuleSet`, `Folder`, and `Document` all override `getRouteKeyName()` to return `'slug'`. Route helpers accept model instances. Never pass `->id` manually to a route helper for these models.
 
 Slug helpers:
-- `Document::uniqueSlugForSection($title, $sectionId, $exceptId?)` — direct section docs (division_id IS NULL)
-- `Document::uniqueSlugForDivision($title, $divisionId, $exceptId?)` — division-scoped
+- `Document::uniqueSlugForSection($title, $sectionId, $exceptId?)` — direct section docs (division_id IS NULL AND folder_id IS NULL)
+- `Document::uniqueSlugForDivision($title, $divisionId, $exceptId?)` — direct division docs (folder_id IS NULL)
 - `Document::uniqueSlugForRuleSet($title, $ruleSetId, $exceptId?)` — rule-set-scoped
+- `Document::uniqueSlugForFolder($title, $folderId, $exceptId?)` — folder-scoped (both section-folder and division-folder docs)
 - `Division::uniqueSlugForSection($name, $sectionId, $exceptId?)` — division slug within section
 - `RuleSet::uniqueSlugForDepartment($name, $departmentId, $exceptId?)` — department-scoped
+- `Folder::uniqueSlugForSection($name, $sectionId, $exceptId?)` — section-folder slug (division_id IS NULL)
+- `Folder::uniqueSlugForDivision($name, $divisionId, $exceptId?)` — division-folder slug
 
 All check `withTrashed()` and append `-2`, `-3` on collision.
 
-**Section route binding** — `Route::bind('section', ...)` in `AppServiceProvider::configureRouteBindings()` scopes to `WHERE slug = ? AND department_id = ?` using the already-resolved `{department}`. This explicit binding is required so that `{section}` is guaranteed to be a `Section` model instance before the `{division}` binding fires. Without it, `{section}` would use Laravel's implicit binding, which resolves *after* explicit `Route::bind()` callbacks — causing the division binding to receive a raw slug string and abort 404.
+**Section route binding** — `Route::bind('section', ...)` in `AppServiceProvider::configureRouteBindings()` scopes to `WHERE slug = ? AND department_id = ?` using the already-resolved `{department}`. This explicit binding is required so that `{section}` is guaranteed to be a `Section` model instance before the `{division}` and `{folder}` bindings fire.
 
-**Division route binding** — `Route::bind('division', ...)` in `AppServiceProvider::configureRouteBindings()` scopes to `WHERE slug = ? AND section_id = ?` using the already-resolved `{section}`. Division slugs for division documents are also scoped this way. Level-aware department binding applies to all routes that include `{level}/{department}`.
+**Division route binding** — `Route::bind('division', ...)` scopes to `WHERE slug = ? AND section_id = ?` using the already-resolved `{section}`.
+
+**Folder route binding** — `Route::bind('folder', ...)` in `AppServiceProvider::configureRouteBindings()` scopes to `WHERE slug = ? AND section_id = ?`. If `{division}` is present in the route and already resolved, additionally scopes `AND division_id = ?`; otherwise `AND division_id IS NULL`. Declared after the `division` binding so the division model is available.
 
 **Level-aware department binding** — see route map above. Controller methods must declare `string $level` as first parameter.
 
@@ -411,7 +472,20 @@ Upload is initiated from a section show page or rule set show page via a modal. 
 3. Same file/DB/error flow as above
 4. On success: JSON `{'redirect': rule_set_url}`
 
-`StoreDocumentRequest` — `section_id` and `rule_set_id` are `required_without:` each other. `division_id` is optional and only valid alongside `section_id`. When `division_id` is provided, the store branch uses `Division::with('section.department')` to derive the section and department. Each fetch in the JS loop builds its own `FormData` with the per-file title and the shared type/visibility/context-ids — `FormData(form)` is **not** used because the file input is outside the `<form>` element (left vs right column layout).
+**Folder-based upload (per file) — section folder:**
+1. Slug: `Document::uniqueSlugForFolder($title, $folder->id)`
+2. Vault dir: `document_vault/{dept.level}/{dept.slug}/{wing?}/{section.slug}/folders/{folder.slug}`
+3. `section_id`, `folder_id` stored; `division_id` null
+4. On success: JSON `{'redirect': folder_url}`
+
+**Folder-based upload (per file) — division folder:**
+1. Slug: `Document::uniqueSlugForFolder($title, $folder->id)`
+2. Vault dir: `document_vault/{dept.level}/{dept.slug}/{wing?}/{section.slug}/divisions/{division.slug}/folders/{folder.slug}`
+3. `section_id`, `division_id`, `folder_id` all stored
+4. On success: JSON `{'redirect': folder_url}`
+5. Parent options in the upload modal are all root docs in the **folder** (for amendment chains within the folder)
+
+`StoreDocumentRequest` — `section_id`, `rule_set_id`, and `folder_id` are mutually exclusive contexts (`required_without_all:` group). `division_id` is optional, only valid alongside `section_id`. `folder_id` is optional, only valid alongside `section_id`; if the folder belongs to a division, `division_id` must also be provided. When `folder_id` is provided, the store branch uses `Folder::with('division.section.department')` to derive all parent context. Each fetch in the JS loop builds its own `FormData` with the per-file title and the shared type/visibility/context-ids — `FormData(form)` is **not** used because the file input is outside the `<form>` element (left vs right column layout).
 
 **Converted Markdown** lands in the same vault directory, same base filename, `.md` extension. `markdown_path` stores the full relative path on `public` disk.
 
@@ -421,7 +495,11 @@ Section docs: `GET /documents/{level}/{dept}/{section}/{doc}/pdf` → `DocumentC
 
 Rule-set docs: `GET /documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` → `DocumentController@pdfRuleSetDoc`
 
-Both stream from the `public` disk via `Storage::disk('public')->response(...)` with `Content-Disposition: inline`. Guests blocked (403) on non-verified documents. Always link via these routes — raw `Storage::url()` links bypass the auth gate.
+Section-folder docs: `GET /documents/{level}/{dept}/{section}/folders/{folder}/{doc}/pdf` → `DocumentController@pdfSectionFolderDoc`
+
+Division-folder docs: `GET /documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}/pdf` → `DocumentController@pdfDivisionFolderDoc`
+
+All stream from the `public` disk via `Storage::disk('public')->response(...)` with `Content-Disposition: inline`. Folder doc PDF routes additionally check `folder->visibility` — if `authenticated` and the user is a guest, abort 403. Always link via these routes — raw `Storage::url()` links bypass the auth gate.
 
 ### Document visibility
 
@@ -447,18 +525,25 @@ Documents carry a `visibility` column independent of the processing-status workf
 
 ### Document views
 
-- **`documents/show`** — context-aware: receives either `$section` (section doc) or `$ruleSet` (rule-set doc). A `$isRuleSetDoc` flag switches breadcrumbs, page subtitle, vault path display, and all route helpers (PDF, edit, destroy) without duplicating the template. The "Section / Rule Set" metadata label also adapts. Visibility badge shown in header.
-- **`documents/index`** — tabbed by department; renders both section and rule-set documents; row links branch on `$doc->section ? documents.show : documents.rules.show`.
+- **`documents/show`** — context-aware: receives context flags `$isRuleSetDoc`, `$isDivisionDoc`, `$isSectionFolderDoc`, `$isDivisionFolderDoc`. Each flag switches breadcrumbs, page subtitle, vault path display, and all route helpers (PDF, edit, destroy). The "Section / Division / Rule Set / Folder" metadata label adapts accordingly. Visibility badge shown in header. When `$isSectionFolderDoc` or `$isDivisionFolderDoc`, the folder name + link are shown in the metadata sidebar.
+- **`documents/index`** — tabbed by department; renders section, rule-set, and folder documents; row links follow routing priority: `$doc->folder ? ($doc->division ? documents.divisions.folders.show : documents.folders.show) : ($doc->division ? documents.divisions.show : ($doc->section ? documents.show : documents.rules.show))`. Display context name: `$doc->folder?->name ?? $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name`.
+
+### Folder views
+
+- **`folders/show`** — folder hub page: header (name, description, visibility badge, `requires_approval` status), action buttons (Edit, Archive), "Create Document" upload modal. Document list shows all docs in the folder with amendment hierarchy (parent_id chain). Supports same sort/filter (amendment number, effective year) as section/division show pages. Upload modal parent-selection lists root docs within the same folder (for intra-folder amendments). `->publishable()` scope applied to all document queries.
+- **`folders/create`** and **`folders/edit`** — name + description + visibility radio + `requires_approval` toggle. Slug is auto-generated (create) and read-only (edit).
+
+Folder pages respect `folder->visibility`: if `authenticated` and guest, abort 403.
 
 ### Search
 
 `GET /search?q=` → `SearchController@index` → `search/index.blade.php`. Public route, no auth required.
 
-**Query scope:** LIKE `%q%` on `documents.title`; also surfaces documents whose `section.name` or `rule_set.name` matches. Separate LIKE queries on `sections.name` and `rule_sets.name` + `description`. Guests see only `visibility = 'public'` documents.
+**Query scope:** LIKE `%q%` on `documents.title`; also surfaces documents whose `section.name`, `rule_set.name`, or `folder.name` matches. Separate LIKE queries on `sections.name`, `rule_sets.name` + `description`, and `folders.name` + `description`. Guests see only `visibility = 'public'` documents and folders.
 
-**Result ordering:** documents with a direct title match float first (via `CASE WHEN` `orderByRaw`), then by `created_at DESC`. Capped at 50 documents, 20 sections, 20 rule sets.
+**Result ordering:** documents with a direct title match float first (via `CASE WHEN` `orderByRaw`), then by `created_at DESC`. Capped at 50 documents, 20 sections, 20 rule sets, 20 folders.
 
-**View structure:** large search bar (autofocused, × clear button) → summary strip with total count → indigo callout explaining cross-taxonomy surfacing (shown when sections or rule sets are matched) → Documents block (reuses `documents/index` row design) → Sections block (sky-accented) → Rule Sets block (violet-accented).
+**View structure:** large search bar (autofocused, × clear button) → summary strip with total count → indigo callout explaining cross-taxonomy surfacing → Documents block (reuses `documents/index` row design) → Sections block (sky-accented) → Rule Sets block (violet-accented) → **Folders block (teal-accented; shows section/division context, description excerpt, visibility badge, link to folder show page)**.
 
 **Header integration:** existing search input in `header.blade.php` is wrapped in `<form method="GET" action="{{ route('search.index') }}">` with `name="q"` and `value="{{ request('q') }}"` so the field stays populated on the results page.
 
@@ -545,7 +630,7 @@ Upload → shouldRequireApproval()?
 1. `users.uploads_require_approval = true` — enables bulk-onboarding mode for that user; every document they upload goes to `pending_approval`, regardless of destination.
 2. `sections/divisions/rule_sets.requires_approval = true` — any upload to that context is held, even from operators whose user flag is off. Useful for sensitive sections (Legal, Audit, etc.).
 
-`User::shouldRequireApproval(Section|Division|RuleSet $context): bool` — returns true if either trigger applies.
+`User::shouldRequireApproval(Section|Division|RuleSet|Folder $context): bool` — returns true if either trigger applies.
 
 **Approval scope:** Follows the existing upload scope hierarchy exactly — `canApprove($context)` wraps `canUploadTo($context)` with an additional `documents.approve` privilege gate. An approver can only act on documents within their own org boundary (same section/department they can upload to). Cross-boundary reclassification requires `global` scope (org.head or admin).
 
@@ -615,10 +700,12 @@ Cross-section and cross-division mutations are blocked — a division user canno
 
 **Helper methods on `User`:**
 ```php
-User::canUploadTo(Section|Division|RuleSet $context): bool
-User::canDeleteFrom(Section|Division|RuleSet $context): bool
+User::canUploadTo(Section|Division|RuleSet|Folder $context): bool
+User::canDeleteFrom(Section|Division|RuleSet|Folder $context): bool
 User::uploadScope(): string  // 'global'|'department'|'section'|'division'|'none'
 ```
+
+For `Folder` contexts, `canUploadTo()` resolves the folder's owning section (or division) and applies the same scope rules as if that section/division were passed directly.
 
 **Form Request `authorize()` gates:**
 - `StoreDocumentRequest::authorize()` — resolves context from validated `section_id`/`division_id`/`rule_set_id`, calls `canUploadTo()`
@@ -725,7 +812,7 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 7. **Slug-based URLs with level disambiguation** — `Department`, `Section`, `RuleSet`, `Document` all use `getRouteKeyName() = 'slug'`. IDs never appear in public URLs. A `{level}` alias (`dept` / `sectt`) precedes `{department}` in every URL. Always pass `[$dept->levelAlias(), $dept]` to route helpers — never just `$dept` alone.
 8. **`POST /documents` is AJAX-only** — always returns JSON regardless of `Accept` header. `StoreDocumentRequest::failedValidation()` overrides the default redirect to throw `HttpResponseException` with 422 JSON. The JS `fetch` call always sends `Accept: application/json` + `X-CSRF-TOKEN` + `X-Requested-With: XMLHttpRequest`.
 9. **PDF served via controller routes** — `DocumentController@pdf` and `@pdfRuleSetDoc` stream from the `public` disk with `Content-Disposition: inline`. Guests see 403 on non-verified documents. Always link via these routes — raw `Storage::url()` links bypass the auth gate.
-10. **Triple document taxonomy** — documents belong to one of three contexts: a direct `Section` (GOs, notices, circulars), an `Internal Division` within a section (operational orders issued by a specific desk/cell), or a `RuleSet` (Acts, Rules, amendments). The FK layout is: division docs have both `section_id` and `division_id` non-null; direct section docs have `section_id` non-null and `division_id` null; rule-set docs have `rule_set_id` non-null and the others null. The `documents/show` view handles all three contexts via `$isRuleSetDoc` and `$isDivisionDoc` flags — no template duplication. When iterating documents (index, dashboard, trash), routing priority is: `$doc->division ? documents.divisions.show : ($doc->section ? documents.show : documents.rules.show)`. Display name: `$doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name`.
+10. **Five-way document taxonomy** — documents belong to one of five contexts: a direct `Section` (GOs, notices, circulars), an `Internal Division` (desk/cell-issued orders), a `RuleSet` (Acts, Rules, amendments), a `Section Folder` (patravali/case file under a section), or a `Division Folder` (patravali/case file under a division). FK layout: `folder_id` non-null = folder doc (also has `section_id`; may have `division_id`); `rule_set_id` non-null = rule-set doc; `section_id` + `division_id` both non-null + `folder_id` null = direct division doc; `section_id` non-null + `division_id` null + `folder_id` null = direct section doc. The `documents/show` view handles all five contexts via flags — no template duplication. Routing priority when iterating: `$doc->folder ? ($doc->division ? documents.divisions.folders.show : documents.folders.show) : ($doc->division ? documents.divisions.show : ($doc->section ? documents.show : documents.rules.show))`. Display context name: `$doc->folder?->name ?? $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name`.
 11. **Internal divisions are sub-entities of sections, not replacements** — a `Division` belongs to a `Section`. Division docs carry both `section_id` (always set — the issuing authority) and `division_id` (the internal grouping). This models the real-world situation where every letter is issued by the section regardless of which internal desk handles the matter. Sections can have both direct docs and divisions simultaneously. Amendments can cross division boundaries — parent options on the division upload modal list all root docs in the section, not just the division.
 11a. **Division slug is immutable after creation** — `UpdateDivisionRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths under `divisions/{slug}/`.
 12. **Rule-set slug is immutable after creation** — `UpdateRuleSetRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths.
@@ -759,7 +846,11 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 
 27. **Reclassification moves files on the public disk, not across disks** — pending/rejected documents have NOT been archived (they stay on the `public` disk). Reclassification uses `Storage::disk('public')->move($from, $to)` — an atomic filesystem rename when source and destination are on the same volume. This is different from the archive flow which moves across disks (public → local private). Do not use `archiveFiles()` / `restoreFiles()` for reclassification.
 
-28. **`uploads_require_approval` is a per-user bulk-mode flag, not a permanent restriction** — it is designed to be toggled on during initial legacy-document onboarding and turned off once done. It is independent of the context-level `requires_approval` flag on sections/divisions/rule_sets, which is a permanent per-context policy. Either flag alone is sufficient to trigger `pending_approval`.
+28. **`uploads_require_approval` is a per-user bulk-mode flag, not a permanent restriction** — it is designed to be toggled on during initial legacy-document onboarding and turned off once done. It is independent of the context-level `requires_approval` flag on sections/divisions/rule_sets/folders, which is a permanent per-context policy. Either flag alone is sufficient to trigger `pending_approval`.
+
+29. **Folders (Patravalis) are physical-file groupings, not organizational units** — `Section` and `Division` model the org chart (who issues the letter). `Folder` models the physical filing concept (a named dossier grouping all correspondence on a specific matter — court case, license dispute, audit query, service matter). Folders live under a section or division. A section/division can have both direct docs and folders simultaneously. Folders are not nested. Folder slug is immutable after creation (vault paths depend on it). `UpdateFolderRequest` does not accept a `slug` field. `shouldRequireApproval()` accepts `Folder` as a valid context type alongside `Section|Division|RuleSet`.
+
+30. **Folder visibility gates the folder page; contained doc visibility is independent** — if `folder.visibility = 'authenticated'`, the folder show page and its document PDF routes abort 403 for guests. Individual documents within the folder still carry their own `visibility` field — a public document inside an authenticated folder is reachable by direct URL (since the vault path is not secret once you know it), but you cannot browse to it via the folder. Do not cascade folder visibility to documents; enforce it only at the folder page and folder-doc route level.
 
 ## Frontend architecture
 
