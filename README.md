@@ -157,6 +157,23 @@ Unique constraint: `(slug, level)`.
 
 Unique constraint: `(department_id, wing, slug)`.
 
+### `folders`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `department_id` | FK → departments | `restrictOnDelete` |
+| `section_id` | FK → sections | `restrictOnDelete` |
+| `division_id` | FK → divisions nullable | `nullOnDelete` — non-null for division folders |
+| `name` | string | Display name (e.g. "Court Case – Liquor License Appeal 2024") |
+| `slug` | string | Auto-generated from name; immutable after creation |
+| `description` | text nullable | Optional summary (max 500 chars) |
+| `visibility` | string | `public` (default) \| `authenticated` — gates the folder page |
+| `requires_approval` | boolean | default false — uploads to this folder held for approval |
+| `metadata` | json nullable | Case number, year, tags, etc. |
+| timestamps + softDeletes | | |
+
+Unique constraint: `(section_id, division_id, slug)`.
+
 ### `rule_sets`
 | Column | Type | Notes |
 |---|---|---|
@@ -176,11 +193,13 @@ Unique constraint: `(department_id, slug)`.
 |---|---|---|
 | `id` | bigint PK | |
 | `department_id` | FK → departments | `restrictOnDelete` |
-| `section_id` | FK → sections nullable | `restrictOnDelete` — null for rule-set docs |
-| `rule_set_id` | FK → rule_sets nullable | `nullOnDelete` — null for section-based docs |
+| `section_id` | FK → sections nullable | `restrictOnDelete` — null for rule-set docs; set for all others |
+| `division_id` | FK → divisions nullable | `nullOnDelete` — non-null for division docs and division-folder docs |
+| `rule_set_id` | FK → rule_sets nullable | `nullOnDelete` — non-null for rule-set docs only |
+| `folder_id` | FK → folders nullable | `nullOnDelete` — non-null for folder docs (section or division folder) |
 | `user_id` | FK → users nullable | `nullOnDelete` — uploader |
 | `title` | string | Human-readable title / reference |
-| `slug` | string | URL-safe; auto-generated from title; unique per section or rule set |
+| `slug` | string | URL-safe; auto-generated from title |
 | `document_type` | string | `go` \| `policy` \| `notice` \| `court_order` \| `service_code` \| `rule` \| `rule_amendment` \| `other` |
 | `original_filename` | string | |
 | `original_pdf_path` | string | Full relative path on `public` disk |
@@ -188,11 +207,19 @@ Unique constraint: `(department_id, slug)`.
 | `vault_path` | string nullable | Vault directory; set at upload |
 | `status` | string | `pending_approval → uploaded → processing → ocr_pending → review → verified \| failed \| rejected` — see approval workflow below |
 | `visibility` | string | `public` (default) \| `authenticated` — guest access gate, independent of status |
-| `parent_id` | FK → documents nullable | `nullOnDelete` — links amendments to their parent rule document |
+| `parent_id` | FK → documents nullable | `nullOnDelete` — links amendments to their parent document |
 | `metadata` | json nullable | GO number, subject, dates, etc. |
 | timestamps + softDeletes | | |
 
-Unique constraint: `(section_id, slug)` for section documents. Slug generation for rule-set documents uses `uniqueSlugForRuleSet()`. Exactly one of `section_id` or `rule_set_id` is non-null per row.
+Five-way context exclusivity — exactly one context group is active:
+
+| Context | `section_id` | `division_id` | `rule_set_id` | `folder_id` |
+|---|---|---|---|---|
+| Direct section doc | non-null | null | null | null |
+| Division doc | non-null | non-null | null | null |
+| Rule-set doc | null | null | non-null | null |
+| Section-folder doc | non-null | null | null | non-null |
+| Division-folder doc | non-null | non-null | null | non-null |
 
 ### `document_status_histories`
 | Column | Type | Notes |
@@ -238,6 +265,16 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | DELETE | `documents.rules.destroy` | Auth |
 | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | GET | `documents.rules.pdf` | Public* |
 | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/review` | GET | `documents.rules.edit` | Auth |
+| `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | GET | `documents.folders.show` | Public* |
+| `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | PATCH | `documents.folders.update` | Auth |
+| `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | DELETE | `documents.folders.destroy` | Auth |
+| `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}/pdf` | GET | `documents.folders.pdf` | Public* |
+| `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}/review` | GET | `documents.folders.edit` | Auth |
+| `/documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}` | GET | `documents.divisions.folders.show` | Public* |
+| `/documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}` | PATCH | `documents.divisions.folders.update` | Auth |
+| `/documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}` | DELETE | `documents.divisions.folders.destroy` | Auth |
+| `/documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}/pdf` | GET | `documents.divisions.folders.pdf` | Public* |
+| `/documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}/{doc}/review` | GET | `documents.divisions.folders.edit` | Auth |
 | `/documents/trash` | GET | `documents.trash` | Auth (all roles — UI calls this "Archive") |
 | `/documents/trash/{id}/pdf` | GET | `documents.trashed.pdf` | Auth |
 | `/documents/trash/{id}/restore` | POST | `documents.restore` | `documents.restore` privilege or admin |
@@ -248,7 +285,7 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 
 *Public routes 403 on `visibility = authenticated` documents for guests.
 
-### Departments, Sections, Divisions, Rule Sets
+### Departments, Sections, Divisions, Rule Sets, Folders
 
 | Route | Method | Name | Auth |
 |---|---|---|---|
@@ -266,10 +303,20 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | GET | `departments.sections.divisions.show` | Public |
 | `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | PATCH | `departments.sections.divisions.update` | Admin |
 | `/departments/{level}/{dept}/sections/{section}/divisions/{division}` | DELETE | `departments.sections.divisions.destroy` | Admin |
+| `/departments/{level}/{dept}/sections/{section}/folders` | POST | `departments.sections.folders.store` | Auth |
+| `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | GET | `departments.sections.folders.show` | Public* |
+| `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | PATCH | `departments.sections.folders.update` | Auth |
+| `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | DELETE | `departments.sections.folders.destroy` | Auth |
+| `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders` | POST | `departments.sections.divisions.folders.store` | Auth |
+| `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | GET | `departments.sections.divisions.folders.show` | Public* |
+| `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | PATCH | `departments.sections.divisions.folders.update` | Auth |
+| `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | DELETE | `departments.sections.divisions.folders.destroy` | Auth |
 | `/departments/{level}/{dept}/rules` | POST | `departments.rules.store` | Auth |
 | `/departments/{level}/{dept}/rules/{rule_set}` | GET | `departments.rules.show` | Public |
 | `/departments/{level}/{dept}/rules/{rule_set}` | PATCH | `departments.rules.update` | Auth |
 | `/departments/{level}/{dept}/rules/{rule_set}` | DELETE | `departments.rules.destroy` | Auth |
+
+*Folder show routes 403 if `folder.visibility = 'authenticated'` and user is guest.
 
 ### Users & Profile
 
@@ -358,6 +405,11 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - **`trashedPdf` serves from private disk** — the archive PDF viewer streams from the local disk, not the public disk
 - **`ManagesDocumentFiles` trait** — shared by `DocumentController` and `RuleSetController`; handles archive, restore, and permanent-delete file operations consistently
 
+**Completed (M28 — 2026-06-26 · Maker-Checker Upload Approval Workflow):**
+- **Pending approval status** — two independent triggers: `users.uploads_require_approval = true` (per-user bulk-mode) or `context.requires_approval = true` (per-section/division/rule_set policy)
+- **Approval queue** at `GET /approvals` — three tabs (Pending / Rejected / My Submissions); approve, reject, reclassify, resubmit actions; slide-over PDF preview; bulk approve/reject
+- **`->publishable()` scope** hides `pending_approval` and `rejected` docs from all regular browse views; visible only in the approvals queue
+
 **Completed (M26 — 2026-06-24 · Auth/Fortify/Session Audit):**
 - **Dual-key login rate limiter restored** — `FortifyServiceProvider` was silently overwriting the `AppServiceProvider` dual-key limiter; per-IP cap is now correctly enforced
 - **`Password::defaults()` configured** — all Fortify actions now inherit the strong password policy (min 8, mixed case, numbers, symbols) instead of a bare min-8 fallback
@@ -389,7 +441,14 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - **Operator** — authenticated mutations only; specific capabilities controlled by `privileges` JSON array. No user management access.
 - **Viewer** — can log in and view `authenticated`-visibility documents that guests cannot see, but cannot upload or mutate anything.
 
-**Next up (after M23):** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.
+**In progress (M29 — Folders / Patravali):**
+- Physical file/dossier grouping (Patravali concept) for correspondence related to a specific matter — distinct from Sections/Divisions which are org units
+- Folders belong to a Section or Division; have their own URL, show page (upload hub + doc list), and visibility gate
+- Five-way document taxonomy: section doc, division doc, rule-set doc, section-folder doc, division-folder doc
+- Amendment chains within folders via existing `parent_id`; `requires_approval` toggle; same archive cascade as rule sets
+- Search extended with a Folders block
+
+**Next up (after M29):** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.
 
 ## 🚀 Future Roadmap
 
