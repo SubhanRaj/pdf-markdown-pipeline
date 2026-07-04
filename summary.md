@@ -1281,7 +1281,7 @@ Added to `StoreUserRequest` and `UpdateUserRequest` validation rules. Added to `
 
 ---
 
-## M29 — Folders (Patravali / Case Files) Module (IN PROGRESS — 2026-06-30)
+## M29 — Folders (Patravali / Case Files) Module (COMPLETED 2026-07-04)
 
 Adds a **physical file / dossier** concept to the document vault. A `Folder` (Patravali in government parlance) is a named container grouping all correspondence and orders related to a specific matter — court case, license dispute, audit query, service matter, etc. Distinct from `Section` and `Division` (which are organisational units) — a folder is a filing concept.
 
@@ -1356,31 +1356,30 @@ GET    /documents/{level}/{dept}/{section}/divisions/{division}/folders/{folder}
 
 ---
 
-### Files to be added in M29
+### Implementation (2026-07-04)
 
-- `database/migrations/…_create_folders_table.php`
-- `database/migrations/…_add_folder_id_to_documents_table.php`
+Built end-to-end against the design above. Ran migrations against local MariaDB; verified via a rollback-wrapped transactional smoke test (model relations, slug scoping per context, `canUploadTo`/`shouldRequireApproval` resolution through a folder to its section/division, and a real HTTP round-trip through the router — folder show pages, both folder-doc show pages, `sections.show`/`divisions.show` with the new `$folders` data, and search — before rolling everything back).
+
+**Added:**
+- `database/migrations/2026_07_04_000001_create_folders_table.php`, `..._000002_add_folder_id_to_documents_table.php`
 - `app/Models/Folder.php` — `HasUnicodeSlug`, `getRouteKeyName('slug')`, `uniqueSlugForSection()`, `uniqueSlugForDivision()`, relations
-- `app/Http/Controllers/FolderController.php` — store/show/update/destroy + division variants; `ManagesDocumentFiles` trait
-- `app/Http/Requests/StoreFolderRequest.php` / `UpdateFolderRequest.php`
-- `resources/views/folders/show.blade.php` — hub: upload modal + doc list
-- `resources/views/folders/create.blade.php` / `edit.blade.php`
+- `app/Http/Controllers/FolderController.php` — section + division variants (create/store/show/edit/update/destroy), shared `renderShow()`/`doUpdate()`/`doDestroy()` helpers, `ManagesDocumentFiles` archive cascade
+- `app/Http/Requests/StoreFolderRequest.php` / `UpdateFolderRequest.php` — `authorize()` via `canUploadTo()`, matching upload scope rather than division's stricter section.head/department.head/admin gate
+- `resources/views/folders/{show,create,edit,_doc_row}.blade.php`
 
-### Files to be modified in M29
-
+**Modified:**
 - `app/Providers/AppServiceProvider.php` — `Route::bind('folder', ...)` scoped to section + optional division
-- `routes/web.php` — folder page routes + folder doc routes (× 2 variants each)
-- `app/Http/Controllers/DocumentController.php` — `showSectionFolderDoc`, `pdfSectionFolderDoc`, `editSectionFolderDoc`, `updateSectionFolderDoc`, `destroySectionFolderDoc` + division variants (×2 = 10 new methods)
-- `app/Http/Requests/StoreDocumentRequest.php` — `folder_id` field; updated `required_without_all` group; folder context resolution
-- `app/Models/Document.php` — `folder_id` in `$fillable`; `folder()` BelongsTo; `uniqueSlugForFolder()` slug helper
-- `app/Models/User.php` — `canUploadTo()` / `canDeleteFrom()` / `shouldRequireApproval()` updated to accept `Folder`
-- `app/Http/Controllers/SectionController.php` — pass `$folders` to show page; apply `->publishable()` to folder doc queries
-- `app/Http/Controllers/DivisionController.php` — same
-- `app/Http/Controllers/SearchController.php` — folder query + pass `$folders` to view
-- `resources/views/sections/show.blade.php` — folder cards grid above direct docs; "Create Folder" button
-- `resources/views/divisions/show.blade.php` — same
-- `resources/views/documents/show.blade.php` — `$isSectionFolderDoc` / `$isDivisionFolderDoc` flags; folder breadcrumb + metadata
-- `resources/views/documents/index.blade.php` — updated routing priority for folder docs
-- `resources/views/documents/trash.blade.php` — updated display name / context for folder docs
-- `resources/views/search/index.blade.php` — Folders block (teal-accented)
-- `CLAUDE.md`, `README.md`, `summary.md` — updated (this entry)
+- `routes/web.php` — 8 folder page routes + 10 folder-doc routes, matching the CLAUDE.md route map exactly
+- `app/Http/Controllers/DocumentController.php` — folder branch in `store()`; 10 new section/division-folder doc methods (show/pdf/edit/update/destroy × 2)
+- `app/Http/Requests/StoreDocumentRequest.php` — `folder_id` field + context resolution in `authorize()`
+- `app/Http/Requests/DeleteDocumentRequest.php`, `app/Models/Document.php` (`folder_id`, `folder()`, `uniqueSlugForFolder()`), `app/Models/Section.php`/`Division.php` (`folders()`), `app/Models/User.php` (`canUploadTo()`/`shouldRequireApproval()` resolve `Folder` → its division or section)
+- `app/Http/Controllers/SectionController.php` / `DivisionController.php` — load `$folders` with counts for the show page
+- `app/Http/Controllers/SearchController.php` — folder name/description match + `$folders` block
+- `resources/views/sections/show.blade.php` / `divisions/show.blade.php` — folder cards grid + "Add Folder" button
+- `resources/views/documents/show.blade.php` — `$isSectionFolderDoc`/`$isDivisionFolderDoc` flags, folder breadcrumb + sidebar link, shared `$linkForDoc()` closure for parent/amendment cross-links
+- `resources/views/documents/edit.blade.php` — same context flags added; this also fixed a **pre-existing bug** where division-doc edits silently posted to the wrong (section) update route, since this view had never been updated for M23's division docs
+- `resources/views/documents/index.blade.php`, `resources/views/search/index.blade.php` — folder-aware routing priority and context-name fallback chain
+
+**Bug caught during verification:** `documents/show.blade.php`'s `$linkForDoc` closure captured `$division` via `use (...)`, which throws "Undefined variable" for section-folder docs (no division in scope) even though it's guarded by `isset()` everywhere else — `isset()` doesn't protect a `use()` capture. Fixed by normalizing `$ruleSet`/`$division`/`$folder` to `null` at the top of the view.
+
+**Not done (deliberately out of scope):** `documents/trash.blade.php` and `ApprovalController`'s `context_name` fallback chains still stop at `division?->name ?? section?->name ?? ruleSet?->name` without a folder branch — cosmetic label only in the archive/approval-queue UI, not a routing or access-control gap (folder documents already archive/approve correctly through the generic `Document` flows both modules already use).

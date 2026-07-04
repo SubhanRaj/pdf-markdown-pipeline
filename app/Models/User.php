@@ -150,10 +150,15 @@ class User extends Authenticatable
 
     /**
      * Whether this user may upload documents to the given context.
-     * $context must be a Section, Division, or RuleSet model instance.
+     * $context must be a Section, Division, RuleSet, or Folder model instance.
+     * A Folder resolves to its owning division (if any) or section.
      */
     public function canUploadTo(object $context): bool
     {
+        if ($context instanceof Folder) {
+            $context = $context->division ?? $context->section;
+        }
+
         $scope = $this->uploadScope();
 
         if ($scope === 'global') {
@@ -216,6 +221,10 @@ class User extends Authenticatable
         }
 
         if ($context instanceof RuleSet && $context->requires_approval) {
+            return true;
+        }
+
+        if ($context instanceof Folder && $context->requires_approval) {
             return true;
         }
 

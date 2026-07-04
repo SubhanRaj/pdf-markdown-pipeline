@@ -441,14 +441,15 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - **Operator** — authenticated mutations only; specific capabilities controlled by `privileges` JSON array. No user management access.
 - **Viewer** — can log in and view `authenticated`-visibility documents that guests cannot see, but cannot upload or mutate anything.
 
-**In progress (M29 — Folders / Patravali):**
+**Completed (M29 — 2026-07-04 · Folders / Patravali):**
 - Physical file/dossier grouping (Patravali concept) for correspondence related to a specific matter — distinct from Sections/Divisions which are org units
 - Folders belong to a Section or Division; have their own URL, show page (upload hub + doc list), and visibility gate
 - Five-way document taxonomy: section doc, division doc, rule-set doc, section-folder doc, division-folder doc
 - Amendment chains within folders via existing `parent_id`; `requires_approval` toggle; same archive cascade as rule sets
 - Search extended with a Folders block
+- `canUploadTo()`/`shouldRequireApproval()` on `User` extended to resolve a Folder to its owning division or section
 
-**Next up (after M29):** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.
+**Next up:** Queue job for extraction via `markitdown`, OCR fallback for scanned PDFs, split-pane review UI (PDF embed + editable Markdown), vault path file resolution on verification.
 
 ## 🚀 Future Roadmap
 

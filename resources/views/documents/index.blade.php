@@ -134,7 +134,7 @@
                     <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $doc->title }}</p>
                     <div class="flex items-center gap-2 mt-0.5 flex-wrap">
                         <span class="text-xs text-slate-400 dark:text-slate-500">
-                            {{ $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name ?? '—' }}
+                            {{ $doc->folder?->name ?? $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name ?? '—' }}
                         </span>
                         <span class="text-slate-300 dark:text-slate-600">·</span>
                         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
@@ -155,11 +155,16 @@
                 </div>
 
                 {{-- Actions --}}
-                <a href="{{ $doc->division
-                    ? route('documents.divisions.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->division, $doc])
-                    : ($doc->section
-                        ? route('documents.show',       [$doc->department->levelAlias(), $doc->department, $doc->section, $doc])
-                        : route('documents.rules.show', [$doc->department->levelAlias(), $doc->department, $doc->ruleSet,  $doc])) }}"
+                @php
+                    $docUrl = match(true) {
+                        $doc->folder && $doc->division => route('documents.divisions.folders.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->division, $doc->folder, $doc]),
+                        (bool) $doc->folder            => route('documents.folders.show',           [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->folder, $doc]),
+                        (bool) $doc->division           => route('documents.divisions.show',         [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->division, $doc]),
+                        (bool) $doc->section             => route('documents.show',                   [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]),
+                        default                           => route('documents.rules.show',            [$doc->department->levelAlias(), $doc->department, $doc->ruleSet, $doc]),
+                    };
+                @endphp
+                <a href="{{ $docUrl }}"
                    class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
                    title="View">
                     <i class="ti ti-eye text-base"></i>

@@ -6,7 +6,8 @@
 **Auditor:** Senior Web Application Security Architect (Claude Code)  
 **Stack:** Laravel 13, PHP 8.4, MariaDB 12, Apache, local-first on-premise deployment  
 **Scope (Pass 1):** Controllers, Form Requests, Models, Middleware, Blade views, Route configuration  
-**Scope (Pass 2):** Login/auth Fortify stack, session configuration, password policy, rate limiting
+**Scope (Pass 2):** Login/auth Fortify stack, session configuration, password policy, rate limiting  
+**Scope (Pass 3):** M29 Folders (Patravali) module — new controller, Form Requests, models, routes, views (2026-07-04)
 
 ---
 
@@ -42,7 +43,15 @@
 
 | M-02b (revised) | Blanket `.htaccess` block replaced with physical file move on archive | MEDIUM | **FIXED (M27)** |
 
-All findings across both audit passes have been remediated.
+All findings across Pass 1 and Pass 2 have been remediated.
+
+### Pass 3 — M29 Folders Module (2026-07-04)
+
+| ID | Finding | Severity | Status |
+|----|---------|---------|--------|
+| H-03 | `UpdateFolderRequest` — `requires_approval` toggle settable by any scoped uploader, not just admin/department.head/section.head | HIGH | **OPEN — deferred, remediation planned** |
+
+H-03 is a newly-introduced authorization bypass, caught during self-review of the M29 branch before merge. **Not yet fixed** — tracked here so it isn't lost; see the detailed finding below for the fix.
 
 ---
 
@@ -318,6 +327,62 @@ The following areas were audited and found to be correctly implemented before th
 | Password not logged (`$request->except(['password', 'password_confirmation'])`) | ✓ PASS |
 | Admin routes double-gated (`is_admin` middleware + Form Request `authorize()`) | ✓ PASS |
 | Privilege whitelist enforced at validation (`User::PRIVILEGES` `in:` rule) | ✓ PASS |
+
+---
+
+## Pass 3 — Detailed Findings (M29 Folders Module, 2026-07-04)
+
+---
+
+### H-03 · `requires_approval` Toggle Settable by Any Scoped Uploader (Authorization Bypass)
+
+**Severity:** HIGH
+**Status:** **OPEN — not yet fixed, remediation planned**
+
+**Vulnerability:**
+`UpdateFolderRequest::rules()` gates the `requires_approval` field like this:
+
+```php
+$canToggleApproval = $user && (
+    $user->isAdmin() || $user->hasPrivilege('department.head') || $user->hasPrivilege('section.head')
+);
+
+return [
+    ...,
+    'requires_approval' => $canToggleApproval ? ['nullable', 'boolean'] : [],
+];
+```
+
+The intent is to restrict who can flip the maker-checker approval gate on a folder. But an **empty rules array does not remove the key from `$request->validated()`** — it only means "no constraints are applied to it." Laravel's validator still includes any key present in the `rules()` array (even `[]`) in `validated()` as long as the client sent that field. Confirmed directly:
+
+```php
+$validator = Validator::make(['requires_approval' => '1'], ['requires_approval' => []]);
+$validator->passes();     // true
+$validator->validated();  // ['requires_approval' => '1'] — included despite the empty ruleset
+```
+
+`FolderController::doUpdate()` then does `$folder->update($request->validated())`, and `Folder::$fillable` includes `requires_approval`, so the value passes straight through mass assignment. **The `$canToggleApproval` check has zero actual effect on the outcome** — it only controls whether the *edit form* renders the checkbox. The request's `authorize()` gate is `canUploadTo($context)` (upload scope), not a privilege check, so any user who can upload to a folder's section/division — including a legacy "upload-only" operator with global scope (see architecture decision #17) — can send a raw `PATCH` with `requires_approval=0` and disable the folder's mandatory-review policy, or `requires_approval=1` to force it on.
+
+**Exploit scenario:**
+An operator seeded with only `documents.upload` and no `section_id`/`division_id` has `uploadScope() === 'global'`, so `canUploadTo()` returns `true` for every folder. That operator can `PATCH /departments/dept/excise/sections/legal/folders/sensitive-case-file` with `requires_approval=0` in the body, silently turning off maker-checker review on a folder an admin deliberately flagged for mandatory oversight — letting subsequent uploads (their own or a colleague's) skip approval and become immediately visible.
+
+**Planned fix (not yet applied):**
+Strip the field explicitly instead of relying on an empty ruleset:
+
+```php
+$data = $request->validated();
+if (! $canToggleApproval) {
+    unset($data['requires_approval']);
+}
+$folder->update($data);
+```
+
+**Note:** `UpdateDivisionRequest` and `UpdateSectionRequest` use the identical `$canToggleApproval ? [...] : []` idiom and are very likely affected the same way. They predate this pass and weren't touched by the M29 diff, so they're out of scope here — but should get the same fix in a follow-up pass.
+
+**Files affected:**
+`app/Http/Requests/UpdateFolderRequest.php` · `app/Http/Controllers/FolderController.php` (`doUpdate()`)
+
+---
 
 ---
 

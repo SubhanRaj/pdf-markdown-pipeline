@@ -10,10 +10,20 @@
     ];
     $statusClass = $statusColors[$statusMeta['color']] ?? $statusColors['slate'];
 
-    // Context: rule-set, division, or direct section document
-    $isRuleSetDoc  = isset($ruleSet)  && $ruleSet  !== null;
-    $isDivisionDoc = isset($division) && $division !== null;
-    $wing          = ($isRuleSetDoc || $isDivisionDoc) ? null : ($section->wing ?? null);
+    // Normalize optional context variables — not every route passes all of these,
+    // and closures below capture them by value via `use (...)`, which errors on
+    // truly-undefined variables (isset() alone doesn't prevent that).
+    $ruleSet  = $ruleSet  ?? null;
+    $division = $division ?? null;
+    $folder   = $folder   ?? null;
+
+    // Context: rule-set, section-folder, division-folder, division, or direct section document
+    $isRuleSetDoc        = $ruleSet  !== null;
+    $isFolderDoc         = $folder   !== null;
+    $isDivisionFolderDoc = $isFolderDoc && $division !== null;
+    $isSectionFolderDoc  = $isFolderDoc && ! $isDivisionFolderDoc;
+    $isDivisionDoc       = ! $isFolderDoc && $division !== null;
+    $wing                = ($isRuleSetDoc || $isDivisionDoc || $isFolderDoc) ? null : ($section->wing ?? null);
 
     if ($isRuleSetDoc) {
         $contextName    = $ruleSet->name;
@@ -22,6 +32,20 @@
         $editRoute      = route('documents.rules.edit',     [$department->levelAlias(), $department, $ruleSet, $document]);
         $updateRoute    = route('documents.rules.update',   [$department->levelAlias(), $department, $ruleSet, $document]);
         $destroyRoute   = route('documents.rules.destroy',  [$department->levelAlias(), $department, $ruleSet, $document]);
+    } elseif ($isDivisionFolderDoc) {
+        $contextName    = $folder->name;
+        $contextUrl     = route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder]);
+        $pdfRoute       = route('documents.divisions.folders.pdf',     [$department->levelAlias(), $department, $section, $division, $folder, $document]);
+        $editRoute      = route('documents.divisions.folders.edit',    [$department->levelAlias(), $department, $section, $division, $folder, $document]);
+        $updateRoute    = route('documents.divisions.folders.update',  [$department->levelAlias(), $department, $section, $division, $folder, $document]);
+        $destroyRoute   = route('documents.divisions.folders.destroy', [$department->levelAlias(), $department, $section, $division, $folder, $document]);
+    } elseif ($isSectionFolderDoc) {
+        $contextName    = $folder->name;
+        $contextUrl     = route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $folder]);
+        $pdfRoute       = route('documents.folders.pdf',     [$department->levelAlias(), $department, $section, $folder, $document]);
+        $editRoute      = route('documents.folders.edit',    [$department->levelAlias(), $department, $section, $folder, $document]);
+        $updateRoute    = route('documents.folders.update',  [$department->levelAlias(), $department, $section, $folder, $document]);
+        $destroyRoute   = route('documents.folders.destroy', [$department->levelAlias(), $department, $section, $folder, $document]);
     } elseif ($isDivisionDoc) {
         $contextName    = $division->name;
         $contextUrl     = route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division]);
@@ -37,6 +61,16 @@
         $updateRoute    = route('documents.update',  [$department->levelAlias(), $department, $section, $document]);
         $destroyRoute   = route('documents.destroy', [$department->levelAlias(), $department, $section, $document]);
     }
+
+    // Resolves the show URL for another document within this same context
+    // (used for parent-document and amendment cross-links below).
+    $linkForDoc = function ($doc) use ($isRuleSetDoc, $isDivisionFolderDoc, $isSectionFolderDoc, $isDivisionDoc, $department, $section, $division, $ruleSet, $folder) {
+        if ($isRuleSetDoc)        return route('documents.rules.show',            [$department->levelAlias(), $department, $ruleSet, $doc]);
+        if ($isDivisionFolderDoc) return route('documents.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder, $doc]);
+        if ($isSectionFolderDoc)  return route('documents.folders.show',          [$department->levelAlias(), $department, $section, $folder, $doc]);
+        if ($isDivisionDoc)       return route('documents.divisions.show',        [$department->levelAlias(), $department, $section, $division, $doc]);
+        return route('documents.show', [$department->levelAlias(), $department, $section, $doc]);
+    };
 @endphp
 
 <x-layout
@@ -52,8 +86,11 @@
         ['name' => $document->department->levelLabel(), 'url' => null],
         ['name' => $document->department->name,         'url' => route('departments.show', [$document->department->levelAlias(), $document->department])],
     ];
-    if ($isDivisionDoc) {
+    if ($isDivisionDoc || $isFolderDoc) {
         $breadcrumbItems[] = ['name' => $section->name, 'url' => route('departments.sections.show', [$department->levelAlias(), $department, $section])];
+    }
+    if ($isDivisionFolderDoc) {
+        $breadcrumbItems[] = ['name' => $division->name, 'url' => route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division])];
     }
     $breadcrumbItems[] = ['name' => $contextName, 'url' => $contextUrl];
     $breadcrumbItems[] = ['name' => $document->title, 'url' => null];
@@ -78,9 +115,7 @@
     <i class="ti ti-git-merge text-blue-500 dark:text-blue-400 text-base flex-shrink-0"></i>
     <p class="text-xs text-blue-700 dark:text-blue-300 flex-1">
         This is an amendment to
-        <a href="{{ $isRuleSetDoc
-            ? route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $document->parentDocument])
-            : route('documents.show',       [$department->levelAlias(), $department, $section, $document->parentDocument]) }}"
+        <a href="{{ $linkForDoc($document->parentDocument) }}"
            class="font-semibold hover:underline">{{ $document->parentDocument->title }}</a>
         <span class="text-blue-400 dark:text-blue-500">({{ $document->parentDocument->created_at->format('d M Y') }})</span>
     </p>
@@ -254,7 +289,7 @@
                 </div>
                 @endif
                 <div>
-                    <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">{{ $isRuleSetDoc ? 'Rule Set' : 'Section' }}</dt>
+                    <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">{{ $isRuleSetDoc ? 'Rule Set' : ($isFolderDoc ? 'Folder' : 'Section') }}</dt>
                     <dd>
                         <a href="{{ $contextUrl }}"
                            class="text-indigo-600 dark:text-indigo-400 hover:underline text-sm">
@@ -425,9 +460,7 @@
                 </div>
             </div>
             {{-- View link --}}
-            <a href="{{ $isRuleSetDoc
-                ? route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $amendment])
-                : route('documents.show',       [$department->levelAlias(), $department, $section, $amendment]) }}"
+            <a href="{{ $linkForDoc($amendment) }}"
                class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
                 View <i class="ti ti-arrow-right text-xs"></i>
             </a>

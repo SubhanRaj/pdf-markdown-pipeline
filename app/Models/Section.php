@@ -34,4 +34,10 @@ class Section extends Model
     {
         return $this->hasMany(Division::class)->orderBy('name');
     }
+
+    /** Direct section folders only (division_id IS NULL). */
+    public function folders(): HasMany
+    {
+        return $this->hasMany(Folder::class)->whereNull('division_id')->orderBy('name');
+    }
 }

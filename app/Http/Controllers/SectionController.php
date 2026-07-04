@@ -91,6 +91,12 @@ class SectionController extends Controller
             ->withCount(['documents' => $visibilityScope])
             ->get();
 
+        // Section folders (direct, not under a division) with document counts
+        $folders = $section->folders()
+            ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
+            ->withCount(['documents' => $visibilityScope])
+            ->get();
+
         // For the "Amends" dropdown in the upload modal — direct section docs only
         $parentOptions = auth()->check()
             ? $section->documents()
@@ -102,7 +108,7 @@ class SectionController extends Controller
                 ->values()
             : collect();
 
-        return view('sections.show', compact('department', 'section', 'documents', 'divisions', 'parentOptions', 'sort', 'filterYear', 'availableYears'));
+        return view('sections.show', compact('department', 'section', 'documents', 'divisions', 'folders', 'parentOptions', 'sort', 'filterYear', 'availableYears'));
     }
 
     public function edit(string $level, Department $department, Section $section): View

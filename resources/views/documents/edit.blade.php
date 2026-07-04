@@ -1,12 +1,31 @@
 @php
-    $isRuleSetDoc = isset($ruleSet) && $ruleSet !== null;
-    $wing         = $isRuleSetDoc ? null : ($section->wing ?? null);
+    $isRuleSetDoc        = isset($ruleSet) && $ruleSet !== null;
+    $isFolderDoc         = isset($folder)  && $folder  !== null;
+    $isDivisionFolderDoc = $isFolderDoc && isset($division) && $division !== null;
+    $isSectionFolderDoc  = $isFolderDoc && ! $isDivisionFolderDoc;
+    $isDivisionDoc       = ! $isFolderDoc && isset($division) && $division !== null;
+    $wing                = ($isRuleSetDoc || $isDivisionDoc || $isFolderDoc) ? null : ($section->wing ?? null);
 
     if ($isRuleSetDoc) {
         $contextName  = $ruleSet->name;
         $contextUrl   = route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
         $updateRoute  = route('documents.rules.update', [$department->levelAlias(), $department, $ruleSet, $document]);
         $showRoute    = route('documents.rules.show',   [$department->levelAlias(), $department, $ruleSet, $document]);
+    } elseif ($isDivisionFolderDoc) {
+        $contextName  = $folder->name;
+        $contextUrl   = route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder]);
+        $updateRoute  = route('documents.divisions.folders.update', [$department->levelAlias(), $department, $section, $division, $folder, $document]);
+        $showRoute    = route('documents.divisions.folders.show',   [$department->levelAlias(), $department, $section, $division, $folder, $document]);
+    } elseif ($isSectionFolderDoc) {
+        $contextName  = $folder->name;
+        $contextUrl   = route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $folder]);
+        $updateRoute  = route('documents.folders.update', [$department->levelAlias(), $department, $section, $folder, $document]);
+        $showRoute    = route('documents.folders.show',   [$department->levelAlias(), $department, $section, $folder, $document]);
+    } elseif ($isDivisionDoc) {
+        $contextName  = $division->name;
+        $contextUrl   = route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division]);
+        $updateRoute  = route('documents.divisions.update', [$department->levelAlias(), $department, $section, $division, $document]);
+        $showRoute    = route('documents.divisions.show',   [$department->levelAlias(), $department, $section, $division, $document]);
     } else {
         $contextName  = $section->name;
         $contextUrl   = route('departments.sections.show', [$department->levelAlias(), $department, $section]);

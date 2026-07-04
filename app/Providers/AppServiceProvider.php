@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\ActivityLog;
 use App\Models\Department;
 use App\Models\Division;
+use App\Models\Folder;
 use App\Models\RuleSet;
 use App\Models\Section;
 use Illuminate\Auth\Events\Login;
@@ -74,6 +75,27 @@ class AppServiceProvider extends ServiceProvider
             return Division::where('slug', $slug)
                 ->where('section_id', $section->id)
                 ->firstOrFail();
+        });
+
+        // Resolves {folder} scoped to the current {section}, and additionally to
+        // {division} when present in the route (division-folder vs section-folder).
+        // Declared after 'division' so the division model is already resolved.
+        Route::bind('folder', function (string $slug) {
+            $section = request()->route('section');
+            if (! $section instanceof Section) {
+                abort(404);
+            }
+
+            $division = request()->route('division');
+            $query    = Folder::where('slug', $slug)->where('section_id', $section->id);
+
+            if ($division instanceof Division) {
+                $query->where('division_id', $division->id);
+            } else {
+                $query->whereNull('division_id');
+            }
+
+            return $query->firstOrFail();
         });
 
         Route::bind('department', function (string $slug) {
