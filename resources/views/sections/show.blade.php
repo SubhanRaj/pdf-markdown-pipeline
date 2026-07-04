@@ -71,6 +71,18 @@
             <i class="ti ti-layout-sidebar-right-expand text-base"></i>
             <span class="hidden sm:inline">Add Division</span>
         </a>
+        @endif @endauth
+        @auth
+        @if(auth()->user()->canUploadTo($section))
+        <a href="{{ route('departments.sections.folders.create', [$department->levelAlias(), $department, $section]) }}"
+           class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-cyan-400 dark:hover:border-cyan-500 text-slate-600 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-400 text-sm font-medium px-3 py-2 rounded-lg transition-all"
+           title="Add Folder">
+            <i class="ti ti-folder-plus text-base"></i>
+            <span class="hidden sm:inline">Add Folder</span>
+        </a>
+        @endif
+        @endauth
+        @auth @if(auth()->user()->isAdmin() || (auth()->user()->hasPrivilege('section.head') && auth()->user()->section_id === $section->id) || (auth()->user()->hasPrivilege('department.head') && auth()->user()->department_id === $section->department_id))
         <a href="{{ route('departments.sections.edit', [$department->levelAlias(), $department, $section]) }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
@@ -291,6 +303,50 @@
     </a>
 </div>
 @endif @endauth
+@endif
+
+{{-- ── Folders (Patravali) ──────────────────────────────────────────────────── --}}
+@if($folders->isNotEmpty())
+<div class="mb-6">
+    <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+            <i class="ti ti-folder-star text-cyan-500 dark:text-cyan-400"></i>
+            Folders
+            <span class="text-xs font-normal text-slate-400 dark:text-slate-500 normal-case">({{ $folders->count() }})</span>
+        </h3>
+        @auth @if(auth()->user()->canUploadTo($section))
+        <a href="{{ route('departments.sections.folders.create', [$department->levelAlias(), $department, $section]) }}"
+           class="inline-flex items-center gap-1 text-xs text-cyan-600 dark:text-cyan-400 hover:underline">
+            <i class="ti ti-plus text-xs"></i> Add Folder
+        </a>
+        @endif @endauth
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        @foreach($folders as $fld)
+        <a href="{{ route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $fld]) }}"
+           class="group flex items-start gap-3 p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-cyan-400 dark:hover:border-cyan-500 transition-all">
+            <div class="w-9 h-9 rounded-lg bg-cyan-500/10 dark:bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                <i class="ti ti-folder-star text-cyan-500 dark:text-cyan-400 text-base"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5">
+                    <p class="text-sm font-medium text-slate-800 dark:text-slate-100 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors truncate">{{ $fld->name }}</p>
+                    @if($fld->visibility === 'authenticated')
+                    <i class="ti ti-lock text-amber-500 text-xs flex-shrink-0" title="Authenticated Only"></i>
+                    @endif
+                </div>
+                @if($fld->description)
+                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5 line-clamp-1">{{ $fld->description }}</p>
+                @endif
+                <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                    {{ $fld->documents_count }} {{ Str::plural('document', $fld->documents_count) }}
+                </p>
+            </div>
+            <i class="ti ti-chevron-right text-slate-300 dark:text-slate-600 group-hover:text-cyan-400 transition-colors flex-shrink-0 mt-1 text-sm"></i>
+        </a>
+        @endforeach
+    </div>
+</div>
 @endif
 
 {{-- ── Direct Documents ─────────────────────────────────────────────────────── --}}

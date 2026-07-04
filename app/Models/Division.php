@@ -30,6 +30,11 @@ class Division extends Model
         return $this->hasMany(Document::class)->orderBy('created_at');
     }
 
+    public function folders(): HasMany
+    {
+        return $this->hasMany(Folder::class)->orderBy('name');
+    }
+
     /** Generate a slug unique within the section, checking soft-deleted records. */
     public static function uniqueSlugForSection(string $name, int $sectionId, ?int $exceptId = null): string
     {

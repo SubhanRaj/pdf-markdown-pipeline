@@ -6,6 +6,7 @@ use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DivisionController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\FolderController;
 use App\Http\Controllers\FrontendController;
 use App\Http\Controllers\RuleSetController;
 use App\Http\Controllers\SearchController;
@@ -43,6 +44,16 @@ Route::prefix('documents')->name('documents.')->group(function () {
         Route::get('/{document}',     [DocumentController::class, 'showRuleSetDoc'])->name('show');
         Route::get('/{document}/pdf', [DocumentController::class, 'pdfRuleSetDoc'])->name('pdf');
     });
+    // Section-folder documents
+    Route::prefix('/{level}/{department}/{section}/folders/{folder}')->name('folders.')->group(function () {
+        Route::get('/{document}',     [DocumentController::class, 'showSectionFolderDoc'])->name('show');
+        Route::get('/{document}/pdf', [DocumentController::class, 'pdfSectionFolderDoc'])->name('pdf');
+    });
+    // Division-folder documents
+    Route::prefix('/{level}/{department}/{section}/divisions/{division}/folders/{folder}')->name('divisions.folders.')->group(function () {
+        Route::get('/{document}',     [DocumentController::class, 'showDivisionFolderDoc'])->name('show');
+        Route::get('/{document}/pdf', [DocumentController::class, 'pdfDivisionFolderDoc'])->name('pdf');
+    });
 });
 
 // Departments & sections — read-only public
@@ -61,6 +72,16 @@ Route::prefix('departments')->name('departments.')->group(function () {
         Route::prefix('/{section}/divisions')->name('divisions.')->group(function () {
             Route::get('/create',     [DivisionController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
             Route::get('/{division}', [DivisionController::class, 'show'])->name('show');
+            // Division folders — public show only
+            Route::prefix('/{division}/folders')->name('folders.')->group(function () {
+                Route::get('/create',   [FolderController::class, 'createForDivision'])->name('create')->middleware(['auth', 'throttle:mutations']);
+                Route::get('/{folder}', [FolderController::class, 'showForDivision'])->name('show');
+            });
+        });
+        // Section folders — public show only
+        Route::prefix('/{section}/folders')->name('folders.')->group(function () {
+            Route::get('/create',   [FolderController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
+            Route::get('/{folder}', [FolderController::class, 'show'])->name('show');
         });
     });
 
@@ -100,6 +121,18 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
             Route::patch('/{document}',      [DocumentController::class, 'updateDivisionDoc'])->name('update');
             Route::delete('/{document}',     [DocumentController::class, 'destroyDivisionDoc'])->name('destroy');
         });
+        // Section-folder document mutations
+        Route::prefix('/{level}/{department}/{section}/folders/{folder}')->name('folders.')->group(function () {
+            Route::get('/{document}/review', [DocumentController::class, 'editSectionFolderDoc'])->name('edit');
+            Route::patch('/{document}',      [DocumentController::class, 'updateSectionFolderDoc'])->name('update');
+            Route::delete('/{document}',     [DocumentController::class, 'destroySectionFolderDoc'])->name('destroy');
+        });
+        // Division-folder document mutations
+        Route::prefix('/{level}/{department}/{section}/divisions/{division}/folders/{folder}')->name('divisions.folders.')->group(function () {
+            Route::get('/{document}/review', [DocumentController::class, 'editDivisionFolderDoc'])->name('edit');
+            Route::patch('/{document}',      [DocumentController::class, 'updateDivisionFolderDoc'])->name('update');
+            Route::delete('/{document}',     [DocumentController::class, 'destroyDivisionFolderDoc'])->name('destroy');
+        });
     });
 
     // Departments — mutations
@@ -122,6 +155,22 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
                 Route::get('/{division}/edit',  [DivisionController::class, 'edit'])->name('edit');
                 Route::patch('/{division}',     [DivisionController::class, 'update'])->name('update');
                 Route::delete('/{division}',    [DivisionController::class, 'destroy'])->name('destroy');
+
+                // Division folders — mutations (scope enforced in Form Request authorize())
+                Route::prefix('/{division}/folders')->name('folders.')->group(function () {
+                    Route::post('/',              [FolderController::class, 'storeForDivision'])->name('store');
+                    Route::get('/{folder}/edit',  [FolderController::class, 'editForDivision'])->name('edit');
+                    Route::patch('/{folder}',     [FolderController::class, 'updateForDivision'])->name('update');
+                    Route::delete('/{folder}',    [FolderController::class, 'destroyForDivision'])->name('destroy');
+                });
+            });
+
+            // Section folders — mutations (scope enforced in Form Request authorize())
+            Route::prefix('/{section}/folders')->name('folders.')->group(function () {
+                Route::post('/',              [FolderController::class, 'store'])->name('store');
+                Route::get('/{folder}/edit',  [FolderController::class, 'edit'])->name('edit');
+                Route::patch('/{folder}',     [FolderController::class, 'update'])->name('update');
+                Route::delete('/{folder}',    [FolderController::class, 'destroy'])->name('destroy');
             });
         });
 

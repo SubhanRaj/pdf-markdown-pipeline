@@ -116,11 +116,33 @@ class Document extends Model
         return $slug;
     }
 
+    /** Slug unique within a folder (both section-folder and division-folder documents). */
+    public static function uniqueSlugForFolder(string $title, int $folderId, ?int $exceptId = null): string
+    {
+        $base = static::makeSlug($title);
+        $slug = $base;
+        $i    = 2;
+
+        while (
+            static::where('folder_id', $folderId)
+                ->where('slug', $slug)
+                ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+                ->withTrashed()
+                ->exists()
+        ) {
+            $slug = "{$base}-{$i}";
+            $i++;
+        }
+
+        return $slug;
+    }
+
     protected $fillable = [
         'department_id',
         'section_id',
         'division_id',
         'rule_set_id',
+        'folder_id',
         'parent_id',
         'user_id',
         'title',
@@ -157,6 +179,11 @@ class Document extends Model
     public function ruleSet(): BelongsTo
     {
         return $this->belongsTo(RuleSet::class);
+    }
+
+    public function folder(): BelongsTo
+    {
+        return $this->belongsTo(Folder::class);
     }
 
     public function user(): BelongsTo

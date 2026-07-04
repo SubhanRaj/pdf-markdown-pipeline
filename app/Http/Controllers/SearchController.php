@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Division;
 use App\Models\Document;
+use App\Models\Folder;
 use App\Models\RuleSet;
 use App\Models\Section;
 use Illuminate\Http\Request;
@@ -21,13 +22,14 @@ class SearchController extends Controller
                 'sections'  => collect(),
                 'ruleSets'  => collect(),
                 'divisions' => collect(),
+                'folders'   => collect(),
             ]);
         }
 
         $term = "%{$q}%";
 
         // Documents — title match, or match via section/division/rule-set name
-        $documentsQuery = Document::with(['department', 'section', 'division', 'ruleSet'])
+        $documentsQuery = Document::with(['department', 'section', 'division', 'ruleSet', 'folder'])
             ->publishable()
             ->where('title', 'LIKE', $term)
             ->orWhere(fn ($sub) => $sub
@@ -38,6 +40,9 @@ class SearchController extends Controller
             )
             ->orWhere(fn ($sub) => $sub
                 ->whereHas('ruleSet', fn ($r) => $r->where('name', 'LIKE', $term))
+            )
+            ->orWhere(fn ($sub) => $sub
+                ->whereHas('folder', fn ($f) => $f->where('name', 'LIKE', $term))
             );
 
         // Guests only see public documents
@@ -74,6 +79,17 @@ class SearchController extends Controller
             ->limit(20)
             ->get();
 
-        return view('search.index', compact('q', 'documents', 'sections', 'ruleSets', 'divisions'));
+        // Folders — name or description match
+        $foldersQuery = Folder::with(['department', 'section', 'division'])
+            ->where('name', 'LIKE', $term)
+            ->orWhere('description', 'LIKE', $term);
+
+        if (! auth()->check()) {
+            $foldersQuery->where('visibility', 'public');
+        }
+
+        $folders = $foldersQuery->orderBy('name')->limit(20)->get();
+
+        return view('search.index', compact('q', 'documents', 'sections', 'ruleSets', 'divisions', 'folders'));
     }
 }

@@ -39,7 +39,7 @@
     <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Searches document titles, section names, and rule sets</p>
 </div>
 
-@elseif($documents->isEmpty() && $sections->isEmpty() && $ruleSets->isEmpty())
+@elseif($documents->isEmpty() && $sections->isEmpty() && $ruleSets->isEmpty() && $divisions->isEmpty() && $folders->isEmpty())
 {{-- ── No results ───────────────────────────────────────────────────────────── --}}
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center py-20 text-center">
     <i class="ti ti-mood-sad text-4xl text-slate-200 dark:text-slate-600 mb-3"></i>
@@ -50,7 +50,7 @@
 @else
 {{-- ── Summary strip ────────────────────────────────────────────────────────── --}}
 @php
-    $total = $documents->count() + $sections->count() + $ruleSets->count();
+    $total = $documents->count() + $sections->count() + $ruleSets->count() + $divisions->count() + $folders->count();
 @endphp
 <p class="text-xs text-slate-400 dark:text-slate-500 mb-5">
     {{ $total }} {{ Str::plural('result', $total) }} for
@@ -92,11 +92,13 @@
                 'green'  => 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
                 'red'    => 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
             ];
-            $docUrl = $doc->division
-                ? route('documents.divisions.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->division, $doc])
-                : ($doc->section
-                    ? route('documents.show',       [$doc->department->levelAlias(), $doc->department, $doc->section, $doc])
-                    : route('documents.rules.show', [$doc->department->levelAlias(), $doc->department, $doc->ruleSet,  $doc]));
+            $docUrl = match(true) {
+                $doc->folder && $doc->division => route('documents.divisions.folders.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->division, $doc->folder, $doc]),
+                (bool) $doc->folder            => route('documents.folders.show',           [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->folder, $doc]),
+                (bool) $doc->division          => route('documents.divisions.show',         [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->division, $doc]),
+                (bool) $doc->section           => route('documents.show',                   [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]),
+                default                        => route('documents.rules.show',             [$doc->department->levelAlias(), $doc->department, $doc->ruleSet, $doc]),
+            };
         @endphp
         <div class="flex items-start gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
 
@@ -122,7 +124,7 @@
                     </span>
                     <span class="text-slate-300 dark:text-slate-600">·</span>
                     <span class="text-xs text-slate-400 dark:text-slate-500">
-                        {{ $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name ?? '—' }}
+                        {{ $doc->folder?->name ?? $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name ?? '—' }}
                     </span>
                     <span class="text-slate-300 dark:text-slate-600">·</span>
                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
@@ -254,6 +256,57 @@
             <a href="{{ route('departments.sections.divisions.show', [$div->section->department->levelAlias(), $div->section->department, $div->section, $div]) }}"
                class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-all"
                title="Browse division">
+                <i class="ti ti-arrow-right text-base"></i>
+            </a>
+        </div>
+        @endforeach
+    </div>
+</div>
+@endif
+
+{{-- ── Folders ────────────────────────────────────────────────────────────── --}}
+@if($folders->isNotEmpty())
+<div class="mt-8">
+    <h2 class="text-xs font-semibold uppercase tracking-widest text-cyan-600 dark:text-cyan-400 mb-3 flex items-center gap-2">
+        <i class="ti ti-folder-star"></i> Folders
+        <span class="text-cyan-400 dark:text-cyan-600 font-bold">
+            {{ $folders->count() }}
+        </span>
+    </h2>
+
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/60">
+        @foreach($folders as $folder)
+        @php
+            $folderUrl = $folder->division
+                ? route('departments.sections.divisions.folders.show', [$folder->department->levelAlias(), $folder->department, $folder->section, $folder->division, $folder])
+                : route('departments.sections.folders.show', [$folder->department->levelAlias(), $folder->department, $folder->section, $folder]);
+        @endphp
+        <div class="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
+            <div class="w-9 h-9 rounded-lg bg-cyan-500/10 dark:bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                <i class="ti ti-folder-star text-base text-cyan-500 dark:text-cyan-400"></i>
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                    <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $folder->name }}</p>
+                    @if($folder->visibility === 'authenticated')
+                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 flex-shrink-0">
+                        <i class="ti ti-lock text-[10px]"></i> Authenticated
+                    </span>
+                    @endif
+                </div>
+                <div class="flex items-center gap-2 mt-0.5">
+                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $folder->department->name }}</span>
+                    <span class="text-slate-300 dark:text-slate-600">›</span>
+                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $folder->division?->name ?? $folder->section->name }}</span>
+                    @if($folder->description)
+                    <span class="text-slate-300 dark:text-slate-600">·</span>
+                    <span class="text-xs text-slate-400 dark:text-slate-500 truncate max-w-xs">{{ Str::limit($folder->description, 60) }}</span>
+                    @endif
+                </div>
+            </div>
+            <a href="{{ $folderUrl }}"
+               class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-all"
+               title="Browse folder">
                 <i class="ti ti-arrow-right text-base"></i>
             </a>
         </div>

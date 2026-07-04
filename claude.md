@@ -275,7 +275,7 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 
 **Privilege escalation safety:** `StoreUserRequest` and `UpdateUserRequest` validate `privileges.*` as `in:` against `User::PRIVILEGES` — unknown strings are rejected. Privileges can only be set via `admin.*` routes (gated by `IsAdmin` middleware). `UpdateProfileRequest` has no privilege fields — self-escalation is impossible.
 
-## What's built (as of 2026-06-30, updated)
+## What's built (as of 2026-07-04, updated)
 
 ### Modules / controllers
 

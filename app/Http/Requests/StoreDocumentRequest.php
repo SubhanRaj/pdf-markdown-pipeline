@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Models\Division;
 use App\Models\Document;
+use App\Models\Folder;
 use App\Models\RuleSet;
 use App\Models\Section;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -50,11 +51,21 @@ class StoreDocumentRequest extends FormRequest
 
         // Resolve the upload context from the validated IDs.
         // Input is not yet validated at authorize() time, so cast defensively.
+        $folderId    = (int) $this->input('folder_id')    ?: null;
         $divisionId  = (int) $this->input('division_id')  ?: null;
         $sectionId   = (int) $this->input('section_id')   ?: null;
         $ruleSetId   = (int) $this->input('rule_set_id')  ?: null;
 
-        if ($divisionId) {
+        if ($folderId) {
+            $context = Folder::find($folderId);
+            // Folder must belong to the provided section/division when given
+            if ($context && $sectionId && $context->section_id !== $sectionId) {
+                return false;
+            }
+            if ($context && $context->division_id && $context->division_id !== $divisionId) {
+                return false;
+            }
+        } elseif ($divisionId) {
             $context = Division::find($divisionId);
             // Division must belong to the provided section when both are given
             if ($context && $sectionId && $context->section_id !== $sectionId) {
@@ -83,6 +94,7 @@ class StoreDocumentRequest extends FormRequest
             'visibility'       => strtolower(trim($this->visibility ?? 'public')),
             'parent_id'        => $this->parent_id        ? (int) $this->parent_id        : null,
             'division_id'      => $this->division_id      ? (int) $this->division_id      : null,
+            'folder_id'        => $this->folder_id        ? (int) $this->folder_id        : null,
             'amendment_number' => $this->amendment_number ? (int) $this->amendment_number : null,
             'effective_year'   => $this->effective_year   ? (int) $this->effective_year   : null,
             'effective_month'  => $this->effective_month  ? (int) $this->effective_month  : null,
@@ -104,6 +116,7 @@ class StoreDocumentRequest extends FormRequest
             'section_id'    => ['required_without:rule_set_id', 'nullable', 'integer', 'exists:sections,id'],
             'rule_set_id'   => ['required_without:section_id',  'nullable', 'integer', 'exists:rule_sets,id'],
             'division_id'   => ['nullable', 'integer', 'exists:divisions,id'],
+            'folder_id'     => ['nullable', 'integer', 'exists:folders,id'],
             'parent_id'     => ['nullable', 'integer', 'exists:documents,id'],
             'title'         => ['required', 'string', 'max:255', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
             'document_type' => ['required', 'string', "in:{$validTypes}"],
