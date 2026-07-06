@@ -16,6 +16,7 @@
     $ruleSet  = $ruleSet  ?? null;
     $division = $division ?? null;
     $folder   = $folder   ?? null;
+    $section  = $section  ?? null;
 
     // Context: rule-set, section-folder, division-folder, division, or direct section document
     $isRuleSetDoc        = $ruleSet  !== null;
