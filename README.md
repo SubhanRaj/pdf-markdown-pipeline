@@ -18,7 +18,7 @@ While built for government requirements, the architecture is fully open-source a
 - **Dual-Engine Processing** — button-triggered, never automatic on upload:
   - Every document tries native-text extraction first (`markitdown` Python package, invoked through a Laravel queue job) — fast, and correct whenever a real text layer exists.
   - OCR (Tesseract, `hin`+`eng`) is available as an explicit, human-triggered re-extraction from the review screen — not an automatic fallback. Testing confirmed OCR can silently corrupt an already-good text layer (e.g. digit misreads), so it only ever runs when a reviewer asks for it, never unconditionally. See `OCR_RESEARCH.md` for on-prem OCR engine comparisons (Tesseract remains production).
-- **Human-in-the-Loop Validation UI** — A "Compare & Verify" split-pane modal on the document page where clerks and administrators visually check the original PDF against the compiled, styled Markdown (rendered via Parsedown), edit it if needed, then verify or discard the draft.
+- **Human-in-the-Loop Validation UI** — A "Compare & Verify" split-pane modal on the document page where clerks and administrators visually check the original PDF against the extracted Markdown, edit the raw text if needed, toggle a rendered Preview (GitHub/VS Code-style formatting via `marked.js`, not raw asterisks) to sanity-check the result, then verify or discard the draft. The already-verified document view renders the same way, server-side via Parsedown.
 - **Bulk Upload & Conversion Pipeline Monitor** — a dedicated bulk-upload page (any scoped department/section/division/folder/rule-set, sequential multi-file upload, optional auto-convert) and a pipeline monitor page listing every document still mid-conversion with live status.
 - **Strict Siloed Architecture** — A hierarchical directory structure (Level → Body → Section/RuleSet) maps directly to database records, preventing context leakage between administrative units.
 - **Dual Document Taxonomy** — Documents belong to either a **Section** (for GOs, notices, policy circulars) or a **Rule Set** (for Acts, Rules, and their amendments), each with dedicated vault paths and URL structures.
@@ -34,7 +34,7 @@ While built for government requirements, the architecture is fully open-source a
 | Core Framework | Laravel 13, PHP 8.4 |
 | Database | MariaDB 12 |
 | Web Server | Apache (mod_php or php-fpm) — no Nginx |
-| Frontend / UI | Blade Templates, Tailwind CSS v4 (Play CDN), Parsedown — no Node, no npm, no build step |
+| Frontend / UI | Blade Templates, Tailwind CSS v4 (Play CDN + `typography` plugin), Parsedown, `marked.js` (CDN, client-side Markdown preview only) — no Node, no npm, no build step |
 | Text Extraction | Python `markitdown`, via the [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package |
 | OCR Engine | Tesseract OCR (`hin` + `eng` language packs) |
 | Queue | Laravel database queue driver (local single-box deployment, no Redis dependency) |
@@ -453,8 +453,9 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 **Completed (2026-07-13 — Text Extraction & Markdown Conversion Pipeline):**
 - `ConvertDocumentToMarkdown` queue job — `markitdown`/`pdfminer.six` text-layer extraction, button-triggered per document; quality-checked (near-empty text, or `(cid:N)` glyph-ID fallback tokens from unmapped legacy fonts) and flagged for review either way, never silently discarded
 - `RunOcrExtraction` queue job — Tesseract (`hin`+`eng`, hOCR mode) OCR, **explicit human trigger only**, never an automatic fallback (see rationale above)
-- Compare & Verify split-pane modal on `documents/show` — edit/save/verify, one-time Discard Draft (resets to pre-conversion state, re-enables Convert), Run OCR trigger for low-quality text-layer results
+- Compare & Verify split-pane modal on `documents/show` — edit/save/verify, one-time Discard Draft (resets to pre-conversion state, re-enables Convert), Run OCR trigger for low-quality text-layer results, Edit/Preview tabs (`marked.js`) for rendered vs. raw Markdown while reviewing
 - Bulk Upload page (`/documents/bulk-upload`) and Conversion Pipeline monitor (`/documents/pipeline`)
+- Tailwind `typography` plugin enabled — the verified-document Markdown view's `prose` classes now actually render (were previously inert)
 
 **Next up:** vault path file resolution refinements on verification; production integration decision on an alternative OCR engine (see `OCR_RESEARCH.md`) if Tesseract's Devanagari accuracy remains a blocker.
 

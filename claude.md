@@ -362,11 +362,21 @@ concrete problems, both confirmed by testing, not assumed:
   remains production.
 
 **Compare & Verify modal (`documents/show`)** — split-pane review UI: original PDF (left) vs.
-editable rendered Markdown (right). Key behaviors:
+editable raw Markdown (right, `<textarea>`). Key behaviors:
 - PDF `<iframe>` uses a deferred `data-src` attribute, assigned to `src` only when the modal is
   actually opened — a hidden (`display:none`) iframe gets a 0×0 viewport at load time and the
   browser's built-in PDF viewer never re-applies the `#view=FitH` zoom parameter once shown
   later, so the zoom silently failed until this was fixed.
+- **Edit / Preview tabs** — the raw textarea is the source of truth (edits only happen there),
+  but a **Preview** tab renders it client-side via `marked.js` (jsDelivr `marked@13`, page-scoped
+  to this view via `@push('scripts')`, not loaded globally) into a `prose prose-sm dark:prose-invert`
+  div — same rendered look as the verified-document view below. Rendered HTML is passed through
+  the same `href`/`src` `javascript:`/`data:`/`vbscript:` strip used server-side (see
+  `show.blade.php:254`) before being set via `innerHTML`, even though this is an admin-only,
+  never-persisted preview — defense in depth over trusting `marked`'s own escaping.
+  Reviewers previously only saw raw `**bold**`/`*italic*` markup while editing; this closes that
+  gap without giving up the plain-textarea editing model (no CodeMirror/Monaco — not needed for
+  the actual complaint, which was "I can't see formatting," not "I need a code editor").
 - **Save & Verify** — `PATCH /documents/{id}/markdown` (`updateMarkdown()`, gated by
   `UpdateDocumentMarkdownRequest::authorize()` checking `isAdmin()`) saves edited Markdown and
   optionally marks the document `verified` in one action.
@@ -1039,10 +1049,11 @@ Never interpolate `{{ }}` inside `<script>` blocks — IDE JS parsers choke on i
 
 | Library | Source |
 |---|---|
-| Tailwind CSS (Play CDN) | `https://cdn.tailwindcss.com` |
+| Tailwind CSS (Play CDN, `typography` plugin) | `https://cdn.tailwindcss.com?plugins=typography` — the `typography` plugin is required; it's what makes the `prose`/`prose-invert` classes actually render (they're inert without it) |
 | Tabler Icons (webfont) | jsDelivr — `@tabler/icons-webfont@3.30.0` |
 | Chart.js | jsDelivr — `chart.js@4.4.7` |
 | SweetAlert2 | jsDelivr — `sweetalert2@11` |
+| marked.js | jsDelivr — `marked@13` — page-scoped (`@push('scripts')` in `documents/show.blade.php` only, not global); client-side Markdown→HTML for the Compare & Verify editor's live Preview tab |
 
 All additional JS/CSS packages must be loaded from jsDelivr. Add them to `head.blade.php` (global) or push to `@stack('styles')` / `@stack('scripts')` from individual pages.
 
