@@ -105,6 +105,12 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
         Route::get('/trash/{id}/pdf',              [DocumentController::class, 'trashedPdf'])->name('trashed.pdf');
         Route::post('/trash/{id}/restore',         [DocumentController::class, 'restore'])->name('restore');
         Route::delete('/trash/{id}',               [DocumentController::class, 'forceDestroy'])->name('force-destroy');
+        // Markdown conversion — numeric ID, applies across all five document contexts
+        Route::post('/{id}/convert',               [DocumentController::class, 'convert'])->where('id', '[0-9]+')->name('convert');
+        Route::post('/{id}/convert-ocr',           [DocumentController::class, 'convertOcr'])->where('id', '[0-9]+')->name('convert-ocr');
+        Route::get('/{id}/convert-status',         [DocumentController::class, 'conversionStatus'])->where('id', '[0-9]+')->name('convert-status');
+        Route::patch('/{id}/markdown',             [DocumentController::class, 'updateMarkdown'])->where('id', '[0-9]+')->name('markdown.update');
+        Route::delete('/{id}/markdown',            [DocumentController::class, 'discardMarkdown'])->where('id', '[0-9]+')->name('markdown.discard');
         Route::post('/', [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads');
         Route::get('/{level}/{department}/{section}/{document}/review', [DocumentController::class, 'edit'])->name('edit');
         Route::patch('/{level}/{department}/{section}/{document}',      [DocumentController::class, 'update'])->name('update');
