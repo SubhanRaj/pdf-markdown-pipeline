@@ -29,6 +29,131 @@ class DocumentController extends Controller
 {
     use ManagesDocumentFiles;
 
+    public function bulkUploadForm(): View
+    {
+        $user = auth()->user();
+        $tree = $this->buildUploadScopeTree($user);
+
+        return view('documents.bulk-upload', [
+            'tree'     => $tree,
+            'scope'    => $user->uploadScope(),
+            'storeUrl' => route('documents.store'),
+        ]);
+    }
+
+    /** Conversion-pipeline monitor — every document not yet verified/archived, with live status. */
+    public function pipeline(\Illuminate\Http\Request $request): View
+    {
+        $pipelineStatuses = ['uploaded', 'processing', 'ocr_pending', 'review', 'failed'];
+
+        $activeStatus = $request->query('status');
+        if (! in_array($activeStatus, $pipelineStatuses, true)) {
+            $activeStatus = null;
+        }
+
+        $counts = Document::whereIn('status', $pipelineStatuses)
+            ->selectRaw('status, count(*) as c')
+            ->groupBy('status')
+            ->pluck('c', 'status');
+
+        $documents = Document::with(['department', 'section', 'division', 'ruleSet', 'folder', 'user:id,name'])
+            ->whereIn('status', $activeStatus ? [$activeStatus] : $pipelineStatuses)
+            ->orderByDesc('updated_at')
+            ->paginate(30)
+            ->withQueryString();
+
+        return view('documents.pipeline', compact('documents', 'counts', 'activeStatus', 'pipelineStatuses'));
+    }
+
+    /**
+     * Departments/sections/divisions/folders/rule-sets the current user may upload
+     * to, scoped by User::uploadScope() so the picker never offers a context that
+     * would 403 on submit. Mirrors the parentOptions queries already used by each
+     * show() controller, just gathered up-front for every eligible context at once.
+     */
+    private function buildUploadScopeTree(\App\Models\User $user): array
+    {
+        $scope = $user->uploadScope();
+
+        if ($scope === 'none') {
+            return [];
+        }
+
+        $departments = Department::query()
+            ->when($scope === 'department', fn ($q) => $q->where('id', $user->department_id))
+            ->when($scope === 'section', fn ($q) => $q->whereHas('sections', fn ($q2) => $q2->where('id', $user->section_id)))
+            ->when($scope === 'division', fn ($q) => $q->whereHas('sections.divisions', fn ($q2) => $q2->where('id', $user->division_id)))
+            ->orderBy('name')
+            ->get();
+
+        $mapParentOptions = fn ($query) => $query
+            ->select('id', 'title', 'created_at')
+            ->orderBy('created_at')
+            ->get()
+            ->map(fn ($d) => ['id' => $d->id, 'title' => $d->title, 'date' => $d->created_at->format('d M Y')])
+            ->values();
+
+        return $departments->map(function (Department $department) use ($scope, $user, $mapParentOptions) {
+            $sections = $department->sections()
+                ->when($scope === 'section', fn ($q) => $q->where('id', $user->section_id))
+                ->when($scope === 'division', fn ($q) => $q->whereHas('divisions', fn ($q2) => $q2->where('id', $user->division_id)))
+                ->orderBy('name')
+                ->get()
+                ->map(function (Section $section) use ($scope, $user, $mapParentOptions) {
+                    $divisions = $section->divisions()
+                        ->when($scope === 'division', fn ($q) => $q->where('id', $user->division_id))
+                        ->get()
+                        ->map(fn (Division $division) => [
+                            'id'      => $division->id,
+                            'name'    => $division->name,
+                            'folders' => $division->folders()->get()->map(fn ($f) => [
+                                'id'            => $f->id,
+                                'name'          => $f->name,
+                                'parentOptions' => $mapParentOptions($f->documents()->whereNull('parent_id')),
+                            ])->values(),
+                        ])->values();
+
+                    return [
+                        'id'      => $section->id,
+                        'name'    => $section->name,
+                        'wing'    => $section->wing,
+                        'folders' => $scope === 'division' ? [] : $section->folders()->get()->map(fn ($f) => [
+                            'id'            => $f->id,
+                            'name'          => $f->name,
+                            'parentOptions' => $mapParentOptions($f->documents()->whereNull('parent_id')),
+                        ])->values(),
+                        // Reused for the section itself AND every division under it —
+                        // amendments are allowed to cross division boundaries within a section.
+                        'parentOptions' => $mapParentOptions($section->documents()->whereNull('division_id')),
+                        'divisions'     => $divisions,
+                    ];
+                })->values();
+
+            $ruleSets = in_array($scope, ['global', 'department'], true)
+                ? $department->ruleSets()->orderBy('name')->get()->map(function (RuleSet $ruleSet) use ($mapParentOptions) {
+                    $rootDocs = $ruleSet->documents()->whereNull('parent_id')->get(['id', 'document_type']);
+
+                    return [
+                        'id'            => $ruleSet->id,
+                        'name'          => $ruleSet->name,
+                        'hasRuleDoc'    => $rootDocs->where('document_type', 'rule')->isNotEmpty(),
+                        'parentOptions' => $mapParentOptions($ruleSet->documents()->whereNull('parent_id')),
+                    ];
+                })->values()
+                : collect();
+
+            return [
+                'id'          => $department->id,
+                'name'        => $department->name,
+                'level'       => $department->level,
+                'levelAlias'  => $department->levelAlias(),
+                'levelLabel'  => $department->levelLabel(),
+                'sections'    => $sections,
+                'ruleSets'    => $ruleSets,
+            ];
+        })->values()->all();
+    }
+
     public function index(): View
     {
         $query = Document::with(['department', 'section', 'division', 'ruleSet', 'folder', 'user:id,name'])
@@ -208,7 +333,7 @@ class DocumentController extends Controller
                 default            => route('departments.sections.show', [$department->levelAlias(), $department, $section]),
             };
 
-            return response()->json(['redirect' => $redirectUrl]);
+            return response()->json(['redirect' => $redirectUrl, 'document_id' => $document->id]);
 
         } catch (\Throwable $e) {
             Storage::disk('public')->delete($pdfPath);

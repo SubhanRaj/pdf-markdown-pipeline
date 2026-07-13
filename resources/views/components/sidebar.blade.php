@@ -37,7 +37,7 @@
 
         <a href="{{ route('documents.index') }}"
            data-tooltip="All Documents"
-           class="nav-link {{ request()->routeIs('documents.*') && !request()->routeIs('documents.trash', 'documents.restore', 'documents.force-destroy') ? 'nav-link-active' : 'nav-link-idle' }}">
+           class="nav-link {{ request()->routeIs('documents.*') && !request()->routeIs('documents.trash', 'documents.restore', 'documents.force-destroy', 'documents.pipeline', 'documents.bulk-upload', 'documents.convert', 'documents.convert-status') ? 'nav-link-active' : 'nav-link-idle' }}">
             <i class="ti ti-folder-open w-5 text-center text-base flex-shrink-0"></i>
             <span class="sidebar-text">All Documents</span>
         </a>
@@ -55,6 +55,21 @@
            class="nav-link {{ request()->routeIs('documents.trash') ? 'nav-link-active' : 'nav-link-idle' }}">
             <i class="ti ti-archive w-5 text-center text-base flex-shrink-0"></i>
             <span class="sidebar-text">Archive</span>
+        </a>
+
+        @php
+            $pipelineCount = \App\Models\Document::whereIn('status', ['uploaded', 'processing', 'ocr_pending', 'review', 'failed'])->count();
+        @endphp
+        <a href="{{ route('documents.pipeline') }}"
+           data-tooltip="Conversion Pipeline"
+           class="nav-link {{ request()->routeIs('documents.pipeline') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-cpu w-5 text-center text-base flex-shrink-0 text-blue-400"></i>
+            <span class="sidebar-text">Pipeline</span>
+            @if($pipelineCount > 0)
+            <span class="sidebar-badge ml-auto text-[10px] bg-blue-900/60 text-blue-400 px-1.5 py-0.5 rounded font-medium">
+                {{ $pipelineCount }}
+            </span>
+            @endif
         </a>
 
         @php
@@ -107,11 +122,16 @@
 
         <span class="nav-section-label">Tools</span>
 
-        <span data-tooltip="Convert PDF — Coming soon" class="nav-link nav-link-idle opacity-60 cursor-not-allowed">
+        @auth
+        @if(auth()->user()->uploadScope() !== 'none')
+        <a href="{{ route('documents.bulk-upload') }}"
+           data-tooltip="Bulk Upload & Convert"
+           class="nav-link {{ request()->routeIs('documents.bulk-upload') ? 'nav-link-active' : 'nav-link-idle' }}">
             <i class="ti ti-file-upload w-5 text-center text-base flex-shrink-0 text-indigo-400"></i>
-            <span class="sidebar-text">Convert PDF</span>
-            <span class="sidebar-badge ml-auto text-[10px] bg-indigo-900/60 text-indigo-400 px-1.5 py-0.5 rounded font-medium">Soon</span>
-        </span>
+            <span class="sidebar-text">Bulk Upload & Convert</span>
+        </a>
+        @endif
+        @endauth
 
         <span data-tooltip="Markdown Editor — Coming soon" class="nav-link nav-link-idle opacity-60 cursor-not-allowed">
             <i class="ti ti-markdown w-5 text-center text-base flex-shrink-0 text-sky-400"></i>
