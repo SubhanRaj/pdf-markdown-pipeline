@@ -1383,3 +1383,87 @@ Built end-to-end against the design above. Ran migrations against local MariaDB;
 **Bug caught during verification:** `documents/show.blade.php`'s `$linkForDoc` closure captured `$division` via `use (...)`, which throws "Undefined variable" for section-folder docs (no division in scope) even though it's guarded by `isset()` everywhere else — `isset()` doesn't protect a `use()` capture. Fixed by normalizing `$ruleSet`/`$division`/`$folder` to `null` at the top of the view.
 
 **Not done (deliberately out of scope):** `documents/trash.blade.php` and `ApprovalController`'s `context_name` fallback chains still stop at `division?->name ?? section?->name ?? ruleSet?->name` without a folder branch — cosmetic label only in the archive/approval-queue UI, not a routing or access-control gap (folder documents already archive/approve correctly through the generic `Document` flows both modules already use).
+
+---
+
+## M30 — Text Extraction & Markdown Conversion Pipeline (COMPLETED 2026-07-13)
+
+**Goal:** Convert a document's original PDF into reviewable Markdown, with OCR available as an
+on-demand human-triggered option rather than an automatic step — first real use of the
+`markitdown`/Tesseract toolchain `composer.json`/`CLAUDE.md` had been describing since project
+inception, but nothing had ever written to `markdown_path` until this milestone.
+
+**Design iteration — automatic OCR fallback was built, tested, and removed:** the first version
+auto-dispatched OCR whenever the text-layer pass looked low-quality. Two concrete problems
+surfaced in testing, not just a preference: (1) a single serial queue worker meant one slow OCR
+job blocked every other document behind it — the literal cause of a "stuck on converting"
+complaint; (2) running OCR on an already-good text layer actively corrupts correct text —
+confirmed by testing Tesseract against `Haryana Excise Policy 2025-27.pdf` page 1 (already
+cleanly handled by the text-layer pass): "150 meters" silently became "50 meters" in four
+separate places. Redesigned to a "man in the middle" model: text-layer extraction always runs
+first and is always shown to a reviewer (even if low quality, flagged rather than hidden); OCR
+only runs when a human explicitly clicks "Run OCR-Based Extraction."
+
+**Added:**
+- `app/Jobs/ConvertDocumentToMarkdown.php` — `pdfminer.six` low-level extraction
+  (`extract_pages`/`LTChar`/`LTTextLine` via `resources/python/pdf_structure_extractor.py --mode
+  pdf`, run through the markitdown-provisioned venv) for font-size/bold structure detection;
+  bypasses markitdown's own plain-text-only `pdfminer.high_level.extract_text()` converter.
+  Quality gate (`isGoodQuality()`) catches two independent failure modes: `(cid:\d+)` glyph-ID
+  fallback tokens (over 5 occurrences — legacy non-Unicode Devanagari fonts with no ToUnicode
+  CMap) and near-empty text relative to page count. Writes Markdown and sets
+  `metadata.needs_ocr_review` either way — never silently drops a bad result.
+- `app/Jobs/RunOcrExtraction.php` — Tesseract (`hin+eng`, hOCR mode for per-line `x_size`
+  heading detection) via `pdftoppm` rasterization into a per-job private-disk temp dir, cleaned
+  up in a `finally` block. Never auto-dispatched; only reachable via `POST
+  /documents/{id}/convert-ocr`.
+- `app/Http/Requests/UpdateDocumentMarkdownRequest.php` — admin-only `authorize()`, backs the
+  Compare & Verify modal's Save & Verify action.
+- `resources/python/pdf_structure_extractor.py` — shared structure-extraction script, two modes
+  (`pdf` for the text-layer pass, `hocr` for the OCR pass).
+- `resources/views/documents/bulk-upload.blade.php` — multi-context (section/division/folder/
+  rule-set) bulk upload page, server-computed scope tree (`DocumentController::
+  buildUploadScopeTree()`) so the picker never offers an out-of-scope destination; optional
+  auto-convert per file.
+- `resources/views/documents/pipeline.blade.php` — table of every document not yet verified/
+  archived, status tabs, live 5s polling on in-flight rows.
+- `composer.json` — `innobrain/markitdown`, `erusev/parsedown`; `post-autoload-dump` runs
+  `markitdown:install` automatically.
+
+**Modified:**
+- `app/Http/Controllers/DocumentController.php` — `convert()`/`convertOcr()`/
+  `conversionStatus()`/`updateMarkdown()`/`discardMarkdown()`, plus `bulkUploadForm()`/
+  `pipeline()`/`buildUploadScopeTree()`; `store()` now returns `document_id` in its JSON
+  response so the bulk-upload page can chain an auto-convert call.
+- `routes/web.php` — `documents.bulk-upload`, `documents.pipeline`, `documents.convert`,
+  `documents.convert-ocr`, `documents.convert-status`, `documents.markdown.update`,
+  `documents.markdown.discard`.
+- `resources/views/documents/show.blade.php` — Compare & Verify split-pane modal (deferred
+  `data-src` on the PDF iframe, fixing a zoom bug where a hidden iframe never re-applied
+  `#view=FitH`); one-time Discard Draft action; Run OCR trigger moved inside the modal instead
+  of a second page-level banner; Convert button icon swaps to a spinning loader instead of
+  disappearing or spinning the markdown logo icon; Markdown tab/card hidden entirely until
+  `status = 'verified'`.
+- `resources/views/components/sidebar.blade.php` / `header.blade.php` — "Pipeline" nav link
+  (unscoped live count badge) and "Bulk Upload & Convert" link (scoped to `uploadScope() !==
+  'none'`) replacing prior placeholder/"Coming soon" entries.
+- `resources/views/frontend/index.blade.php` — dashboard "In Review"/"Processing" stat tiles
+  now link to the pipeline page.
+
+**Known gap, not yet fixed:** `convert()`/`convertOcr()`/`discardMarkdown()` are gated
+`isAdmin()` directly in the controller. The Bulk Upload page's auto-convert checkbox is
+available to any user with upload scope (not just admins) and silently no-ops for non-admins —
+the `fetch()` call 403s and is swallowed by a `.catch()` that only logs to console, with no
+user-facing indication that conversion never started. Tracked in `SECURITY.md` Pass 4 and in
+`CLAUDE.md`'s pipeline section; not fixed in this pass since it's a pre-existing gate this
+milestone didn't introduce, just newly exposed by the bulk-upload UI.
+
+**Research spike, no code change:** two on-premise OCR alternatives to Tesseract were installed
+and tested (PaddleOCR, EasyOCR) against the same real problem document. PaddleOCR rejected —
+its default Hindi preset tried to consume the entire host's RAM for a single page, and pinning
+it to a lighter model crashed with a Paddle-inference version bug. EasyOCR showed a genuine
+accuracy improvement on the exact known failure modes (correct Devanagari-numeral years vs.
+Tesseract's `1904`→`4904`-style corruption, no conjunct/halant artifacts, no English-word
+hallucination) at a workable ~700MB-steady/~4.4GB-peak memory cost — promising, but not
+integrated; needs a multi-page test and an explicit sign-off given the PyTorch dependency
+weight before any production change. Full write-up in `OCR_RESEARCH.md`.

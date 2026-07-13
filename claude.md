@@ -29,7 +29,7 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Web server | Apache (mod_php or php-fpm via mod_proxy_fcgi) — **no Nginx** |
 | Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Parsedown (markdown render) — **no Node, no npm, no build step** |
 | Text extraction | Python `markitdown`, via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
-| OCR | Tesseract OCR (`hin` + `eng` language packs), invoked via `symfony/process`. Only triggered when markitdown output is empty/low-quality (i.e. scanned legacy GOs). |
+| OCR | Tesseract OCR (`hin` + `eng` language packs), invoked via `symfony/process`. **Never automatic** — triggered only by an explicit "Run OCR-Based Extraction" action from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below. |
 | Queue | Laravel **database** queue driver — deliberately no Redis, single-box local deployment |
 | Disk | Single local filesystem disk (`public`); logical separation enforced by path convention, not multiple disks |
 
@@ -275,7 +275,7 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 
 **Privilege escalation safety:** `StoreUserRequest` and `UpdateUserRequest` validate `privileges.*` as `in:` against `User::PRIVILEGES` — unknown strings are rejected. Privileges can only be set via `admin.*` routes (gated by `IsAdmin` middleware). `UpdateProfileRequest` has no privilege fields — self-escalation is impossible.
 
-## What's built (as of 2026-07-04, updated)
+## What's built (as of 2026-07-13, updated)
 
 ### Modules / controllers
 
@@ -293,6 +293,123 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 | Archive | `DocumentController` (existing methods) | Soft-deleted documents accessible to all authenticated users; "Archive" in all UI; counts split active vs archived; restore gated by `documents.restore` privilege; permanent delete gated by `documents.force-delete` + requires reason + letter PDF upload — letter stored on the **private `local` disk** (`storage/app/private/archive_letters/`), never on public disk; letter path stored in `document_status_histories.metadata` |
 | Activity Log | `Admin\ActivityLogController` | Admin-only audit view at `GET /admin/activity-logs`; filterable by user, action, and IP; paginates the `activity_logs` table (50/page); `LogMutation` middleware records all authenticated POST/PATCH/DELETE requests; `Login` event listener records every successful login with IP, UA, and guard |
 | Approval Queue | `ApprovalController` | Maker-checker workflow at `GET /approvals`; three tabs (Pending / Rejected / My Submissions); approve, reject, reclassify, resubmit actions; scope-aware (approvers see only their org boundary); PDF preview via slide-over drawer; bulk approve/reject |
+| **Text Extraction / OCR** | **`DocumentController` (`convert`, `convertOcr`, `conversionStatus`, `updateMarkdown`, `discardMarkdown`)** | **Button-triggered Markdown conversion (`ConvertDocumentToMarkdown` job) + on-demand OCR re-extraction (`RunOcrExtraction` job); Compare & Verify split-pane modal on `documents/show`; see dedicated section below** |
+| **Bulk Upload** | **`DocumentController@bulkUploadForm`** | **`GET /documents/bulk-upload` — single page to upload multiple files to any department/section/division/folder/rule-set the user is scoped to, with optional auto-convert per file** |
+| **Conversion Pipeline monitor** | **`DocumentController@pipeline`** | **`GET /documents/pipeline` — table of every document not yet verified/archived (`uploaded`/`processing`/`ocr_pending`/`review`/`failed`), status tabs, live polling, per-row Convert/Retry** |
+
+### Text Extraction & Markdown Conversion Pipeline
+
+**Implemented 2026-07-13.** Converts a document's original PDF into Markdown, with OCR available
+as an explicit, human-triggered fallback — never automatic. This is a deliberate "man in the
+middle" design: every upload defaults to the fast text-layer pass, a human decides whether the
+result is good enough or needs OCR, nothing burns minutes of queue time until someone asks for it.
+
+**Trigger — button, not automatic.** Conversion never auto-dispatches from `store()` or from
+approval. A **Convert to Markdown** button on `documents/show` (and a per-row **Convert**/**Retry**
+button on the Pipeline monitor, and an **auto-convert** checkbox on the Bulk Upload page) calls
+`POST /documents/{id}/convert`, which dispatches `App\Jobs\ConvertDocumentToMarkdown`
+(`ShouldQueue`, `$timeout = 900`). Both `convert()` and `convertOcr()` are gated by
+`auth()->user()->isAdmin()` directly in the controller — same pattern as other admin-only
+document mutations in this codebase (Form-Request-only or controller-only isAdmin() checks,
+not the stricter `is_admin` route-group middleware, which is reserved for `admin.*` user
+management routes).
+
+**`ConvertDocumentToMarkdown` job — text-layer pass, always runs first:**
+1. Runs `resources/python/pdf_structure_extractor.py --mode pdf` through the same venv Python
+   `innobrain/markitdown:install` provisions (`vendor/innobrain/markitdown/python/venv/bin/python3`)
+   — this script uses `pdfminer.six`'s low-level API (`extract_pages`, `LTChar`, `LTTextLine`)
+   directly, not markitdown's own `pdfminer.high_level.extract_text()` converter, because the
+   latter is plain-text only by its own documentation. The low-level API exposes per-character
+   font size/name, which the script uses to infer heading levels and bold text.
+2. Quality-checks the output via `isGoodQuality()` — two independent failure signals, both
+   meaning "don't trust this text layer":
+   - `(cid:\d+)` glyph-ID fallback tokens (pdfminer couldn't resolve a character to Unicode
+     because the embedded font has no usable ToUnicode CMap — very common in legacy
+     non-Unicode Devanagari fonts like Kruti Dev/Chanakya/DevLys). More than 5 occurrences ⇒
+     bad. Char-count alone doesn't catch this — a page full of `(cid:547)` garbage still has
+     plenty of characters.
+   - Near-empty text relative to page count (`char_count < page_count * 40`) — a real
+     scanned/photographed page with no text layer at all.
+3. Writes the Markdown regardless of quality (`status → review` either way) and sets
+   `metadata.needs_ocr_review = true/false` — a bad text-layer result is still shown to the
+   reviewer with a warning, not silently discarded, so nothing is stuck waiting on a human who
+   doesn't know a document needs attention.
+
+**`RunOcrExtraction` job — explicit, human-triggered only, never auto-dispatched:**
+1. `pdftoppm -png -r 300` rasterizes every page to PNG in a per-job temp dir under
+   `storage/app/private/ocr_tmp/{uniqid}` (private disk, cleaned up in a `finally` block —
+   page images are never retained after extraction).
+2. `tesseract <page> <outbase> -l hin+eng hocr` per page — hOCR output (not plain stdout text)
+   because it carries per-line `x_size`, the font-size proxy `pdf_structure_extractor.py --mode
+   hocr` needs for heading detection on scanned documents.
+3. Joins all pages and writes Markdown, `metadata.extraction_method = 'ocr'`,
+   `metadata.needs_ocr_review = false`, `status → review`.
+4. All `Process::run()` calls use array-form arguments (no shell interpolation) — standard
+   command-injection-safe pattern already used elsewhere in this codebase.
+
+**Empirically tested and rejected: automatic OCR fallback.** An earlier iteration ran OCR
+automatically whenever the text-layer pass looked low-quality. This was removed after two
+concrete problems, both confirmed by testing, not assumed:
+- With a single serial queue worker, one slow OCR job (minutes) blocked every document queued
+  behind it — this is what caused the "stuck on converting" complaint that prompted the redesign.
+- Running OCR on an already-good, native-text PDF *actively corrupts* correct text — verified by
+  running Tesseract on `Haryana Excise Policy 2025-27.pdf` (page 1, already cleanly handled by
+  the text-layer pass): **"150 meters" was silently changed to "50 meters" in four separate
+  places**, plus `21 out of 22` → `2l out of 22` and dropped leading digits in section numbers.
+  This is why OCR must never be allowed to override a working text layer without a human
+  explicitly asking for it. See `OCR_RESEARCH.md` for the full write-up, including two
+  alternative on-prem OCR engines (PaddleOCR, EasyOCR) evaluated and **not adopted** — Tesseract
+  remains production.
+
+**Compare & Verify modal (`documents/show`)** — split-pane review UI: original PDF (left) vs.
+editable rendered Markdown (right). Key behaviors:
+- PDF `<iframe>` uses a deferred `data-src` attribute, assigned to `src` only when the modal is
+  actually opened — a hidden (`display:none`) iframe gets a 0×0 viewport at load time and the
+  browser's built-in PDF viewer never re-applies the `#view=FitH` zoom parameter once shown
+  later, so the zoom silently failed until this was fixed.
+- **Save & Verify** — `PATCH /documents/{id}/markdown` (`updateMarkdown()`, gated by
+  `UpdateDocumentMarkdownRequest::authorize()` checking `isAdmin()`) saves edited Markdown and
+  optionally marks the document `verified` in one action.
+- **Discard Draft** — `DELETE /documents/{id}/markdown` (`discardMarkdown()`) is a one-time
+  action: deletes the Markdown file, clears `extraction_method`/`needs_ocr_review`/
+  `manually_edited` from metadata, resets `status → uploaded` so **Convert to Markdown**
+  re-appears on the page. Blocked (422) once a document is `verified` — discarding an accepted
+  record isn't a "draft rejection" at that point, it would destroy audit history.
+- **Run OCR-Based Extraction** — lives inside this modal (not as a second banner/button on the
+  page) when `metadata.needs_ocr_review` is true. Calls `POST /documents/{id}/convert-ocr`,
+  shares the same polling helper (`startConversionPolling()`) as the page-level convert banner,
+  parameterized by element ID so the two progress bars don't collide.
+- The Markdown tab/card on `documents/show` is hidden entirely until `status = 'verified'` —
+  pre-verification, only the amber "awaiting verification" banner + **Compare & Verify** button
+  are shown above the PDF viewer (no separate OCR-recommended banner; the two were consolidated
+  into one, with the OCR trigger moved inside the modal as above).
+- Convert button never disappears on click — its icon swaps from `ti-markdown` to
+  `ti-loader-2 animate-spin` (a spinning loader, deliberately **not** a spinning markdown logo)
+  and the label changes to "Converting…", staying in place until the job completes.
+
+**Bulk Upload (`GET /documents/bulk-upload`)** — one page to upload multiple files to any
+department/section/division/folder/rule-set the user's `uploadScope()` permits, computed
+server-side once (`DocumentController::buildUploadScopeTree()`) so the picker never offers a
+context that would 403 on submit. Files upload sequentially (same one-`fetch`-per-file pattern
+as the existing per-context upload modals); an **auto-convert** checkbox (checked by default)
+fires `POST /documents/{id}/convert` immediately after each successful upload. **Known gap:**
+`convert()` is admin-gated, so auto-convert silently no-ops (fails, caught by a `.catch()` that
+only logs to console) for a non-admin operator with upload access — the UI doesn't yet surface
+this. Not yet fixed; noted here so it isn't lost.
+
+**Conversion Pipeline monitor (`GET /documents/pipeline`)** — a table of every document with
+`status` in `uploaded`/`processing`/`ocr_pending`/`review`/`failed` (i.e. everything not yet
+`verified` or archived), with status-filter tabs, a live count per status, and 5-second polling
+on any row whose status is `processing`/`ocr_pending`. Viewing is unscoped (all authenticated
+users see all departments' pipeline items) — consistent with this codebase's existing rule that
+viewing is never scoped, only mutations are.
+
+**Toolchain** (installed once; see `DEPLOY.md` for full reproducible setup):
+```bash
+composer require innobrain/markitdown erusev/parsedown
+php artisan markitdown:install        # provisions its own venv
+brew install tesseract tesseract-lang poppler   # hin+eng traineddata, pdftoppm/pdfinfo
+```
 
 ### Route map
 
@@ -348,8 +465,17 @@ Controller method signatures **must** declare `string $level` as their first par
 | POST | `/documents/trash/bulk-restore` | `documents.trash.bulk-restore` | Auth |
 | DELETE | `/documents/trash/bulk-force-destroy` | `documents.trash.bulk-force-destroy` | Admin |
 | POST | `/documents/bulk-destroy` | `documents.bulk-destroy` | Auth |
+| GET | `/documents/bulk-upload` | `documents.bulk-upload` | Auth |
+| GET | `/documents/pipeline` | `documents.pipeline` | Auth |
+| POST | `/documents/{id}/convert` | `documents.convert` | Admin (controller check) |
+| POST | `/documents/{id}/convert-ocr` | `documents.convert-ocr` | Admin (controller check) |
+| GET | `/documents/{id}/convert-status` | `documents.convert-status` | Auth (unscoped — see note) |
+| PATCH | `/documents/{id}/markdown` | `documents.markdown.update` | Admin (Form Request check) |
+| DELETE | `/documents/{id}/markdown` | `documents.markdown.discard` | Admin (controller check) |
 
 *Public routes 403 on `visibility = authenticated` documents for guests. Folder doc routes additionally 403 if the containing folder's visibility is `authenticated` and the user is a guest.
+
+**Note on `convert-status`:** any authenticated user can poll conversion status for any numeric document ID — it isn't scoped to visibility, department, or upload boundary. It only leaks processing metadata (`status`, `extraction_method`, `needs_ocr_review`, `has_markdown`), never document content, but this is looser than every other document endpoint in this table. Flagged in `SECURITY.md` Pass 4 as a low-severity, not-yet-fixed information-disclosure gap.
 
 **Departments, Sections, Divisions, Rule Sets, Folders**
 
@@ -783,6 +909,8 @@ Seeder is idempotent (`firstOrCreate` on email). Run with `php artisan db:seed -
 **Sidebar user strip (bottom)** — the avatar initial and display name are clickable links for all authenticated users. Admins are linked to `admin.users.edit` (their own record); non-admins are linked to `profile.edit`. Guests see a static "G" avatar with a login icon.
 
 **Browse Vault is fully dynamic** — `sidebar.blade.php` queries all `Department` records ordered by level then name. Icon and color resolved from a `$deptMeta` slug → `[icon, color]` map; unknown slugs fall back to a cycling palette. Slug keys use underscores (matching DB slugs), e.g. `sugarcane_sugar`.
+
+**Pipeline / Bulk Upload nav links** — `Pipeline` (linking to `documents.pipeline`) sits under the main document nav with an unscoped live count badge (`Document::whereIn('status', [...])->count()`, all departments, matching the "viewing is never scoped" rule). `Bulk Upload & Convert` (linking to `documents.bulk-upload`) sits under "Tools", visible only when `auth()->user()->uploadScope() !== 'none'`; the header's "New Conversion" CTA button links to the same route under the same gate. Both replace what were previously placeholder/"Coming soon" entries.
 
 ### Rate limiting
 

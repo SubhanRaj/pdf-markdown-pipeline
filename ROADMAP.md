@@ -130,6 +130,98 @@
 
 ---
 
+### 2.4 Text Extraction Pipeline — Markdown Conversion + Hindi/English OCR
+
+**Status:** ✅ Implemented (2026-07-13, M30 in `summary.md`). The plan below was written before
+implementation started and described an auto-OCR-fallback design; the design changed during
+build after concrete testing (see "What actually shipped, and why it differs" below). Kept
+here, struck through where superseded, so the reasoning trail isn't lost.
+
+**Rationale (still holds):** Real-world intake for this vault is dominated by scanned or
+photographed paper — GOs run through a departmental scanner, mobile-camera captures of physical
+files, old "print to PDF from a scan" workflows. These almost never carry a selectable text
+layer. Native-text PDFs (drafted digitally) do exist but are the minority case in practice. The
+pipeline tries the cheap text-layer extraction first since it costs nothing to attempt and is
+strictly better when it works — but see below for why OCR ended up as a strictly human-gated
+second step rather than an automatic fallback.
+
+**What actually shipped, and why it differs from the original plan:**
+
+The original plan below called for OCR to auto-run whenever the text-layer pass looked
+low-quality (`FAIL → status → ocr_pending → rasterize → tesseract → write`, all inside one job,
+no human in the loop). This was built, then reverted, after two concrete problems surfaced in
+testing — not a preference change, a correctness/ops finding:
+
+1. With a single serial `queue:work` process, one slow OCR job (minutes, for a multi-page scan)
+   blocked every other queued document behind it. This is what caused a real "stuck on
+   converting" complaint — the queue wasn't broken, it was just serially bottlenecked on OCR
+   nobody had asked for yet.
+2. Running OCR on an already-good, native-text PDF **actively corrupts correct text**. Verified
+   by testing Tesseract against `Haryana Excise Policy 2025-27.pdf` page 1 (already handled
+   cleanly by the text-layer pass): "150 meters" was silently changed to "50 meters" in **four
+   separate places**, plus `21 out of 22` → `2l out of 22` and dropped leading digits in section
+   numbers. Automatic OCR fallback would have silently degraded documents that didn't need it.
+
+**Revised, shipped design — "man in the middle":** every upload's text-layer pass always runs
+first (button-triggered, not automatic on upload — same as originally planned) and its result is
+**always** shown to a reviewer, flagged if low-quality rather than auto-escalated to OCR. A human
+decides whether to accept it or explicitly trigger OCR from inside the Compare & Verify modal.
+OCR never runs unless a person asks for it, for a specific document, every time.
+
+```
+Button click → POST …/convert → ConvertDocumentToMarkdown job → status: processing
+    1. Run pdfminer.six (via resources/python/pdf_structure_extractor.py --mode pdf) —
+       NOT markitdown's own extract_text(), which is plain-text only
+    2. Quality check: (cid:\d+) glyph-ID tokens (>5 ⇒ bad — unmapped legacy font) OR
+       near-empty char count relative to page count (⇒ bad — scanned/image PDF)
+    3. Write .md either way, status → review, metadata.needs_ocr_review = true/false
+       (a bad result is flagged to the reviewer, never silently discarded)
+    Uncaught exception → status → failed
+
+[If flagged, or the reviewer just wants to try] → Compare & Verify modal →
+"Run OCR-Based Extraction" → POST …/convert-ocr → RunOcrExtraction job → status: ocr_pending
+    1. pdftoppm -r 300 rasterize to PNG, private-disk temp dir
+    2. tesseract per page, lang = hin+eng, hocr mode (per-line x_size for heading detection)
+    3. Join, write .md, status → review, metadata.extraction_method = 'ocr'
+    4. Page images deleted in a `finally` block regardless of outcome — never retained
+    Uncaught exception → status → failed
+```
+
+**Retry** — when `status = 'failed'`, the button relabels to **Retry**. Both `convert()` and
+`convertOcr()` are gated `isAdmin()` directly in the controller (same pattern as other
+admin-only document mutations elsewhere in this codebase).
+
+**Toolchain (installed, this machine — versions in `DEPLOY.md`):**
+```bash
+composer require innobrain/markitdown erusev/parsedown
+php artisan markitdown:install        # provisions its own venv, no manual Python bridge
+brew install tesseract tesseract-lang # adds hin.traineddata + eng.traineddata
+brew install poppler                  # pdftoppm — PDF page rasterization ahead of OCR
+```
+
+**Compare & Verify modal (`documents/show`) — this shipped, contrary to the original plan's
+"no split-pane review editor in this pass":** split-pane PDF-vs-Markdown review, editable, with
+Save & Verify, one-time Discard Draft (resets to pre-conversion state), and the Run OCR trigger
+living inside the modal rather than as a second page banner. Full detail in `CLAUDE.md`'s
+"Text Extraction & Markdown Conversion Pipeline" section — not duplicated here.
+
+**Also shipped, not in the original plan at all:** a Bulk Upload page (`/documents/bulk-upload`)
+and a Conversion Pipeline monitor page (`/documents/pipeline`) — both added because reviewing
+one document at a time didn't scale to onboarding a legacy document backlog.
+
+**Follow-up research, no pipeline change:** two on-prem OCR alternatives to Tesseract
+(PaddleOCR, EasyOCR) were evaluated against the exact document class causing accuracy
+complaints. PaddleOCR rejected (resource exhaustion + a Paddle-inference version crash).
+EasyOCR showed a real accuracy improvement on the specific failure modes (correct Devanagari
+numerals, no conjunct artifacts, no hallucinated English substitutions) at a workable but heavy
+memory cost — not integrated, pending a multi-page test and explicit sign-off given the new
+PyTorch dependency weight. Full write-up: `OCR_RESEARCH.md`.
+
+No schema migration was needed — `metadata.extraction_method`/`needs_ocr_review` live in the
+existing JSON column; `status` reuses values already named in `CLAUDE.md`'s enum.
+
+---
+
 ## Cross-Cutting Concerns
 
 ### CSP Nonce Migration (Post-CDN)
@@ -146,4 +238,4 @@ The current Parsedown post-processor uses a targeted `preg_replace` to strip `ja
 
 ---
 
-*Roadmap authored: 2026-06-25. Last updated: 2026-06-26 (2.1 Maker-Checker marked implemented). All items subject to prioritisation based on NIC audit outcomes and departmental SOP review.*
+*Roadmap authored: 2026-06-25. Last updated: 2026-07-13 (2.4 Text Extraction Pipeline marked implemented — design revised from auto-OCR-fallback to human-gated OCR after concrete testing; see `summary.md` M30 and `SECURITY.md` Pass 4). All items subject to prioritisation based on NIC audit outcomes and departmental SOP review.*
