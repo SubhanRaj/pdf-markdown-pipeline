@@ -98,6 +98,8 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
 
     // Documents — mutations
     Route::prefix('documents')->name('documents.')->group(function () {
+        Route::get('/bulk-upload',                 [DocumentController::class, 'bulkUploadForm'])->name('bulk-upload');
+        Route::get('/pipeline',                    [DocumentController::class, 'pipeline'])->name('pipeline');
         Route::get('/trash',                       [DocumentController::class, 'trash'])->name('trash');
         Route::post('/bulk-destroy',               [DocumentController::class, 'bulkDestroy'])->name('bulk-destroy');
         Route::post('/trash/bulk-restore',         [DocumentController::class, 'bulkRestore'])->name('trash.bulk-restore');

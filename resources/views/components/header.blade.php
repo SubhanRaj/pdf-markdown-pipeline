@@ -33,11 +33,15 @@
             <i id="dark-mode-icon" class="ti ti-moon text-base"></i>
         </button>
 
-        {{-- New conversion CTA --}}
-        <a href="#"
+        {{-- New conversion CTA — bulk upload & convert, scoped to users who can upload anywhere --}}
+        @auth
+        @if(auth()->user()->uploadScope() !== 'none')
+        <a href="{{ route('documents.bulk-upload') }}"
            class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
             <i class="ti ti-plus text-base"></i>
             New Conversion
         </a>
+        @endif
+        @endauth
     </div>
 </header>
