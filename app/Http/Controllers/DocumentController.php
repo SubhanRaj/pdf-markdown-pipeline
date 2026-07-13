@@ -9,6 +9,7 @@ use App\Http\Requests\BulkForceDestroyDocumentsRequest;
 use App\Http\Requests\DeleteDocumentRequest;
 use App\Http\Requests\StoreDocumentRequest;
 use App\Http\Requests\UpdateDocumentRequest;
+use App\Jobs\ConvertDocumentToMarkdown;
 use App\Models\Department;
 use App\Models\Division;
 use App\Models\Document;
@@ -949,6 +950,159 @@ class DocumentController extends Controller
             ]);
             flash()->error('Failed to delete document. Please try again.');
             return back();
+        }
+    }
+
+    // ── Markdown conversion (button-triggered, applies to all five doc contexts) ──
+
+    public function convert(int $id): JsonResponse
+    {
+        if (! auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $document = Document::findOrFail($id);
+
+        if (! in_array($document->status, ['uploaded', 'review', 'verified', 'failed'], true)) {
+            return response()->json(['message' => 'Document is not in a convertible state.'], 422);
+        }
+
+        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
+            return response()->json(['message' => 'Original PDF file not found.'], 404);
+        }
+
+        ConvertDocumentToMarkdown::dispatch($document->id);
+
+        return response()->json(['status' => 'processing']);
+    }
+
+    /** Explicit, human-triggered OCR re-extraction — never auto-run. See RunOcrExtraction. */
+    public function convertOcr(int $id): JsonResponse
+    {
+        if (! auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $document = Document::findOrFail($id);
+
+        if (! in_array($document->status, ['review', 'verified', 'failed'], true)) {
+            return response()->json(['message' => 'Document is not in a state that supports OCR re-extraction.'], 422);
+        }
+
+        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
+            return response()->json(['message' => 'Original PDF file not found.'], 404);
+        }
+
+        \App\Jobs\RunOcrExtraction::dispatch($document->id);
+
+        return response()->json(['status' => 'ocr_pending']);
+    }
+
+    public function conversionStatus(int $id): JsonResponse
+    {
+        $document = Document::findOrFail($id);
+
+        return response()->json([
+            'status'            => $document->status,
+            'extraction_method' => $document->metadata['extraction_method'] ?? null,
+            'needs_ocr_review'  => (bool) ($document->metadata['needs_ocr_review'] ?? false),
+            'has_markdown'      => (bool) ($document->markdown_path && Storage::disk('public')->exists($document->markdown_path)),
+        ]);
+    }
+
+    /** Save edits made in the compare-and-verify modal, optionally marking the document verified. */
+    public function updateMarkdown(int $id, \App\Http\Requests\UpdateDocumentMarkdownRequest $request): JsonResponse
+    {
+        $document = Document::findOrFail($id);
+
+        if (! $document->markdown_path) {
+            return response()->json(['message' => 'This document has no Markdown to edit yet.'], 422);
+        }
+
+        $validated = $request->validated();
+        $oldStatus = $document->status;
+        $willVerify = $validated['verify'] && $oldStatus !== 'verified';
+
+        try {
+            DB::transaction(function () use ($document, $validated, $oldStatus, $willVerify) {
+                Storage::disk('public')->put($document->markdown_path, $validated['content']);
+
+                $document->update([
+                    'metadata' => array_merge($document->metadata ?? [], ['manually_edited' => true]),
+                    'status'   => $willVerify ? 'verified' : $oldStatus,
+                ]);
+
+                if ($willVerify) {
+                    DocumentStatusHistory::create([
+                        'document_id' => $document->id,
+                        'actor_id'    => auth()->id(),
+                        'from_status' => $oldStatus,
+                        'to_status'   => 'verified',
+                        'note'        => 'Verified via review comparison.',
+                    ]);
+                }
+            });
+
+            return response()->json(['status' => $document->fresh()->status]);
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@updateMarkdown failed', ['document_id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Failed to save changes. Please try again.'], 500);
+        }
+    }
+
+    /**
+     * Discard an unverified extracted Markdown draft from the Compare & Verify modal and
+     * reset the document to its pre-conversion state — re-enables "Convert to Markdown" so
+     * the officer can try again (e.g. after choosing OCR review) instead of being stuck with
+     * a bad draft. Verified documents are excluded — discarding a verified result isn't a
+     * "draft rejection" anymore, it would be destroying an accepted record.
+     */
+    public function discardMarkdown(int $id): JsonResponse
+    {
+        if (! auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $document = Document::findOrFail($id);
+
+        if (! $document->markdown_path) {
+            return response()->json(['message' => 'This document has no Markdown draft to discard.'], 422);
+        }
+
+        if ($document->status === 'verified') {
+            return response()->json(['message' => 'Verified documents cannot be discarded.'], 422);
+        }
+
+        try {
+            DB::transaction(function () use ($document) {
+                $oldStatus = $document->status;
+
+                if (Storage::disk('public')->exists($document->markdown_path)) {
+                    Storage::disk('public')->delete($document->markdown_path);
+                }
+
+                $metadata = $document->metadata ?? [];
+                unset($metadata['extraction_method'], $metadata['needs_ocr_review'], $metadata['manually_edited']);
+
+                $document->update([
+                    'markdown_path' => null,
+                    'status'        => 'uploaded',
+                    'metadata'      => $metadata,
+                ]);
+
+                DocumentStatusHistory::create([
+                    'document_id' => $document->id,
+                    'actor_id'    => auth()->id(),
+                    'from_status' => $oldStatus,
+                    'to_status'   => 'uploaded',
+                    'note'        => 'Discarded extracted Markdown draft; ready for re-conversion.',
+                ]);
+            });
+
+            return response()->json(['status' => 'uploaded']);
+        } catch (\Throwable $e) {
+            Log::error('DocumentController@discardMarkdown failed', ['document_id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Failed to discard draft. Please try again.'], 500);
         }
     }
 
