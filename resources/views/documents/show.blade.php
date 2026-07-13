@@ -10,6 +10,10 @@
     ];
     $statusClass = $statusColors[$statusMeta['color']] ?? $statusColors['slate'];
 
+    $hasMarkdown = $document->markdown_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($document->markdown_path);
+    $isConverting = in_array($document->status, ['processing', 'ocr_pending'], true);
+    $needsOcrReview = (bool) ($document->metadata['needs_ocr_review'] ?? false);
+
     // Normalize optional context variables — not every route passes all of these,
     // and closures below capture them by value via `use (...)`, which errors on
     // truly-undefined variables (isset() alone doesn't prevent that).
@@ -182,8 +186,22 @@
             <span class="hidden sm:inline">Edit</span>
         </span>
         @endif
-        <button type="button" id="delete-doc-btn"
-                class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-red-400 dark:hover:border-red-500 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
+        @if(! $hasMarkdown)
+        <button type="button" id="convert-doc-btn" data-convert-url="{{ route('documents.convert', $document->id) }}"
+                data-convert-status-url="{{ route('documents.convert-status', $document->id) }}"
+                @if($isConverting) disabled @endif
+                class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            <i class="ti {{ $isConverting ? 'ti-loader-2 animate-spin' : 'ti-markdown' }} text-base" id="convert-doc-btn-icon"></i>
+            <span class="hidden sm:inline" id="convert-doc-btn-label">
+                @if($isConverting) Converting…
+                @elseif($document->status === 'failed') Retry Conversion
+                @else Convert to Markdown
+                @endif
+            </span>
+        </button>
+        @endif
+        <button type="button" id="delete-doc-btn" @if($isConverting) disabled title="Wait for conversion to finish" @endif
+                class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-red-400 dark:hover:border-red-500 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
             <i class="ti ti-trash text-base"></i>
         </button>
         <form id="delete-doc-form" method="POST" action="{{ $destroyRoute }}">
@@ -218,28 +236,14 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-    {{-- ── Main: PDF viewer + extracted markdown ───────────────────────────── --}}
+    {{-- ── Main: swap-view PDF / Markdown ───────────────────────────────────── --}}
     <div class="lg:col-span-2 space-y-4">
 
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                    <i class="ti ti-file-type-pdf text-sm text-red-400"></i>
-                    <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Original Document</span>
-                </div>
-                <a href="{{ $pdfRoute }}" target="_blank"
-                   class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
-                    Open in new tab <i class="ti ti-external-link text-xs"></i>
-                </a>
-            </div>
-            <iframe src="{{ $pdfRoute }}"
-                    class="w-full border-0"
-                    style="height: 75vh;"
-                    title="{{ $document->title }}">
-            </iframe>
-        </div>
-
-        @if($document->markdown_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($document->markdown_path))
+        @php
+            $extractionMethod = $document->metadata['extraction_method'] ?? null;
+            $isVerified = $document->status === 'verified';
+        @endphp
+        @if($hasMarkdown)
         @php
             $mdRaw  = \Illuminate\Support\Facades\Storage::disk('public')->get($document->markdown_path);
             $mdHtml = \Parsedown::instance()->setSafeMode(true)->text($mdRaw);
@@ -253,16 +257,110 @@
                 $mdHtml
             );
         @endphp
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-            <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center gap-2">
-                <i class="ti ti-markdown text-sm text-slate-400"></i>
-                <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Extracted Content</span>
-            </div>
-            <div class="px-6 py-5 prose prose-sm dark:prose-invert max-w-none text-slate-700 dark:text-slate-300">
-                {!! $mdHtml !!}
-            </div>
+        @endif
+
+        {{-- ── Conversion status strip — sits above the viewer so it's the first thing seen ──── --}}
+        @if($isConverting)
+        <div id="markdown-card" class="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl px-6 py-8 text-center" data-poll-status-url="{{ route('documents.convert-status', $document->id) }}">
+            <i class="ti ti-loader-2 animate-spin text-2xl text-indigo-500 dark:text-indigo-400"></i>
+            <p class="mt-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">
+                {{ $document->status === 'ocr_pending' ? 'Running OCR (Hindi + English)…' : 'Converting to Markdown…' }}
+            </p>
+            <p class="mt-1 text-xs text-indigo-500 dark:text-indigo-400">
+                Elapsed <span id="convert-elapsed">0:00</span> — OCR on scanned documents can take several minutes. This page updates automatically.
+            </p>
+        </div>
+        @elseif($document->status === 'failed')
+        <div id="markdown-card" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-6 py-8 text-center">
+            <i class="ti ti-alert-triangle text-2xl text-red-500 dark:text-red-400"></i>
+            <p class="mt-2 text-sm font-medium text-red-600 dark:text-red-400">Conversion failed.</p>
+            <p class="mt-1 text-xs text-red-500 dark:text-red-400">Use the "Retry Conversion" button above.</p>
+        </div>
+        @elseif(! $hasMarkdown)
+        <div id="markdown-card" class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-6 py-8 text-center">
+            <i class="ti ti-markdown-off text-2xl text-slate-300 dark:text-slate-600"></i>
+            <p class="mt-2 text-sm text-slate-400 dark:text-slate-500">Not yet converted to Markdown.</p>
+        </div>
+        @elseif(! $isVerified)
+        {{-- Single consolidated banner — OCR is offered inside the Compare & Verify modal
+             itself rather than as a second competing button here. --}}
+        <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-5 py-3.5 flex items-center justify-between gap-3 flex-wrap">
+            <p class="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                <i class="ti ti-clock text-base flex-shrink-0"></i>
+                Converted, awaiting verification — compare against the original before accepting.
+                @if($needsOcrReview)
+                <span class="inline-flex items-center gap-1 text-orange-700 dark:text-orange-300 font-medium">
+                    <i class="ti ti-alert-circle text-sm"></i> Text quality looks low — OCR option available inside.
+                </span>
+                @endif
+            </p>
+            @auth @if(auth()->user()->isAdmin())
+            <button type="button" id="open-compare-modal-btn"
+                    class="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0">
+                <i class="ti ti-columns text-sm"></i> Compare &amp; Verify
+            </button>
+            @endif @endauth
         </div>
         @endif
+
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between flex-wrap gap-2">
+                <div class="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-xs font-medium flex-shrink-0">
+                    <button type="button" id="view-tab-pdf"
+                            class="px-3 py-1.5 flex items-center gap-1.5 bg-indigo-500 text-white">
+                        <i class="ti ti-file-type-pdf text-sm"></i> PDF
+                    </button>
+                    {{-- Markdown tab only exists once verified — an unverified extraction isn't
+                         something to casually browse to, the Compare & Verify banner above is
+                         the only path to it until then. --}}
+                    @if($hasMarkdown && $isVerified)
+                    <button type="button" id="view-tab-md"
+                            class="px-3 py-1.5 flex items-center gap-1.5 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                        <i class="ti ti-markdown text-sm"></i> Markdown
+                    </button>
+                    @endif
+                </div>
+
+                <div class="flex items-center gap-2">
+                    @if($hasMarkdown && $extractionMethod && $isVerified)
+                    <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded {{ $extractionMethod === 'ocr' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300' : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' }}">
+                        {{ $extractionMethod === 'ocr' ? 'OCR (hin+eng)' : 'Text layer' }}
+                    </span>
+                    @endif
+                    <div id="md-toolbar" class="flex items-center gap-1" style="display:none">
+                        <button type="button" id="md-copy-btn" title="Copy raw Markdown"
+                                class="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-700">
+                            <i class="ti ti-copy text-sm"></i>
+                        </button>
+                        <button type="button" id="md-download-btn" title="Download .md"
+                                class="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-700">
+                            <i class="ti ti-download text-sm"></i>
+                        </button>
+                    </div>
+                    <a href="{{ $pdfRoute }}" target="_blank" id="pdf-newtab-link"
+                       class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
+                        Open in new tab <i class="ti ti-external-link text-xs"></i>
+                    </a>
+                </div>
+            </div>
+
+            <div id="viewer-pdf">
+                <iframe src="{{ $pdfRoute }}#view=FitH&toolbar=1&navpanes=0"
+                        class="w-full border-0"
+                        style="height: 75vh;"
+                        title="{{ $document->title }}">
+                </iframe>
+            </div>
+
+            @if($hasMarkdown && $isVerified)
+            <div id="viewer-md" class="hidden overflow-y-auto" style="height: 75vh;">
+                <div class="px-6 py-5 prose prose-sm dark:prose-invert max-w-none text-slate-700 dark:text-slate-300">
+                    {!! $mdHtml !!}
+                </div>
+                <textarea id="md-raw-source" class="hidden">{{ $mdRaw ?? '' }}</textarea>
+            </div>
+            @endif
+        </div>
 
     </div>
 
@@ -471,6 +569,91 @@
 </div>
 @endif
 
+{{-- ── Compare & Verify modal — side-by-side original vs. extracted Markdown ──── --}}
+@auth
+@if(auth()->user()->isAdmin() && $hasMarkdown && ! $isVerified)
+<div id="compare-modal"
+     style="display:none;position:fixed;inset:0;z-index:50;background:rgba(15,23,42,0.75)"
+     onclick="if(event.target===this)document.getElementById('compare-modal').style.display='none'">
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(1400px,96vw);height:90vh"
+         class="bg-slate-100 dark:bg-slate-950 rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-300 dark:border-slate-700">
+
+        <div class="flex items-center justify-between px-6 py-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
+            <div class="flex items-center gap-2">
+                <i class="ti ti-columns text-amber-500 text-lg"></i>
+                <span class="text-sm font-semibold text-slate-800 dark:text-slate-100">Compare &amp; Verify</span>
+                <span class="text-xs text-slate-500 dark:text-slate-400">— {{ $document->title }}</span>
+            </div>
+            <button type="button" onclick="document.getElementById('compare-modal').style.display='none'"
+                    class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                <i class="ti ti-x"></i>
+            </button>
+        </div>
+
+        @if($needsOcrReview)
+        <div class="mx-2 mt-2 px-4 py-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg flex-shrink-0 flex items-center gap-2">
+            <i class="ti ti-alert-circle text-orange-500 dark:text-orange-400 text-sm flex-shrink-0"></i>
+            <p class="text-xs text-orange-700 dark:text-orange-300">
+                The text layer looks sparse or unreadable — possibly a scanned page, or a PDF using a non-Unicode font. If the Markdown below is missing or garbled, run OCR instead of editing it by hand.
+            </p>
+        </div>
+        @endif
+
+        <div id="compare-ocr-progress" class="mx-2 mt-2 px-4 py-2.5 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg flex-shrink-0 items-center gap-2" style="display:none">
+            <i class="ti ti-loader-2 animate-spin text-indigo-500 dark:text-indigo-400 text-sm"></i>
+            <span class="text-xs font-medium text-indigo-700 dark:text-indigo-300">Running OCR (Hindi + English)… elapsed <span id="compare-ocr-elapsed">0:00</span> — this page will reload automatically when done.</span>
+        </div>
+
+        <div class="flex flex-1 min-h-0 gap-2 p-2">
+            <div class="w-1/2 flex flex-col min-h-0 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div class="px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-100 dark:border-red-900/40 flex-shrink-0 flex items-center gap-2">
+                    <i class="ti ti-file-type-pdf text-sm text-red-500 dark:text-red-400"></i>
+                    <span class="text-xs font-bold uppercase tracking-widest text-red-700 dark:text-red-400">Original</span>
+                </div>
+                <iframe id="compare-pdf-iframe" data-src="{{ $pdfRoute }}#view=FitH&toolbar=1&navpanes=0" class="w-full flex-1 border-0" title="Original PDF"></iframe>
+            </div>
+            <div class="w-1/2 flex flex-col min-h-0 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div class="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border-b border-indigo-100 dark:border-indigo-900/40 flex-shrink-0 flex items-center gap-2 flex-wrap">
+                    <i class="ti ti-markdown text-sm text-indigo-500 dark:text-indigo-400"></i>
+                    <span class="text-xs font-bold uppercase tracking-widest text-indigo-700 dark:text-indigo-400">Extracted Markdown</span>
+                    <span class="text-[10px] text-indigo-500 dark:text-indigo-400">— edit to fix missing/incorrect text, then verify</span>
+                </div>
+                <textarea id="compare-md-textarea"
+                          class="flex-1 w-full px-4 py-3 text-xs font-mono bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 border-0 resize-none focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+                          spellcheck="false">{{ $mdRaw ?? '' }}</textarea>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3 px-6 py-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">
+            <button type="button" id="compare-save-draft-btn"
+                    class="inline-flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                <i class="ti ti-device-floppy text-base"></i> Save Draft
+            </button>
+            <button type="button" id="compare-save-verify-btn"
+                    class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                <i class="ti ti-circle-check text-base"></i> Save &amp; Verify
+            </button>
+            <button type="button" id="compare-run-ocr-btn" data-convert-ocr-url="{{ route('documents.convert-ocr', $document->id) }}"
+                    data-convert-status-url="{{ route('documents.convert-status', $document->id) }}"
+                    class="inline-flex items-center gap-1.5 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                <i class="ti ti-scan text-base"></i> Run OCR Extraction
+            </button>
+            <button type="button" id="compare-discard-btn" data-discard-url="{{ route('documents.markdown.discard', $document->id) }}"
+                    class="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-700 dark:text-red-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                <i class="ti ti-trash text-base"></i> Discard Draft
+            </button>
+            <span id="compare-status" class="text-xs text-slate-500 dark:text-slate-400"></span>
+            <span class="flex-1"></span>
+            <button type="button" onclick="document.getElementById('compare-modal').style.display='none'"
+                    class="text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">
+                Cancel
+            </button>
+        </div>
+    </div>
+</div>
+@endif
+@endauth
+
 @push('scripts')
 <script>
 try {
@@ -518,6 +701,294 @@ try {
     }
 } catch (e) {
     console.error('Delete modal init failed:', e);
+}
+
+try {
+    const convertBtn = document.getElementById('convert-doc-btn');
+    if (convertBtn) {
+        convertBtn.addEventListener('click', function () {
+            convertBtn.disabled = true;
+            const label = document.getElementById('convert-doc-btn-label');
+            const icon  = document.getElementById('convert-doc-btn-icon');
+            if (label) label.textContent = 'Starting…';
+
+            fetch(convertBtn.dataset.convertUrl, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '{{ csrf_token() }}',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            }).then(function (res) {
+                return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+            }).then(function ({ ok, data }) {
+                if (!ok) {
+                    throw new Error(data.message || 'Conversion could not be started.');
+                }
+                // Morph the button in place into a progress state instead of removing it —
+                // spinning the markdown-logo icon looked broken, so swap to a plain loader icon.
+                if (icon) { icon.classList.remove('ti-markdown'); icon.classList.add('ti-loader-2', 'animate-spin'); }
+                if (label) label.textContent = 'Converting…';
+                const deleteBtn = document.getElementById('delete-doc-btn');
+                if (deleteBtn) { deleteBtn.disabled = true; deleteBtn.title = 'Wait for conversion to finish'; }
+
+                const card = document.getElementById('markdown-card');
+                if (card) {
+                    card.className = 'bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl px-6 py-8 text-center';
+                    card.dataset.pollStatusUrl = convertBtn.dataset.convertStatusUrl;
+                    card.innerHTML = '<i class="ti ti-loader-2 animate-spin text-2xl text-indigo-500 dark:text-indigo-400"></i>' +
+                        '<p class="mt-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">Converting to Markdown…</p>' +
+                        '<p class="mt-1 text-xs text-indigo-500 dark:text-indigo-400">Elapsed <span id="convert-elapsed">0:00</span> — OCR on scanned documents can take several minutes. This page updates automatically.</p>';
+                    startConversionPolling(card);
+                } else {
+                    window.location.reload();
+                }
+            }).catch(function (err) {
+                convertBtn.disabled = false;
+                if (label) label.textContent = 'Convert to Markdown';
+                Swal.fire({ icon: 'error', text: err.message || 'Conversion could not be started.' });
+            });
+        });
+    }
+} catch (e) {
+    console.error('Convert button init failed:', e);
+}
+
+try {
+    const tabPdf     = document.getElementById('view-tab-pdf');
+    const tabMd      = document.getElementById('view-tab-md');
+    const viewerPdf  = document.getElementById('viewer-pdf');
+    const viewerMd   = document.getElementById('viewer-md');
+    const mdToolbar  = document.getElementById('md-toolbar');
+    const newTabLink = document.getElementById('pdf-newtab-link');
+    const rawSource  = document.getElementById('md-raw-source');
+    const activeClasses = ['bg-indigo-500', 'text-white'];
+    const idleClasses = ['bg-white', 'dark:bg-slate-800', 'text-slate-500', 'dark:text-slate-400'];
+
+    function showPdf() {
+        viewerMd?.classList.add('hidden');
+        viewerPdf.classList.remove('hidden');
+        if (mdToolbar) mdToolbar.style.display = 'none';
+        if (newTabLink) newTabLink.style.display = '';
+        tabPdf.classList.add(...activeClasses);
+        tabPdf.classList.remove(...idleClasses);
+        tabMd?.classList.remove(...activeClasses);
+        tabMd?.classList.add(...idleClasses);
+    }
+
+    function showMarkdown() {
+        viewerPdf.classList.add('hidden');
+        viewerMd.classList.remove('hidden');
+        if (mdToolbar) mdToolbar.style.display = 'flex';
+        if (newTabLink) newTabLink.style.display = 'none';
+        tabMd.classList.add(...activeClasses);
+        tabMd.classList.remove(...idleClasses);
+        tabPdf.classList.remove(...activeClasses);
+        tabPdf.classList.add(...idleClasses);
+    }
+
+    tabPdf?.addEventListener('click', showPdf);
+    // The Markdown tab only exists in the DOM once the document is verified (see Blade
+    // condition above), so no unverified-state branching is needed here.
+    tabMd?.addEventListener('click', showMarkdown);
+
+    const copyBtn = document.getElementById('md-copy-btn');
+    if (copyBtn && rawSource) {
+        copyBtn.addEventListener('click', function () {
+            navigator.clipboard.writeText(rawSource.value).then(function () {
+                const icon = copyBtn.querySelector('i');
+                icon.classList.remove('ti-copy');
+                icon.classList.add('ti-check');
+                setTimeout(function () {
+                    icon.classList.remove('ti-check');
+                    icon.classList.add('ti-copy');
+                }, 1500);
+            });
+        });
+    }
+
+    const downloadBtn = document.getElementById('md-download-btn');
+    if (downloadBtn && rawSource) {
+        downloadBtn.addEventListener('click', function () {
+            const blob = new Blob([rawSource.value], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '{{ Str::slug($document->title) }}.md';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
+} catch (e) {
+    console.error('Markdown viewer init failed:', e);
+}
+
+try {
+    const openBtn = document.getElementById('open-compare-modal-btn');
+    const modal = document.getElementById('compare-modal');
+    const compareIframe = document.getElementById('compare-pdf-iframe');
+    if (openBtn && modal) {
+        openBtn.addEventListener('click', function () {
+            modal.style.display = 'block';
+            // Loading the PDF while the modal is display:none gives the built-in PDF
+            // viewer a 0x0 viewport, so #view=FitH never applies. Load it only once
+            // the modal (and iframe) actually has real layout dimensions.
+            if (compareIframe && !compareIframe.src) {
+                compareIframe.src = compareIframe.dataset.src;
+            }
+        });
+    }
+
+    const textarea   = document.getElementById('compare-md-textarea');
+    const statusEl   = document.getElementById('compare-status');
+    const draftBtn   = document.getElementById('compare-save-draft-btn');
+    const verifyBtn  = document.getElementById('compare-save-verify-btn');
+    const markdownUpdateUrl = '{{ route("documents.markdown.update", $document->id) }}';
+
+    function saveCompare(verify, triggerBtn) {
+        if (!textarea) return;
+        draftBtn.disabled = true;
+        verifyBtn.disabled = true;
+        statusEl.textContent = verify ? 'Verifying…' : 'Saving…';
+
+        fetch(markdownUpdateUrl, {
+            method: 'PATCH',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({ content: textarea.value, verify: verify }),
+        }).then(function (res) {
+            return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+        }).then(function ({ ok, data }) {
+            if (!ok) throw new Error(data.message || 'Failed to save.');
+            statusEl.textContent = verify ? 'Verified.' : 'Saved.';
+            window.location.reload();
+        }).catch(function (err) {
+            draftBtn.disabled = false;
+            verifyBtn.disabled = false;
+            statusEl.textContent = '';
+            Swal.fire({ icon: 'error', text: err.message || 'Failed to save changes.' });
+        });
+    }
+
+    draftBtn?.addEventListener('click', function () { saveCompare(false); });
+    verifyBtn?.addEventListener('click', function () { saveCompare(true); });
+
+    const discardBtn = document.getElementById('compare-discard-btn');
+    const isDark = document.documentElement.classList.contains('dark');
+    discardBtn?.addEventListener('click', function () {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Discard this Markdown draft?',
+            text: 'This deletes the extracted Markdown and resets the document so it can be re-converted from scratch. This cannot be undone.',
+            showCancelButton: true,
+            confirmButtonText: 'Discard',
+            confirmButtonColor: '#dc2626',
+            background: isDark ? '#0f172a' : '#fff',
+            color: isDark ? '#e2e8f0' : '#0f172a',
+        }).then(function (result) {
+            if (!result.isConfirmed) return;
+
+            draftBtn.disabled = true;
+            verifyBtn.disabled = true;
+            discardBtn.disabled = true;
+            statusEl.textContent = 'Discarding…';
+
+            fetch(discardBtn.dataset.discardUrl, {
+                method: 'DELETE',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '{{ csrf_token() }}',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            }).then(function (res) {
+                return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+            }).then(function ({ ok, data }) {
+                if (!ok) throw new Error(data.message || 'Failed to discard draft.');
+                window.location.reload();
+            }).catch(function (err) {
+                draftBtn.disabled = false;
+                verifyBtn.disabled = false;
+                discardBtn.disabled = false;
+                statusEl.textContent = '';
+                Swal.fire({ icon: 'error', text: err.message || 'Failed to discard draft.' });
+            });
+        });
+    });
+
+    const ocrBtn = document.getElementById('compare-run-ocr-btn');
+    const ocrProgress = document.getElementById('compare-ocr-progress');
+    ocrBtn?.addEventListener('click', function () {
+        ocrBtn.disabled = true;
+        draftBtn.disabled = true;
+        verifyBtn.disabled = true;
+        discardBtn.disabled = true;
+
+        fetch(ocrBtn.dataset.convertOcrUrl, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        }).then(function (res) {
+            return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+        }).then(function ({ ok, data }) {
+            if (!ok) throw new Error(data.message || 'OCR extraction could not be started.');
+            if (ocrProgress) {
+                ocrProgress.style.display = 'flex';
+                startConversionPolling({ dataset: { pollStatusUrl: ocrBtn.dataset.convertStatusUrl } }, 'compare-ocr-elapsed');
+            }
+        }).catch(function (err) {
+            ocrBtn.disabled = false;
+            draftBtn.disabled = false;
+            verifyBtn.disabled = false;
+            discardBtn.disabled = false;
+            Swal.fire({ icon: 'error', text: err.message || 'OCR extraction could not be started.' });
+        });
+    });
+} catch (e) {
+    console.error('Compare & Verify modal init failed:', e);
+}
+
+function startConversionPolling(card, elapsedElId) {
+    const pollUrl = card?.dataset.pollStatusUrl;
+    if (!pollUrl) return;
+
+    const startedAt = Date.now();
+    const elapsedTimer = setInterval(function () {
+        const el = document.getElementById(elapsedElId || 'convert-elapsed');
+        if (!el) { clearInterval(elapsedTimer); return; }
+        const secs = Math.floor((Date.now() - startedAt) / 1000);
+        el.textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+    }, 1000);
+
+    const pollInterval = setInterval(function () {
+        fetch(pollUrl, { headers: { Accept: 'application/json' } })
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (data.status !== 'processing' && data.status !== 'ocr_pending') {
+                    clearInterval(pollInterval);
+                    clearInterval(elapsedTimer);
+                    window.location.reload();
+                }
+            })
+            .catch(function () { clearInterval(pollInterval); clearInterval(elapsedTimer); });
+    }, 3000);
+}
+
+try {
+    const pollCard = document.getElementById('markdown-card');
+    if (pollCard && pollCard.dataset.pollStatusUrl) {
+        startConversionPolling(pollCard);
+    }
+} catch (e) {
+    console.error('Conversion status polling init failed:', e);
 }
 </script>
 @endpush

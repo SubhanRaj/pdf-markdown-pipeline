@@ -49,7 +49,8 @@
         </p>
     </div>
 
-    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2">
+    @auth
+    <a href="{{ route('documents.pipeline', ['status' => 'review']) }}" class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-amber-300 dark:hover:border-amber-600 transition-colors">
         <div class="flex items-center gap-3">
             <div class="stat-icon bg-amber-50 dark:bg-amber-900/30 flex-shrink-0">
                 <i class="ti ti-eye text-amber-500"></i>
@@ -58,11 +59,11 @@
         </div>
         <p class="text-sm font-medium text-slate-600 dark:text-slate-300">In Review</p>
         <p class="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-            <i class="ti ti-clock text-xs"></i> Pending approval
+            <i class="ti ti-clock text-xs"></i> Converted, awaiting verification
         </p>
-    </div>
+    </a>
 
-    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2">
+    <a href="{{ route('documents.pipeline') }}" class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
         <div class="flex items-center gap-3">
             <div class="stat-icon bg-blue-50 dark:bg-blue-900/30 flex-shrink-0">
                 <i class="ti ti-loader-2 text-blue-500"></i>
@@ -74,7 +75,8 @@
             <i class="ti ti-cpu text-xs"></i>
             {{ $stats['processing'] }} processing · {{ $stats['uploaded'] }} queued
         </p>
-    </div>
+    </a>
+    @endauth
 
 </div>
 
