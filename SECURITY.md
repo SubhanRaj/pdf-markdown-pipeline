@@ -8,6 +8,7 @@
 **Scope (Pass 1):** Controllers, Form Requests, Models, Middleware, Blade views, Route configuration  
 **Scope (Pass 2):** Login/auth Fortify stack, session configuration, password policy, rate limiting  
 **Scope (Pass 3):** M29 Folders (Patravali) module — new controller, Form Requests, models, routes, views (2026-07-04)
+**Scope (Pass 4):** M30 Text Extraction & Markdown Conversion Pipeline — new jobs, controller methods, routes, views, Compare & Verify modal (2026-07-13)
 
 ---
 
@@ -52,6 +53,137 @@ All findings across Pass 1 and Pass 2 have been remediated.
 | H-03 | `UpdateFolderRequest` — `requires_approval` toggle settable by any scoped uploader, not just admin/department.head/section.head | HIGH | **OPEN — deferred, remediation planned** |
 
 H-03 is a newly-introduced authorization bypass, caught during self-review of the M29 branch before merge. **Not yet fixed** — tracked here so it isn't lost; see the detailed finding below for the fix.
+
+### Pass 4 — Text Extraction & Markdown Conversion Pipeline (M30, 2026-07-13)
+
+| ID | Finding | Severity | Status |
+|----|---------|---------|--------|
+| L-04 | `conversionStatus()` has no visibility/scope check — any authenticated user can poll processing metadata for any document ID | LOW | **OPEN — deferred, remediation planned** |
+| — | M-03 (Parsedown `javascript:`/`data:`/`vbscript:` URI strip) re-verified against the new admin-edit path introduced by this pipeline | — | **CONFIRMED STILL EFFECTIVE** |
+| — | `RunOcrExtraction` / `ConvertDocumentToMarkdown` subprocess calls | — | **PASS** |
+| — | OCR temp files (`storage/app/private/ocr_tmp/`) | — | **PASS** |
+| — | Discard/verify state-machine guards | — | **PASS** |
+
+---
+
+### L-04 · `conversionStatus()` Unscoped Across Visibility/Department Boundaries
+
+**Severity:** LOW
+**Status:** OPEN — not yet fixed, remediation planned
+
+**Finding:**
+`GET /documents/{id}/convert-status` → `DocumentController::conversionStatus()` takes only a
+numeric ID, resolves the document with `Document::findOrFail($id)`, and returns
+`status`/`extraction_method`/`needs_ocr_review`/`has_markdown` with no authorization check
+beyond the route's blanket `auth` middleware. Every other document-scoped route in this
+codebase enforces one of: guest visibility (`visibility === 'public'`), organisational
+upload/delete scope, or an explicit `isAdmin()` gate. This endpoint enforces none of them — any
+authenticated user (viewer, operator, admin, regardless of department/section/division
+assignment) can poll the conversion status of any document ID, including documents whose
+`visibility = 'authenticated'` sits outside their normal browsing scope, or documents in
+`pending_approval`/`rejected` state that `->publishable()` deliberately hides from every other
+authenticated view.
+
+**Impact is limited but real:** this leaks only processing metadata, never document title,
+content, or file bytes — an attacker enumerating IDs learns "document 47 exists, is in
+`review`, extracted via OCR" but nothing else. Still, it's a metadata side-channel that every
+comparable endpoint in this codebase closes, and it could confirm the existence of a document
+someone shouldn't know about yet (e.g. a `pending_approval` upload mid maker-checker review).
+
+**Why not fixed in this pass:** the polling call is only ever made client-side for a document
+the user is already looking at (the Pipeline monitor page, or the page-level convert banner on
+`documents/show`) — there's no live exploit path demonstrated, just a missing scope check
+relative to this codebase's own pattern. Flagged rather than patched blind, since the correct
+scope for this specific endpoint needs a decision: should it follow guest-visibility rules
+(like `show()`), organisational scope (like `canDeleteFrom()`), or just "authenticated,
+unscoped" is actually fine because it's metadata-only? Left open for that decision rather than
+guessing.
+
+**Planned fix (one option, not yet applied):** add the same visibility check `show()` uses —
+
+```php
+if (! auth()->user()->isAdmin() && $document->visibility !== 'public') {
+    // resolve context and check organisational scope, mirroring canDeleteFrom()
+}
+```
+
+**Files affected:** `app/Http/Controllers/DocumentController.php` (`conversionStatus()`)
+
+---
+
+### M-03 Re-Verification — Parsedown XSS Strip Still Effective Under the New Edit Path
+
+**Status:** CONFIRMED STILL EFFECTIVE, no regression
+
+M-03 (see below) was fixed for the read-only markdown card before this pipeline existed. This
+pipeline adds a genuinely new capability that M-03's original threat model didn't anticipate:
+an admin can now **edit** the Markdown content directly (Compare & Verify modal → `PATCH
+/documents/{id}/markdown` → `updateMarkdown()`) and have that edited content persisted back to
+`markdown_path` and re-rendered. Re-checked whether the strip still applies to admin-edited
+content, not just extractor output:
+
+`resources/views/documents/show.blade.php` computes `$mdHtml` by reading `$document->
+markdown_path` fresh at render time and running it through the same `Parsedown::setSafeMode(true)`
++ `preg_replace('/\b(href|src)\s*=\s*(["\'])(?:javascript|data|vbscript):[^"\']*\2/i', ...)`
+pipeline regardless of whether the file's content came from `markitdown`, Tesseract, or a
+manual admin edit — the sanitization happens at **render time** on whatever bytes are in the
+file, not at write time keyed to content origin. **No gap found.** `UpdateDocumentMarkdownRequest`
+also caps content at `max:2000000` characters, and is gated `isAdmin()` in
+`authorize()` — the only actor who can write to `markdown_path` via this new path is already
+trusted at the same level as Edit/Delete/Convert throughout this codebase.
+
+---
+
+### Subprocess Invocation — `ConvertDocumentToMarkdown` / `RunOcrExtraction`
+
+**Status:** PASS
+
+Both jobs shell out via Laravel's `Process` facade (`symfony/process`) using **array-form
+arguments** exclusively — `Process::run(['pdftoppm', '-png', '-r', '300', $absolutePdfPath,
+"{$tmpDir}/page"])`, `Process::run(['tesseract', $imagePath, $outputBase, '-l', 'hin+eng',
+'hocr'])`, `Process::run([$this->pythonBin, $this->extractorScript, '--mode', 'pdf',
+$absolutePdfPath])`. Array form passes each argument directly to `execve()` without a shell
+intermediary, so there is no shell-metacharacter injection surface even though `$absolutePdfPath`
+is derived from a server-generated vault path (not raw user input, but would be safe either way
+under this calling convention). No string-interpolated shell commands anywhere in either job.
+
+---
+
+### OCR Temp Files — Private Disk, Cleaned Up
+
+**Status:** PASS
+
+`RunOcrExtraction::runOcr()` rasterizes pages into `storage_path('app/private/ocr_tmp/' .
+uniqid('doc_', true))` — under the `local` (private) disk root, never the `public`/symlinked
+disk, so intermediate page images are never web-accessible even transiently. A `finally` block
+unlinks every file and removes the directory regardless of success or exception, so a crashed
+OCR run doesn't leave scanned page images sitting on disk indefinitely.
+
+---
+
+### Discard / Verify State-Machine Guards
+
+**Status:** PASS
+
+`discardMarkdown()` returns 422 once `status === 'verified'` — an already-accepted, audited
+record cannot be reset to `uploaded` and have its Markdown deleted through this endpoint, which
+would otherwise be a way to quietly erase an accepted extraction without going through the
+Archive (soft-delete + reason + audit trail) flow this codebase uses everywhere else for
+destructive actions. `updateMarkdown()`'s `verify` flag only transitions `status` forward
+(`review → verified`), never backward, and always writes a `DocumentStatusHistory` row when it
+does.
+
+---
+
+### Informational — Not a Security Finding: Bulk-Upload Auto-Convert Silent No-Op
+
+Noted here for completeness since it touches the same authorization boundary as L-04, but this
+is a **functional** gap, not a vulnerability — it fails closed, not open. The Bulk Upload page's
+"auto-convert" checkbox is offered to any user with upload scope, but `convert()` is gated
+`isAdmin()`. For a non-admin uploader, the auto-convert `fetch()` call 403s and is silently
+swallowed by a `.catch()` that only logs to the browser console — no security impact (nothing
+unauthorized happens), but the UI gives no indication that conversion never started. Tracked in
+`CLAUDE.md` and `summary.md` (M30) as a known UX gap, not tracked here as a security item.
 
 ---
 
@@ -555,4 +687,4 @@ These are not vulnerabilities in the current state but should be addressed befor
 
 ---
 
-*Audit and remediation completed 2026-06-24. Re-audit recommended after any significant change to upload, authentication, or access-control logic.*
+*Audit and remediation completed 2026-06-24. Pass 3 (M29 Folders) added 2026-07-04, with H-03 left open. Pass 4 (M30 Text Extraction & Markdown Conversion Pipeline) added 2026-07-13, with L-04 left open. Re-audit recommended after any significant change to upload, authentication, or access-control logic.*
