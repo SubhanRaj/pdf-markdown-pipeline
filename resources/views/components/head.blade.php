@@ -22,8 +22,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-    {{-- Tailwind CSS Play CDN --}}
-    <script src="https://cdn.tailwindcss.com"></script>
+    {{-- Tailwind CSS Play CDN (typography plugin powers the `prose` classes used to render Markdown) --}}
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
 
     {{-- Tabler Icons webfont via jsDelivr --}}
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.30.0/dist/tabler-icons.min.css">

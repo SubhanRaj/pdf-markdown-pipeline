@@ -1467,3 +1467,26 @@ Tesseract's `1904`→`4904`-style corruption, no conjunct/halant artifacts, no E
 hallucination) at a workable ~700MB-steady/~4.4GB-peak memory cost — promising, but not
 integrated; needs a multi-page test and an explicit sign-off given the PyTorch dependency
 weight before any production change. Full write-up in `OCR_RESEARCH.md`.
+
+## M30.1 — Rendered Markdown Viewing (follow-up, 2026-07-13)
+
+**Goal:** modern browsers give PDFs native zoom/print/scroll for free; Markdown has no such
+native rendering, so both the verified-document view and the Compare & Verify editor needed an
+explicit "show it formatted, not as raw asterisks" path — the same expectation GitHub and VS Code
+set.
+
+**Added:**
+- `marked@13` (jsDelivr) — page-scoped to `documents/show.blade.php` via `@push('scripts')`, not
+  loaded globally in `head.blade.php`, since it's only needed on this one page.
+
+**Modified:**
+- `resources/views/components/head.blade.php` — Tailwind Play CDN URL gained `?plugins=typography`.
+  The verified-document Markdown view already had `prose prose-sm dark:prose-invert` classes on
+  its container, but the plugin wasn't loaded, so they were inert — Parsedown's output rendered as
+  real `<strong>`/`<h2>` tags with no GitHub-style typography spacing/font treatment until this fix.
+- `resources/views/documents/show.blade.php` — Compare & Verify modal's Markdown pane gained an
+  Edit/Preview tab pair. Preview renders the live textarea content via `marked.parse()` into a
+  `prose` div, passed through the same `href`/`src` `javascript:`/`data:`/`vbscript:` strip used
+  server-side for the verified view (defense in depth on an admin-only, never-persisted preview).
+  Editing itself stays a plain textarea — no CodeMirror/Monaco; the actual complaint was "I can't
+  see formatting while reviewing," not "I need a code editor."

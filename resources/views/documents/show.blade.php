@@ -616,11 +616,16 @@
                 <div class="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border-b border-indigo-100 dark:border-indigo-900/40 flex-shrink-0 flex items-center gap-2 flex-wrap">
                     <i class="ti ti-markdown text-sm text-indigo-500 dark:text-indigo-400"></i>
                     <span class="text-xs font-bold uppercase tracking-widest text-indigo-700 dark:text-indigo-400">Extracted Markdown</span>
-                    <span class="text-[10px] text-indigo-500 dark:text-indigo-400">— edit to fix missing/incorrect text, then verify</span>
+                    <span class="text-[10px] text-indigo-500 dark:text-indigo-400 mr-auto">— edit to fix missing/incorrect text, then verify</span>
+                    <div class="inline-flex rounded-lg border border-indigo-200 dark:border-indigo-800 overflow-hidden text-[11px] font-medium flex-shrink-0">
+                        <button type="button" id="compare-tab-edit" class="px-2.5 py-1 bg-indigo-500 text-white">Edit</button>
+                        <button type="button" id="compare-tab-preview" class="px-2.5 py-1 bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400">Preview</button>
+                    </div>
                 </div>
                 <textarea id="compare-md-textarea"
                           class="flex-1 w-full px-4 py-3 text-xs font-mono bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 border-0 resize-none focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
                           spellcheck="false">{{ $mdRaw ?? '' }}</textarea>
+                <div id="compare-md-preview" class="hidden flex-1 overflow-y-auto px-4 py-3 prose prose-sm dark:prose-invert max-w-none text-slate-700 dark:text-slate-300"></div>
             </div>
         </div>
 
@@ -655,6 +660,7 @@
 @endauth
 
 @push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
 <script>
 try {
     const visForm = document.getElementById('visibility-form');
@@ -842,6 +848,39 @@ try {
     }
 
     const textarea   = document.getElementById('compare-md-textarea');
+    const previewEl  = document.getElementById('compare-md-preview');
+    const editTab    = document.getElementById('compare-tab-edit');
+    const previewTab = document.getElementById('compare-tab-preview');
+    const activeTabClasses = ['bg-indigo-500', 'text-white'];
+    const idleTabClasses   = ['bg-white', 'dark:bg-slate-900', 'text-indigo-600', 'dark:text-indigo-400'];
+
+    // ponytail: same javascript:/data:/vbscript: href/src strip used server-side for the
+    // Parsedown-rendered view (show.blade.php:254) — this preview is admin-only and never
+    // persisted, but stripped for consistency rather than trusting marked's own escaping.
+    function sanitizeHtml(html) {
+        return html.replace(/\b(href|src)\s*=\s*(["'])(?:javascript|data|vbscript):[^"']*\2/gi, '$1=$2#$2');
+    }
+
+    if (textarea && previewEl && editTab && previewTab && window.marked) {
+        previewTab.addEventListener('click', function () {
+            previewEl.innerHTML = sanitizeHtml(marked.parse(textarea.value));
+            textarea.classList.add('hidden');
+            previewEl.classList.remove('hidden');
+            previewTab.classList.add(...activeTabClasses);
+            previewTab.classList.remove(...idleTabClasses);
+            editTab.classList.add(...idleTabClasses);
+            editTab.classList.remove(...activeTabClasses);
+        });
+        editTab.addEventListener('click', function () {
+            textarea.classList.remove('hidden');
+            previewEl.classList.add('hidden');
+            editTab.classList.add(...activeTabClasses);
+            editTab.classList.remove(...idleTabClasses);
+            previewTab.classList.add(...idleTabClasses);
+            previewTab.classList.remove(...activeTabClasses);
+        });
+    }
+
     const statusEl   = document.getElementById('compare-status');
     const draftBtn   = document.getElementById('compare-save-draft-btn');
     const verifyBtn  = document.getElementById('compare-save-verify-btn');
