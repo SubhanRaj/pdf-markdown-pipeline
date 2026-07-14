@@ -642,9 +642,9 @@
                 <i class="ti ti-circle-check text-base"></i> Save &amp; Verify
             </button>
             <select id="compare-ocr-engine-select"
-                    class="text-sm font-medium border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400">
+                    class="text-sm font-medium border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 dark:[color-scheme:dark]">
                 @foreach(config('ocr.engines') as $engineKey => $engineConfig)
-                    <option value="{{ $engineKey }}" @selected($engineKey === config('ocr.default'))>{{ $engineConfig['label'] }}</option>
+                    <option value="{{ $engineKey }}" @selected($engineKey === config('ocr.default')) class="dark:bg-slate-800 dark:text-slate-100">{{ $engineConfig['label'] }}</option>
                 @endforeach
             </select>
             <button type="button" id="compare-run-ocr-btn" data-convert-ocr-url="{{ route('documents.convert-ocr', $document->id) }}"
