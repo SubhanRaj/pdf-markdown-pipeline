@@ -18,12 +18,12 @@ clears Tesseract's accuracy ceiling on this document class without an unreasonab
 cost. Cloud OCR (Google Vision / Azure) was intentionally excluded from this round — on-prem
 is the current preference, not a hard constraint (see note at the end).
 
-## Candidate 1: PaddleOCR — rejected
+## Candidate 1: PaddleOCR — originally rejected, later fixed and adopted (2026-07-14)
 
 Installed cleanly (`pip install paddlepaddle paddleocr`) in an isolated venv. It does ship a
 dedicated `devanagari_PP-OCRv5_mobile_rec` recognition model (a real point in its favour —
-most engines treat Hindi as an afterthought), but two separate failures disqualify it for this
-deployment target:
+most engines treat Hindi as an afterthought), but two separate failures originally disqualified
+it for this deployment target:
 
 1. **Memory.** The default `lang="hi"` preset resolves to `PP-OCRv5_server_det`, the
    server-tier detection model, not mobile. Running detection on a single 300dpi page pushed
@@ -36,8 +36,38 @@ deployment target:
    version-compatibility bug between the installed `paddlex`/`paddlepaddle` builds, not
    something worth patching around for a dependency this heavy (PyTorch-class ML runtime).
 
-**Verdict:** not adopted. Both the memory profile and the crash are blocking, independent of
-accuracy — never got to a clean accuracy comparison because it couldn't run reliably at all.
+**Original verdict:** not adopted. Both the memory profile and the crash were blocking,
+independent of accuracy — never got to a clean accuracy comparison because it couldn't run
+reliably at all.
+
+**Update 2026-07-14 — retried on the Ubuntu i7-13700/32GB box, both issues resolved:**
+- The memory blowup didn't recur here simply because this box has far more headroom (30GB free
+  vs. the original 9.7GB machine) — not itself a fix, just a different hardware ceiling.
+- The crash turned out to be a *different* bug than assumed: PaddleX defaults to a oneDNN
+  (MKL-DNN) CPU backend, and this Paddle build's oneDNN integration is broken for text detection
+  (`NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support
+  [pir::ArrayAttribute<pir::DoubleAttribute>]`) — nothing to do with the `mobile_det` model
+  choice itself. Passing `enable_mkldnn=False` to `PaddleOCR(...)` avoids the oneDNN path
+  entirely and it runs cleanly on plain CPU inference. Now wired into the app as a selectable
+  engine (`config/ocr.php`, `resources/python/pdf_structure_extractor.py`).
+
+**Real-world case study — Odisha Excise Policy 2026-29 (English, scanned, no text layer, 54
+pages):** run via the app's queue worker (not an isolated CLI test), `enable_mkldnn=False` +
+`PP-OCRv5_mobile_det` + `devanagari_PP-OCRv5_mobile_rec`, monitored with `ps`/`free` over the
+full run:
+- **Duration:** ~14.4 minutes end-to-end (rasterize + OCR all 54 pages) — roughly 16s/page.
+- **CPU:** ~880-890% sustained (using ~9 of the box's cores in parallel), never pegged at a
+  single core — the underlying inference is genuinely multi-threaded, not just I/O-bound.
+- **Memory:** RSS settled in the 900MB-1.6GB range for the whole run, nowhere near the original
+  near-total-system-consumption. System-wide free memory never dropped below ~7GB out of 30GB.
+- **Result:** completed cleanly, `status → review`, `metadata.extraction_method = 'ocr'`,
+  `metadata.ocr_engine = 'paddleocr'`, 84.5K characters of Markdown, no crash, no manual
+  intervention needed.
+
+**Verdict:** adopted as one of four selectable engines (Tesseract remains the default). This is
+the best-performing engine so far for a multi-page, resource-modest CPU-only run — noticeably
+faster and lighter than Surya (see Candidate 3), and the one currently recommended for bulk
+same-language batches like the other-states' excise policy documents.
 
 ## Candidate 2: EasyOCR — promising, not adopted yet
 
