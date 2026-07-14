@@ -108,9 +108,16 @@ composer install
 # timeout instead of re-running the whole artisan command:
 #   cd vendor/innobrain/markitdown/python && ./venv/bin/pip install -r requirements.txt
 
-cp .env.example .env
 php artisan key:generate
-# edit .env: DB_DATABASE / DB_USERNAME / DB_PASSWORD, APP_URL
+
+php artisan db:provision
+# Dev-only tool (subhanraj/laravel-db-provisioner, require-dev — see
+# https://github.com/SubhanRaj/laravel-db-provisioner). Copies .env.example to .env if missing,
+# generates a random per-project database name/user/16-char password, writes them into .env, then
+# prompts for your MariaDB/MySQL *admin* username/password (e.g. root) once to create that
+# database + user via CREATE DATABASE/CREATE USER — your real admin credentials are never written
+# to .env or stored anywhere. Skip this and edit .env's DB_* fields by hand instead if you'd rather
+# reuse an existing database (e.g. a shared/production one).
 
 php artisan migrate
 php artisan db:seed --class=UserSeeder   # demo accounts — see CLAUDE.md table; change passwords before real use
@@ -261,3 +268,63 @@ just static config:
 - **The markitdown venv is per-checkout, not shared** — a fresh `git clone` on a new machine
   needs its own `composer install` → `markitdown:install` cycle; the venv is gitignored and
   is not something to copy between machines (Python wheel binaries are platform-specific).
+- **The alternative OCR engine venvs (EasyOCR/PaddleOCR/Surya) are also per-checkout and not
+  provisioned by `composer install`** — see "Alternative OCR engines" below; they must be set up
+  once per machine, same platform-specific-binary caveat as the markitdown venv above.
+
+## Alternative OCR engines (EasyOCR / PaddleOCR / Surya)
+
+Added 2026-07-14 on the Ubuntu i7-13700 box, alongside the default Tesseract path (see
+`CLAUDE.md`'s Text Extraction section and `OCR_RESEARCH.md`). Each engine lives in its own venv
+under `storage/app/private/ocr-engines/{engine}/`, registered in `config/ocr.php` and selectable
+from the Compare & Verify modal's engine dropdown — Tesseract stays the default and none of this
+is provisioned automatically by `composer install`.
+
+**Why a separate pyenv-managed Python, not the system one:** these engines' PyTorch/Paddle wheels
+don't yet support very new Python releases (this box's system Python was 3.14) — use
+[pyenv](https://github.com/pyenv/pyenv) to install a 3.12.x interpreter and build each venv from
+that instead of `/usr/bin/python3`:
+
+```bash
+pyenv install 3.12.8   # if not already installed
+PY312="$(pyenv root)/versions/3.12.8/bin/python3"
+
+$PY312 -m venv storage/app/private/ocr-engines/easyocr
+storage/app/private/ocr-engines/easyocr/bin/pip install "numpy<2" easyocr
+
+$PY312 -m venv storage/app/private/ocr-engines/paddleocr
+storage/app/private/ocr-engines/paddleocr/bin/pip install paddlepaddle paddleocr
+
+$PY312 -m venv storage/app/private/ocr-engines/surya
+storage/app/private/ocr-engines/surya/bin/pip install surya-ocr requests
+```
+
+**PaddleOCR needs one extra fix:** PaddleX's default oneDNN (MKL-DNN) CPU backend crashes on this
+Paddle build (`NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support
+[pir::ArrayAttribute<pir::DoubleAttribute>]`) — already worked around in
+`pdf_structure_extractor.py` via `enable_mkldnn=False`, nothing to do here, just don't remove
+that flag if refactoring that file.
+
+**Surya needs a `llama.cpp` binary + shared libs, which are not a pip dependency** — its current
+release runs OCR through a real vision-LLM served by `llama-server`. On Debian/Ubuntu, extract
+(don't `apt install`, no sudo needed) the binary and libs directly from the distro packages into
+the engine's own venv dir:
+
+```bash
+cd storage/app/private/ocr-engines/surya
+mkdir -p llama-cpp/bin llama-cpp/lib/ggml/backends0
+apt-get download llama.cpp-tools libllama0 libggml0
+for deb in *.deb; do dpkg-deb -x "$deb" extracted; done
+cp extracted/usr/bin/llama-server llama-cpp/bin/
+cp extracted/usr/lib/x86_64-linux-gnu/*.so* llama-cpp/lib/ 2>/dev/null
+cp extracted/usr/lib/x86_64-linux-gnu/llama/*.so* llama-cpp/lib/
+cp extracted/usr/lib/x86_64-linux-gnu/ggml/backends0/*.so llama-cpp/lib/ggml/backends0/
+rm -rf extracted *.deb
+```
+
+`RunOcrExtraction` passes `LLAMA_CPP_BINARY`/`LD_LIBRARY_PATH`/`GGML_BACKEND_PATH` (pointing at
+`libggml-cpu-x64.so`, the generic CPU backend variant — safe on any x86-64, not the fastest
+possible for this specific CPU) through `Process::env()` from `config('ocr.engines.surya.env')`;
+no shell profile changes needed. **Known limitation, not a bug:** CPU-only inference of Surya's
+vision-LLM does not reliably finish a single dense A4 page within its own 600-second timeout on
+this hardware — see `OCR_RESEARCH.md` for the Vulkan/iGPU acceleration option that wasn't pursued.
