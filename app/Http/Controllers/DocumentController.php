@@ -19,6 +19,7 @@ use App\Models\RuleSet;
 use App\Models\Section;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -1102,7 +1103,7 @@ class DocumentController extends Controller
     }
 
     /** Explicit, human-triggered OCR re-extraction — never auto-run. See RunOcrExtraction. */
-    public function convertOcr(int $id): JsonResponse
+    public function convertOcr(int $id, Request $request): JsonResponse
     {
         if (! auth()->user()->isAdmin()) {
             abort(403);
@@ -1118,9 +1119,61 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Original PDF file not found.'], 404);
         }
 
-        \App\Jobs\RunOcrExtraction::dispatch($document->id);
+        $engine = $request->input('engine', config('ocr.default'));
+
+        if (! array_key_exists($engine, config('ocr.engines'))) {
+            return response()->json(['message' => 'Unknown OCR engine selected.'], 422);
+        }
+
+        \App\Jobs\RunOcrExtraction::dispatch($document->id, $engine);
 
         return response()->json(['status' => 'ocr_pending']);
+    }
+
+    /** Discard an OCR result and restore the pre-OCR text-layer Markdown saved by RunOcrExtraction. */
+    public function revertOcr(int $id): JsonResponse
+    {
+        if (! auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $document = Document::findOrFail($id);
+
+        if (($document->metadata['extraction_method'] ?? null) !== 'ocr') {
+            return response()->json(['message' => 'This document is not currently showing an OCR result.'], 422);
+        }
+
+        $preOcrBackupPath = preg_replace('/\.pdf$/i', '.pre-ocr.md', $document->original_pdf_path);
+
+        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($preOcrBackupPath)) {
+            return response()->json(['message' => 'No pre-OCR Markdown was saved for this document.'], 404);
+        }
+
+        DB::transaction(function () use ($document, $preOcrBackupPath) {
+            $oldStatus = $document->status;
+            $markdownPath = preg_replace('/\.pdf$/i', '.md', $document->original_pdf_path);
+            Storage::disk('public')->put($markdownPath, Storage::disk('public')->get($preOcrBackupPath));
+
+            $metadata = $document->metadata ?? [];
+            $metadata['extraction_method'] = 'pdf-text';
+            unset($metadata['ocr_engine']);
+
+            $document->update([
+                'markdown_path' => $markdownPath,
+                'status'        => 'review',
+                'metadata'      => $metadata,
+            ]);
+
+            DocumentStatusHistory::create([
+                'document_id' => $document->id,
+                'actor_id'    => auth()->id(),
+                'from_status' => $oldStatus,
+                'to_status'   => 'review',
+                'note'        => 'Reverted OCR result back to the original text-layer extraction.',
+            ]);
+        });
+
+        return response()->json(['status' => 'reverted']);
     }
 
     public function conversionStatus(int $id): JsonResponse
@@ -1130,6 +1183,7 @@ class DocumentController extends Controller
         return response()->json([
             'status'            => $document->status,
             'extraction_method' => $document->metadata['extraction_method'] ?? null,
+            'ocr_engine'        => $document->metadata['ocr_engine'] ?? null,
             'needs_ocr_review'  => (bool) ($document->metadata['needs_ocr_review'] ?? false),
             'has_markdown'      => (bool) ($document->markdown_path && Storage::disk('public')->exists($document->markdown_path)),
         ]);

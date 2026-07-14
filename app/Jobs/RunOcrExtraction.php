@@ -23,15 +23,14 @@ class RunOcrExtraction implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 900;
-
-    private string $pythonBin;
+    // EasyOCR/PaddleOCR/Surya load multi-hundred-MB models per run and are far slower than
+    // Tesseract per page; keep enough headroom for those, not just the tesseract path.
+    public int $timeout = 1900;
 
     private string $extractorScript;
 
-    public function __construct(public int $documentId)
+    public function __construct(public int $documentId, public string $engine = 'tesseract')
     {
-        $this->pythonBin = base_path('vendor/innobrain/markitdown/python/venv/bin/python3');
         $this->extractorScript = resource_path('python/pdf_structure_extractor.py');
     }
 
@@ -47,6 +46,20 @@ class RunOcrExtraction implements ShouldQueue
             $markdown = $this->runOcr($absolutePdfPath);
 
             $markdownPath = preg_replace('/\.pdf$/i', '.md', $document->original_pdf_path);
+
+            // Preserve the pre-OCR (text-layer) result exactly once, so a reviewer can revert
+            // back to it later if OCR turns out worse — never overwritten by subsequent OCR
+            // re-runs, since only the *original* text-layer pass is worth keeping as a fallback.
+            $preOcrBackupPath = preg_replace('/\.pdf$/i', '.pre-ocr.md', $document->original_pdf_path);
+            if (
+                ($document->metadata['extraction_method'] ?? null) !== 'ocr'
+                && $document->markdown_path
+                && Storage::disk('public')->exists($document->markdown_path)
+                && ! Storage::disk('public')->exists($preOcrBackupPath)
+            ) {
+                Storage::disk('public')->put($preOcrBackupPath, Storage::disk('public')->get($document->markdown_path));
+            }
+
             Storage::disk('public')->put($markdownPath, $markdown);
 
             DB::transaction(function () use ($document, $markdownPath) {
@@ -56,6 +69,7 @@ class RunOcrExtraction implements ShouldQueue
                     'status'        => 'review',
                     'metadata'      => array_merge($document->metadata ?? [], [
                         'extraction_method' => 'ocr',
+                        'ocr_engine'        => $this->engine,
                         'needs_ocr_review'  => false,
                     ]),
                 ]);
@@ -106,24 +120,44 @@ class RunOcrExtraction implements ShouldQueue
                 throw new \RuntimeException('No pages rasterized for OCR.');
             }
 
-            // hOCR (not plain stdout text) — gives per-line x_size, the font-size proxy the
-            // structure extractor needs to detect headings in scanned documents. Tesseract
-            // appends .hocr itself when given an output basename instead of "stdout".
-            $pages->each(function (string $imagePath) {
-                $outputBase = preg_replace('/\.png$/', '', $imagePath);
-                $result = Process::timeout(300)->run([
-                    'tesseract', $imagePath, $outputBase, '-l', 'hin+eng', 'hocr',
-                ]);
+            $engines = config('ocr.engines');
 
-                if (! $result->successful()) {
-                    throw new \RuntimeException('tesseract failed: ' . $result->errorOutput());
-                }
-            });
+            if (! isset($engines[$this->engine])) {
+                throw new \RuntimeException("Unknown OCR engine: {$this->engine}");
+            }
 
-            $structured = Process::timeout(120)->run([$this->pythonBin, $this->extractorScript, '--mode', 'hocr', $tmpDir]);
+            if ($this->engine === 'tesseract') {
+                // hOCR (not plain stdout text) — gives per-line x_size, the font-size proxy the
+                // structure extractor needs to detect headings in scanned documents. Tesseract
+                // appends .hocr itself when given an output basename instead of "stdout".
+                $pages->each(function (string $imagePath) {
+                    $outputBase = preg_replace('/\.png$/', '', $imagePath);
+                    $result = Process::timeout(300)->run([
+                        'tesseract', $imagePath, $outputBase, '-l', 'hin+eng', 'hocr',
+                    ]);
+
+                    if (! $result->successful()) {
+                        throw new \RuntimeException('tesseract failed: ' . $result->errorOutput());
+                    }
+                });
+
+                $pythonBin = base_path('vendor/innobrain/markitdown/python/venv/bin/python3');
+                $mode = 'hocr';
+            } else {
+                // EasyOCR/PaddleOCR/Surya each OCR the page images themselves inside
+                // pdf_structure_extractor.py, so nothing to pre-process here — just point at
+                // that engine's own isolated venv (heavy ML deps, kept out of the main app).
+                $pythonBin = $engines[$this->engine]['venv'] . '/bin/python3';
+                $mode = $this->engine;
+            }
+
+            // These engines load large models per invocation, well beyond Tesseract's per-page cost.
+            $structured = Process::timeout(1800)
+                ->env($engines[$this->engine]['env'] ?? [])
+                ->run([$pythonBin, $this->extractorScript, '--mode', $mode, $tmpDir]);
 
             if (! $structured->successful()) {
-                throw new \RuntimeException('Structure extraction failed: ' . $structured->errorOutput());
+                throw new \RuntimeException("Structure extraction ({$this->engine}) failed: " . $structured->errorOutput());
             }
 
             return trim($structured->output());

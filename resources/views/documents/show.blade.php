@@ -13,6 +13,9 @@
     $hasMarkdown = $document->markdown_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($document->markdown_path);
     $isConverting = in_array($document->status, ['processing', 'ocr_pending'], true);
     $needsOcrReview = (bool) ($document->metadata['needs_ocr_review'] ?? false);
+    $isOcrResult = ($document->metadata['extraction_method'] ?? null) === 'ocr';
+    $preOcrBackupPath = $document->original_pdf_path ? preg_replace('/\.pdf$/i', '.pre-ocr.md', $document->original_pdf_path) : null;
+    $canRevertOcr = $isOcrResult && $preOcrBackupPath && \Illuminate\Support\Facades\Storage::disk('public')->exists($preOcrBackupPath);
 
     // Normalize optional context variables — not every route passes all of these,
     // and closures below capture them by value via `use (...)`, which errors on
@@ -638,11 +641,23 @@
                     class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
                 <i class="ti ti-circle-check text-base"></i> Save &amp; Verify
             </button>
+            <select id="compare-ocr-engine-select"
+                    class="text-sm font-medium border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400">
+                @foreach(config('ocr.engines') as $engineKey => $engineConfig)
+                    <option value="{{ $engineKey }}" @selected($engineKey === config('ocr.default'))>{{ $engineConfig['label'] }}</option>
+                @endforeach
+            </select>
             <button type="button" id="compare-run-ocr-btn" data-convert-ocr-url="{{ route('documents.convert-ocr', $document->id) }}"
                     data-convert-status-url="{{ route('documents.convert-status', $document->id) }}"
                     class="inline-flex items-center gap-1.5 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
                 <i class="ti ti-scan text-base"></i> Run OCR Extraction
             </button>
+            @if($canRevertOcr)
+            <button type="button" id="compare-revert-ocr-btn" data-revert-ocr-url="{{ route('documents.revert-ocr', $document->id) }}"
+                    class="inline-flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                <i class="ti ti-arrow-back-up text-base"></i> Revert to Text Extraction
+            </button>
+            @endif
             <button type="button" id="compare-discard-btn" data-discard-url="{{ route('documents.markdown.discard', $document->id) }}"
                     class="inline-flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-700 dark:text-red-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
                 <i class="ti ti-trash text-base"></i> Discard Draft
@@ -961,6 +976,7 @@ try {
     });
 
     const ocrBtn = document.getElementById('compare-run-ocr-btn');
+    const ocrEngineSelect = document.getElementById('compare-ocr-engine-select');
     const ocrProgress = document.getElementById('compare-ocr-progress');
     ocrBtn?.addEventListener('click', function () {
         ocrBtn.disabled = true;
@@ -972,9 +988,11 @@ try {
             method: 'POST',
             headers: {
                 'Accept': 'application/json',
+                'Content-Type': 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '{{ csrf_token() }}',
                 'X-Requested-With': 'XMLHttpRequest',
             },
+            body: JSON.stringify({ engine: ocrEngineSelect?.value }),
         }).then(function (res) {
             return res.json().then(function (data) { return { ok: res.ok, data: data }; });
         }).then(function ({ ok, data }) {
@@ -989,6 +1007,34 @@ try {
             verifyBtn.disabled = false;
             discardBtn.disabled = false;
             Swal.fire({ icon: 'error', text: err.message || 'OCR extraction could not be started.' });
+        });
+    });
+
+    const revertOcrBtn = document.getElementById('compare-revert-ocr-btn');
+    revertOcrBtn?.addEventListener('click', function () {
+        revertOcrBtn.disabled = true;
+        draftBtn.disabled = true;
+        verifyBtn.disabled = true;
+        discardBtn.disabled = true;
+
+        fetch(revertOcrBtn.dataset.revertOcrUrl, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '{{ csrf_token() }}',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        }).then(function (res) {
+            return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+        }).then(function ({ ok, data }) {
+            if (!ok) throw new Error(data.message || 'Could not revert to the text-layer extraction.');
+            window.location.reload();
+        }).catch(function (err) {
+            revertOcrBtn.disabled = false;
+            draftBtn.disabled = false;
+            verifyBtn.disabled = false;
+            discardBtn.disabled = false;
+            Swal.fire({ icon: 'error', text: err.message || 'Could not revert to the text-layer extraction.' });
         });
     });
 } catch (e) {
