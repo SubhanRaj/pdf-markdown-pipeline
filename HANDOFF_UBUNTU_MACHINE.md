@@ -116,31 +116,38 @@ only after a bad text-layer result (see `CLAUDE.md`'s pipeline section — that 
 is not changing).
 
 This Ubuntu box (i7-13700/32GB) exists specifically to be a closer hardware proxy to production
-than a dev laptop, for re-testing OCR engines under realistic conditions. Plan, from
-`OCR_RESEARCH.md`'s open threads:
-1. Baseline: plain Tesseract `eng` (not `hin`) against real "other state" English policy PDFs —
-   Tesseract's English accuracy is historically much better than Devanagari; check whether
-   preprocessing (DPI/deskew/binarization) is the actual gap before assuming a new engine is
-   needed.
-2. Re-run EasyOCR: multi-page (not single-page like the original test), with a queue worker
-   running concurrently, to get a realistic memory/stability read under load.
-3. Retry PaddleOCR once more with 32GB of headroom and a clean venv — the original failure
-   (RAM exhaustion + a paddlex/paddlepaddle version-compat crash) was on a lower-resource dev
-   machine.
-4. Only if none of the above clear the accuracy bar: cloud OCR APIs (Google Vision, Azure
-   Document Intelligence, Cloudflare Workers AI's Moondream 3) become fair game for this specific
-   batch — **important scope clarification, confirmed explicitly by Subhan this session, may not
-   yet be reflected in `CLAUDE.md`'s wording:** the "100% on-premise" principle is about where
-   *confidential documents live at rest* (the auth-gated vault, private disk), not a ban on where
-   OCR *compute* can run. Real production target is SDC/NIC's Meghraj cloud PaaS, not necessarily
-   a fully on-prem box. Cloud OCR is a weaker privacy concern for this specific batch too, since
-   these source PDFs are other states' *already-published, public* policies — not UP's own
-   confidential GOs. Still: exhaust local/on-prem options first, cloud only if none clear the bar.
-5. If/when a new engine is adopted: wire it into `RunOcrExtraction.php` as an *additional*
-   reviewer-selectable option (never a silent replacement for Tesseract), record which engine
-   produced a draft via `metadata.extraction_method`. OCR stays human-triggered only — that
-   constraint is not up for revisiting as part of this task.
-6. Keep `OCR_RESEARCH.md` updated in the same log-of-record style as its existing entries.
+than a dev laptop, for re-testing OCR engines under realistic conditions.
+
+**Update 2026-07-14, done on this box:** item 5 below is complete — all four engines are now
+wired into the app, not just CLI-tested. Status of the original plan:
+1. Not done as a separate baseline test — superseded by wiring all engines in directly and
+   letting real document comparison happen from the review UI instead.
+2. **EasyOCR** — installed (pyenv 3.12.8 venv, not system Python 3.14, which is too new for
+   EasyOCR's PyTorch build), ran a real page end-to-end successfully, wired into the dropdown.
+3. **PaddleOCR** — retried and this time it works: with 30GB free RAM the original memory-blowup
+   didn't recur, and the separate crash (`paddlex`/`paddlepaddle` version-compat error) turned
+   out to be a different, fixable issue — PaddleX defaults to a oneDNN CPU backend that crashes
+   on this Paddle build; `enable_mkldnn=False` fixes it. Wired into the dropdown.
+4. Not reached — didn't need to fall back to cloud OCR, all three practical local engines
+   (Tesseract/EasyOCR/PaddleOCR) work. The scope clarification about cloud OCR being permissible
+   for this specific batch (already-published state policies, not confidential UP GOs) still
+   stands as documented, just wasn't needed.
+5. **Done** — `RunOcrExtraction`/`DocumentController@convertOcr` accept an `engine` param
+   (`config('ocr.engines')` registry), surfaced as a dropdown in the Compare & Verify modal.
+   Tesseract remains the default; nothing silently replaced it. `metadata.ocr_engine` records
+   which engine produced a given OCR draft (`metadata.extraction_method` still distinguishes
+   `pdf-text` vs `ocr` as before). A **Surya** engine was added beyond the original plan too —
+   works, but its current release runs a real vision-LLM via `llama.cpp` and is CPU-impractically
+   slow for full dense pages on this hardware (no GPU backend loaded); left enabled for lighter
+   documents. Also added, beyond the original ask: a "Revert to Text Extraction" button/route
+   to undo an OCR run back to the original text-layer result, and geometric table detection in
+   `pdf_structure_extractor.py` so tabular data doesn't get flattened into one paragraph.
+6. `OCR_RESEARCH.md` updated in the same log-of-record style, including the Surya/llama.cpp
+   findings and the PaddleOCR oneDNN fix.
+
+This file's own instruction was "read once, act on it, then archive" — the OCR task it exists to
+hand off is now substantially done; treat this file as historical from here unless picking up a
+new machine-provisioning thread on this box.
 
 ## 6. Two known-open items from earlier passes, unrelated to the above, worth remembering
 

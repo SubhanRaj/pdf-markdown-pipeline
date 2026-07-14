@@ -72,11 +72,40 @@ this was an isolated CLI test only, no changes to `RunOcrExtraction.php` or any 
   on-premise, resource-constrained deployment target and shouldn't be silently swapped in.
 - Explicit sign-off given the dependency weight, before touching production code.
 
-## Not yet tried
+## Candidate 3: Surya OCR — wired in, impractically slow on this CPU-only box
 
-**Surya OCR** — named as a candidate earlier, never actually installed or tested. If revisited,
-test it the same way: isolated venv, same page image, same memory-watchdog loop, same trouble
-spots (digit corruption, conjunct rendering, hallucinated words), before drawing conclusions.
+**Update 2026-07-14:** All four engines (Tesseract, EasyOCR, PaddleOCR, Surya) are now wired
+into the app as a dropdown on the "Run OCR Extraction" button (`config/ocr.php`,
+`RunOcrExtraction`, `resources/python/pdf_structure_extractor.py`), so this is no longer just a
+CLI experiment. Tesseract/EasyOCR/PaddleOCR all completed a real page in well under a minute.
+
+Surya turned out to be a different shape of engine than expected: the current release
+(`surya-ocr` 0.21.1) dropped the older torch-only detection+recognition pipeline in favor of a
+real vision-language model served through `llama.cpp` (a GGUF checkpoint,
+`datalab-to/surya-ocr-2-gguf`, ~1.2GB). That needs the `llama-server` binary plus
+`libllama`/`libggml` shared libraries, none of which are pip dependencies — Ubuntu ships them as
+`llama.cpp-tools`/`libllama0`/`libggml0` packages, which were extracted (`dpkg-deb -x`, no
+`apt install`, no sudo) directly into `storage/app/private/ocr-engines/surya/llama-cpp/` and
+pointed at via `LLAMA_CPP_BINARY`/`LD_LIBRARY_PATH`/`GGML_BACKEND_PATH` (see `config/ocr.php`).
+Once pointed at the right CPU backend variant (`libggml-cpu-x64.so` — oneDNN/mkldnn isn't the
+issue here, that was PaddleOCR's separate bug, see below), the server starts and passes a
+health check in ~15 seconds.
+
+The problem is throughput, not correctness: a single dense government-gazette page (2550×4200
+@ 300dpi) sent through full-page recognition did not finish within Surya's own generous
+600-second per-request timeout, running CPU-only with no GPU backend loaded (`-ngl 99` is a
+no-op without one). This is a real vision-LLM decode, not a lightweight OCR pass — practical
+turnaround for a page like this needs GPU acceleration. Options for later, not pursued in this
+round:
+- A Vulkan backend (`libggml0-backend-vulkan`, apt) could let `llama.cpp` use this box's Intel
+  UHD 770 iGPU — untested, but the more promising route than CPU tuning, since the bottleneck is
+  compute, not memory.
+- Smaller/lighter-weight pages (forms, single paragraphs) may still finish in reasonable time;
+  the engine is left enabled in the dropdown rather than removed, since it isn't broken, just
+  slow for large pages on this hardware.
+
+**Verdict:** functionally wired end-to-end, but not practical for whole-document OCR runs on
+this box's CPU alone. Tesseract/EasyOCR/PaddleOCR are the three to actually compare for now.
 
 ## Reproducing this test
 

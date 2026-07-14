@@ -15,9 +15,9 @@ While built for government requirements, the architecture is fully open-source a
 
 ## ✨ Core Features
 
-- **Dual-Engine Processing** — button-triggered, never automatic on upload:
-  - Every document tries native-text extraction first (`markitdown` Python package, invoked through a Laravel queue job) — fast, and correct whenever a real text layer exists.
-  - OCR (Tesseract, `hin`+`eng`) is available as an explicit, human-triggered re-extraction from the review screen — not an automatic fallback. Testing confirmed OCR can silently corrupt an already-good text layer (e.g. digit misreads), so it only ever runs when a reviewer asks for it, never unconditionally. See `OCR_RESEARCH.md` for on-prem OCR engine comparisons (Tesseract remains production).
+- **Multi-Engine Processing** — button-triggered, never automatic on upload:
+  - Every document tries native-text extraction first (`markitdown` Python package, invoked through a Laravel queue job) — fast, and correct whenever a real text layer exists, including a geometric table-detection pass so tabular data renders as real Markdown tables instead of one flattened paragraph.
+  - OCR is available as an explicit, human-triggered re-extraction from the review screen — not an automatic fallback — with a choice of four local engines (Tesseract `hin`+`eng`, EasyOCR, PaddleOCR, Surya) selectable from a dropdown, so a reviewer can compare results on a hard document. Testing confirmed OCR can silently corrupt an already-good text layer (e.g. digit misreads), so it only ever runs when a reviewer asks for it, never unconditionally. A one-click "Revert to Text Extraction" restores the pre-OCR result if a given engine's OCR output turns out worse. See `OCR_RESEARCH.md` for on-prem OCR engine comparisons and tradeoffs (Tesseract remains the default; Surya is CPU-impractically slow for full pages on hardware without a GPU).
 - **Human-in-the-Loop Validation UI** — A "Compare & Verify" split-pane modal on the document page where clerks and administrators visually check the original PDF against the extracted Markdown, edit the raw text if needed, toggle a rendered Preview (GitHub/VS Code-style formatting via `marked.js`, not raw asterisks) to sanity-check the result, then verify or discard the draft. The already-verified document view renders the same way, server-side via Parsedown.
 - **Bulk Upload & Conversion Pipeline Monitor** — a dedicated bulk-upload page (any scoped department/section/division/folder/rule-set, sequential multi-file upload, optional auto-convert) and a pipeline monitor page listing every document still mid-conversion with live status.
 - **Strict Siloed Architecture** — A hierarchical directory structure (Level → Body → Section/RuleSet) maps directly to database records, preventing context leakage between administrative units.
@@ -36,12 +36,27 @@ While built for government requirements, the architecture is fully open-source a
 | Web Server | Apache (mod_php or php-fpm) — no Nginx |
 | Frontend / UI | Blade Templates, Tailwind CSS v4 (Play CDN + `typography` plugin), Parsedown, `marked.js` (CDN, client-side Markdown preview only) — no Node, no npm, no build step |
 | Text Extraction | Python `markitdown`, via the [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package |
-| OCR Engine | Tesseract OCR (`hin` + `eng` language packs) |
+| OCR Engines | Tesseract (`hin`+`eng`, default), EasyOCR, PaddleOCR, Surya — selectable per re-extraction, each in its own Python venv (`storage/app/private/ocr-engines/`, pyenv 3.12.8) |
 | Queue | Laravel database queue driver (local single-box deployment, no Redis dependency) |
+
+**Dev tooling:** [`subhanraj/laravel-db-provisioner`](https://github.com/SubhanRaj/laravel-db-provisioner)
+(`require-dev`) provides `php artisan db:provision` — generates a random per-project database
+name/user/password on first setup instead of reusing (or hardcoding) a shared MariaDB admin
+account. See [DEPLOY.md](./DEPLOY.md#3-project-setup) for the full fresh-machine setup sequence.
 
 ## ⚙️ PHP Configuration Requirements
 
 PHP ships with restrictive defaults that block uploads larger than 2 MB. Four directives need raising before the pipeline can accept real documents. There are three places to set them — use whichever matches your deployment:
+
+**If you're running `php artisan serve` (the built-in dev server), none of Options A/B below
+apply** — `.htaccess` and `.user.ini` are both Apache/php-fpm-specific and are silently ignored
+by the CLI server. It only reads the **CLI** php.ini (confirm with `php --ini`, typically
+`/etc/php/8.x/cli/php.ini` on Debian/Ubuntu — note this is a **different file** from the
+`apache2/php.ini` path in Option C below). Edit that file directly, then restart `php artisan
+serve` (Ctrl+C, re-run) — no service to restart, since the CLI server isn't a system service.
+This was hit in practice: two ~7-8MB PDF uploads silently failed with the CLI ini still at its
+package defaults (`upload_max_filesize = 2M`, `post_max_size = 8M`) while smaller files under
+those thresholds succeeded, which is what made it look intermittent rather than a hard limit.
 
 ### Option A — `public/.htaccess` (already present in this repo)
 
@@ -457,7 +472,13 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - Bulk Upload page (`/documents/bulk-upload`) and Conversion Pipeline monitor (`/documents/pipeline`)
 - Tailwind `typography` plugin enabled — the verified-document Markdown view's `prose` classes now actually render (were previously inert)
 
-**Next up:** vault path file resolution refinements on verification; production integration decision on an alternative OCR engine (see `OCR_RESEARCH.md`) if Tesseract's Devanagari accuracy remains a blocker.
+**Completed (2026-07-14 — Multi-Engine OCR + Table Detection):**
+- `config/ocr.php` engine registry; Compare & Verify modal now has an engine dropdown (Tesseract/EasyOCR/PaddleOCR/Surya) next to "Run OCR Extraction" instead of a single hardcoded engine
+- EasyOCR, PaddleOCR, and Surya provisioned in their own Python venvs (`storage/app/private/ocr-engines/`, pyenv 3.12.8 — Python 3.14 is too new for their PyTorch/Paddle wheels) and wired into `RunOcrExtraction`/`pdf_structure_extractor.py`; PaddleOCR pinned to the mobile detection/recognition models with `enable_mkldnn=False` (oneDNN CPU crash on this Paddle build); Surya needs a `llama.cpp` binary + shared libs extracted from Ubuntu's `llama.cpp-tools`/`libllama0`/`libggml0` packages (not a pip dependency) — see `OCR_RESEARCH.md` for the full writeup, including why Surya is CPU-impractically slow for full pages without a GPU
+- Geometric table detection (`detect_tables()`/`TableBlock` in `pdf_structure_extractor.py`) — tabular data (pricing tables, schedules) now renders as real Markdown tables across all extraction modes, instead of being flattened into one paragraph
+- "Revert to Text Extraction" button + `POST /documents/{id}/revert-ocr` — restores the pre-OCR Markdown (backed up once by `RunOcrExtraction`, never overwritten by later OCR re-runs) if a given engine's OCR result turns out worse than the original text-layer pass
+
+**Next up:** production integration decision on which OCR engine to default to per document type, once enough real documents have been compared across all four; Surya GPU acceleration (Vulkan backend, Intel iGPU) if full-page OCR speed on that engine becomes a priority; vault path file resolution refinements on verification.
 
 ## 🚀 Future Roadmap
 

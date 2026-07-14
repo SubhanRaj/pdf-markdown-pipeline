@@ -29,9 +29,10 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Web server | Apache (mod_php or php-fpm via mod_proxy_fcgi) — **no Nginx** |
 | Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Parsedown (markdown render) — **no Node, no npm, no build step** |
 | Text extraction | Python `markitdown`, via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
-| OCR | Tesseract OCR (`hin` + `eng` language packs), invoked via `symfony/process`. **Never automatic** — triggered only by an explicit "Run OCR-Based Extraction" action from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below. |
+| OCR | Selectable engine — Tesseract (`hin`+`eng`, default), EasyOCR, PaddleOCR, or Surya — invoked via `symfony/process`. **Never automatic** — triggered only by an explicit "Run OCR-Based Extraction" action (with an engine dropdown) from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below and `config/ocr.php`. |
 | Queue | Laravel **database** queue driver — deliberately no Redis, single-box local deployment |
 | Disk | Single local filesystem disk (`public`); logical separation enforced by path convention, not multiple disks |
+| Dev-only DB setup | [`subhanraj/laravel-db-provisioner`](https://github.com/SubhanRaj/laravel-db-provisioner) (`require-dev`) — `php artisan db:provision` generates a random per-project DB name/user/password rather than reusing a shared MariaDB admin account. Never used in production; see [DEPLOY.md](./DEPLOY.md#3-project-setup). |
 
 ## PHP upload limits
 
@@ -321,6 +322,14 @@ management routes).
    directly, not markitdown's own `pdfminer.high_level.extract_text()` converter, because the
    latter is plain-text only by its own documentation. The low-level API exposes per-character
    font size/name, which the script uses to infer heading levels and bold text.
+   Also runs a geometric table-detection pass (`detect_tables()`/`TableBlock`/`render_table()`
+   in the same script): lines are grouped into rows by y-position, and runs of ≥3 consecutive
+   multi-cell rows with a well-filled grid (≥50% of cells non-empty — the guard against
+   pdfminer sometimes splitting one justified body-text line into several fragments, which looks
+   like a sparse 2-cell "table" otherwise) are rendered as real Markdown tables instead of being
+   flattened into one paragraph. Applies uniformly across all extraction modes (`pdf`, `hocr`,
+   `easyocr`, `paddleocr`; Surya gets its own path, see below), each populating `Line.x0/x1/y0`
+   from whatever positional data that mode's source provides.
 2. Quality-checks the output via `isGoodQuality()` — two independent failure signals, both
    meaning "don't trust this text layer":
    - `(cid:\d+)` glyph-ID fallback tokens (pdfminer couldn't resolve a character to Unicode
@@ -335,17 +344,40 @@ management routes).
    reviewer with a warning, not silently discarded, so nothing is stuck waiting on a human who
    doesn't know a document needs attention.
 
-**`RunOcrExtraction` job — explicit, human-triggered only, never auto-dispatched:**
+**`RunOcrExtraction` job — explicit, human-triggered only, never auto-dispatched, engine-selectable:**
 1. `pdftoppm -png -r 300` rasterizes every page to PNG in a per-job temp dir under
    `storage/app/private/ocr_tmp/{uniqid}` (private disk, cleaned up in a `finally` block —
    page images are never retained after extraction).
-2. `tesseract <page> <outbase> -l hin+eng hocr` per page — hOCR output (not plain stdout text)
-   because it carries per-line `x_size`, the font-size proxy `pdf_structure_extractor.py --mode
-   hocr` needs for heading detection on scanned documents.
+2. Branches on `$this->engine` (constructor arg, from the review-modal dropdown, validated
+   against `config('ocr.engines')` in `DocumentController::convertOcr()`):
+   - **Tesseract** (default) — `tesseract <page> <outbase> -l hin+eng hocr` per page, hOCR
+     output (not plain stdout text) because it carries per-line `x_size`/bbox, which
+     `pdf_structure_extractor.py --mode hocr` needs for heading detection and table-row grouping
+     on scanned documents. Uses the markitdown-provisioned venv Python.
+   - **EasyOCR / PaddleOCR / Surya** — no separate raster→text step; each engine's own Python
+     venv (`storage/app/private/ocr-engines/{engine}/`, provisioned once via `pip install`
+     inside a pyenv 3.12.8 interpreter — Python 3.14 is too new for these engines' PyTorch/Paddle
+     wheels) runs `pdf_structure_extractor.py --mode {engine}` directly against the page PNGs.
+     PaddleOCR is pinned to `PP-OCRv5_mobile_det` + `devanagari_PP-OCRv5_mobile_rec` with
+     `enable_mkldnn=False` (PaddleX's default oneDNN CPU backend crashes on this box's Paddle
+     build with a `pir::ArrayAttribute` error — a Paddle/oneDNN compatibility bug, not something
+     to chase further). Surya needs a `llama.cpp` binary + shared libs (not a pip dependency —
+     see `OCR_RESEARCH.md`) pointed at via `LLAMA_CPP_BINARY`/`LD_LIBRARY_PATH`/
+     `GGML_BACKEND_PATH` env vars passed through `Process::env()`, configured in
+     `config('ocr.engines.surya.env')`.
 3. Joins all pages and writes Markdown, `metadata.extraction_method = 'ocr'`,
-   `metadata.needs_ocr_review = false`, `status → review`.
+   `metadata.ocr_engine = '<engine>'`, `metadata.needs_ocr_review = false`, `status → review`.
+   Before overwriting, backs up the *current* Markdown to `{path}.pre-ocr.md` exactly once (never
+   overwritten by later OCR re-runs) so a reviewer can revert.
 4. All `Process::run()` calls use array-form arguments (no shell interpolation) — standard
    command-injection-safe pattern already used elsewhere in this codebase.
+
+**Revert OCR back to text-layer extraction** — `POST /documents/{id}/revert-ocr`
+(`revertOcr()`, admin-gated, 422 if the document isn't currently showing an OCR result or no
+`.pre-ocr.md` backup exists). Restores that backup as the live Markdown, sets
+`metadata.extraction_method = 'pdf-text'`, clears `metadata.ocr_engine`. Surfaced as a "Revert to
+Text Extraction" button in the Compare & Verify modal, shown only when a backup is available
+(`$canRevertOcr` in `show.blade.php`).
 
 **Empirically tested and rejected: automatic OCR fallback.** An earlier iteration ran OCR
 automatically whenever the text-layer pass looked low-quality. This was removed after two
@@ -357,9 +389,10 @@ concrete problems, both confirmed by testing, not assumed:
   the text-layer pass): **"150 meters" was silently changed to "50 meters" in four separate
   places**, plus `21 out of 22` → `2l out of 22` and dropped leading digits in section numbers.
   This is why OCR must never be allowed to override a working text layer without a human
-  explicitly asking for it. See `OCR_RESEARCH.md` for the full write-up, including two
-  alternative on-prem OCR engines (PaddleOCR, EasyOCR) evaluated and **not adopted** — Tesseract
-  remains production.
+  explicitly asking for it. See `OCR_RESEARCH.md` for the full write-up — PaddleOCR, EasyOCR,
+  and Surya are now all actually wired in and selectable (2026-07-14), not just evaluated on the
+  CLI; Tesseract remains the default. Surya is CPU-impractically slow for full pages on this
+  hardware (see `OCR_RESEARCH.md`) but is left enabled for lighter documents.
 
 **Compare & Verify modal (`documents/show`)** — split-pane review UI: original PDF (left) vs.
 editable raw Markdown (right, `<textarea>`). Key behaviors:
@@ -386,9 +419,15 @@ editable raw Markdown (right, `<textarea>`). Key behaviors:
   re-appears on the page. Blocked (422) once a document is `verified` — discarding an accepted
   record isn't a "draft rejection" at that point, it would destroy audit history.
 - **Run OCR-Based Extraction** — lives inside this modal (not as a second banner/button on the
-  page) when `metadata.needs_ocr_review` is true. Calls `POST /documents/{id}/convert-ocr`,
-  shares the same polling helper (`startConversionPolling()`) as the page-level convert banner,
-  parameterized by element ID so the two progress bars don't collide.
+  page), always available (not gated on `needs_ocr_review` — reviewers can also just prefer a
+  different engine's result). An engine `<select>` (populated from `config('ocr.engines')`,
+  defaulting to `config('ocr.default')`) sits next to the button; the chosen engine key is sent
+  as JSON body (`{ engine: ... }`) to `POST /documents/{id}/convert-ocr`. Shares the same polling
+  helper (`startConversionPolling()`) as the page-level convert banner, parameterized by element
+  ID so the two progress bars don't collide.
+- **Revert to Text Extraction** — shown only when the current result is OCR-derived and a
+  pre-OCR backup exists (`$canRevertOcr`). Calls `POST /documents/{id}/revert-ocr` and reloads on
+  success; see the `RunOcrExtraction` section above for what it restores.
 - The Markdown tab/card on `documents/show` is hidden entirely until `status = 'verified'` —
   pre-verification, only the amber "awaiting verification" banner + **Compare & Verify** button
   are shown above the PDF viewer (no separate OCR-recommended banner; the two were consolidated
@@ -479,13 +518,14 @@ Controller method signatures **must** declare `string $level` as their first par
 | GET | `/documents/pipeline` | `documents.pipeline` | Auth |
 | POST | `/documents/{id}/convert` | `documents.convert` | Admin (controller check) |
 | POST | `/documents/{id}/convert-ocr` | `documents.convert-ocr` | Admin (controller check) |
+| POST | `/documents/{id}/revert-ocr` | `documents.revert-ocr` | Admin (controller check) |
 | GET | `/documents/{id}/convert-status` | `documents.convert-status` | Auth (unscoped — see note) |
 | PATCH | `/documents/{id}/markdown` | `documents.markdown.update` | Admin (Form Request check) |
 | DELETE | `/documents/{id}/markdown` | `documents.markdown.discard` | Admin (controller check) |
 
 *Public routes 403 on `visibility = authenticated` documents for guests. Folder doc routes additionally 403 if the containing folder's visibility is `authenticated` and the user is a guest.
 
-**Note on `convert-status`:** any authenticated user can poll conversion status for any numeric document ID — it isn't scoped to visibility, department, or upload boundary. It only leaks processing metadata (`status`, `extraction_method`, `needs_ocr_review`, `has_markdown`), never document content, but this is looser than every other document endpoint in this table. Flagged in `SECURITY.md` Pass 4 as a low-severity, not-yet-fixed information-disclosure gap.
+**Note on `convert-status`:** any authenticated user can poll conversion status for any numeric document ID — it isn't scoped to visibility, department, or upload boundary. It only leaks processing metadata (`status`, `extraction_method`, `ocr_engine`, `needs_ocr_review`, `has_markdown`), never document content, but this is looser than every other document endpoint in this table. Flagged in `SECURITY.md` Pass 4 as a low-severity, not-yet-fixed information-disclosure gap.
 
 **Departments, Sections, Divisions, Rule Sets, Folders**
 
