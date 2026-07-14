@@ -110,6 +110,7 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
         // Markdown conversion — numeric ID, applies across all five document contexts
         Route::post('/{id}/convert',               [DocumentController::class, 'convert'])->where('id', '[0-9]+')->name('convert');
         Route::post('/{id}/convert-ocr',           [DocumentController::class, 'convertOcr'])->where('id', '[0-9]+')->name('convert-ocr');
+        Route::post('/{id}/revert-ocr',            [DocumentController::class, 'revertOcr'])->where('id', '[0-9]+')->name('revert-ocr');
         Route::get('/{id}/convert-status',         [DocumentController::class, 'conversionStatus'])->where('id', '[0-9]+')->name('convert-status');
         Route::patch('/{id}/markdown',             [DocumentController::class, 'updateMarkdown'])->where('id', '[0-9]+')->name('markdown.update');
         Route::delete('/{id}/markdown',            [DocumentController::class, 'discardMarkdown'])->where('id', '[0-9]+')->name('markdown.discard');
