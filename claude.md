@@ -810,9 +810,10 @@ Both modals share a `makeQueue(ids)` JS factory function that handles multi-file
 ### Policy Taxonomy (kind=policy RuleSets)
 
 **Implemented 2026-07-15.** Reuses the `RuleSet` model/controller/views with a `kind` discriminator
-(`rules` | `policy`) rather than a parallel model — see `POLICY_TAXONOMY_PLAN.md`'s history for the
-full design rationale before it was folded in here (delete that file once this section is trusted
-as the source of truth). Available to **every department, existing or future** — no allowlist —
+(`rules` | `policy`) rather than a parallel model. (The original design doc, `POLICY_TAXONOMY_PLAN.md`,
+was folded into this section and deleted in the same commit that shipped the feature — see `git log
+-- POLICY_TAXONOMY_PLAN.md` if the original planning rationale is ever needed; this section is the
+current source of truth.) Available to **every department, existing or future** — no allowlist —
 because it's structurally just another `RuleSet`, which only ever belongs to a `department_id`
 (never a section/division), so Policy is inherently department-level-only, the same way Rule Sets
 already are.
