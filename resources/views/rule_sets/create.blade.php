@@ -74,13 +74,27 @@
                 <div>
                     <label for="policy_type" class="field-label">Policy Type <span class="text-red-500">*</span></label>
                     <select id="policy_type" name="policy_type" class="field-input @error('policy_type') field-error @enderror">
+                        @if($defaultPolicyType)
+                        {{-- A department only ever uploads its own named policy (Excise dept → Excise
+                             Policy, Cane dept → Cane Policy, ...) — the dropdown is locked to that one
+                             match instead of listing every department's policy types. Anything else
+                             (e.g. Import/Export Policy) goes through "Other" as free text. --}}
+                        <option value="{{ $defaultPolicyType }}" @selected(old('policy_type', $defaultPolicyType) === $defaultPolicyType)>
+                            {{ \App\Models\RuleSet::POLICY_TYPES[$defaultPolicyType] }}
+                        </option>
+                        <option value="other" @selected(old('policy_type') === 'other')>Other</option>
+                        @else
                         <option value="">Select policy type…</option>
                         @foreach(\App\Models\RuleSet::POLICY_TYPES as $key => $label)
-                        <option value="{{ $key }}" @selected(old('policy_type', $defaultPolicyType) === $key)>{{ $label }}</option>
+                        <option value="{{ $key }}" @selected(old('policy_type') === $key)>{{ $label }}</option>
                         @endforeach
+                        @endif
                     </select>
                     <p class="field-err-msg hidden" id="policy_type-err"></p>
                     @error('policy_type') <p class="field-err-msg">{{ $message }}</p> @enderror
+                    @if($defaultPolicyType)
+                    <p class="field-hint">Locked to {{ $department->name }}'s policy type. Pick "Other" for a different kind (e.g. Import/Export Policy).</p>
+                    @endif
 
                     <div id="policy-type-other-wrap" class="hidden mt-2">
                         <input id="policy_type_other" name="policy_type_other" type="text" value="{{ old('policy_type_other') }}"

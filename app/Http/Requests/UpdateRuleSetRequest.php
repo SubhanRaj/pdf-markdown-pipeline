@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Models\RuleSet;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class UpdateRuleSetRequest extends FormRequest
@@ -37,7 +38,10 @@ class UpdateRuleSetRequest extends FormRequest
             $merge['state']             = trim(strip_tags($this->input('state', '')));
             $merge['policy_type']       = trim(strip_tags($this->input('policy_type', '')));
             $merge['state_other']       = strip_tags(trim($this->input('state_other', ''))) ?: null;
-            $merge['policy_type_other'] = strip_tags(trim($this->input('policy_type_other', ''))) ?: null;
+            // Same title-casing as StoreRuleSetRequest — keeps re-edits consistent regardless
+            // of how the "other" value is retyped.
+            $policyTypeOther = strip_tags(trim($this->input('policy_type_other', '')));
+            $merge['policy_type_other'] = $policyTypeOther !== '' ? Str::title($policyTypeOther) : null;
         }
 
         $this->merge($merge);
