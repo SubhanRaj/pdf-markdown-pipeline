@@ -21,10 +21,21 @@ class FolderController extends Controller
 {
     use ManagesDocumentFiles;
 
+    /**
+     * Same authorize() logic as Store/UpdateFolderRequest, duplicated here because
+     * create/edit/destroy render or mutate state outside a FormRequest. See SECURITY.md H-04.
+     */
+    private function authorizeManage(Section $section, ?Division $division = null): void
+    {
+        abort_unless(auth()->user()->canUploadTo($division ?? $section), 403);
+    }
+
     // ── Section folders ─────────────────────────────────────────────────────
 
     public function create(string $level, Department $department, Section $section): View
     {
+        $this->authorizeManage($section);
+
         return view('folders.create', compact('department', 'section'));
     }
 
@@ -62,6 +73,8 @@ class FolderController extends Controller
 
     public function edit(string $level, Department $department, Section $section, Folder $folder): View
     {
+        $this->authorizeManage($section);
+
         return view('folders.edit', compact('department', 'section', 'folder'));
     }
 
@@ -72,6 +85,8 @@ class FolderController extends Controller
 
     public function destroy(string $level, Department $department, Section $section, Folder $folder): RedirectResponse
     {
+        $this->authorizeManage($section);
+
         return $this->doDestroy($department, $section, null, $folder);
     }
 
@@ -79,6 +94,8 @@ class FolderController extends Controller
 
     public function createForDivision(string $level, Department $department, Section $section, Division $division): View
     {
+        $this->authorizeManage($section, $division);
+
         return view('folders.create', compact('department', 'section', 'division'));
     }
 
@@ -116,6 +133,8 @@ class FolderController extends Controller
 
     public function editForDivision(string $level, Department $department, Section $section, Division $division, Folder $folder): View
     {
+        $this->authorizeManage($section, $division);
+
         return view('folders.edit', compact('department', 'section', 'division', 'folder'));
     }
 
@@ -126,6 +145,8 @@ class FolderController extends Controller
 
     public function destroyForDivision(string $level, Department $department, Section $section, Division $division, Folder $folder): RedirectResponse
     {
+        $this->authorizeManage($section, $division);
+
         return $this->doDestroy($department, $section, $division, $folder);
     }
 

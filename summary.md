@@ -1710,3 +1710,23 @@ guard wasn't exercised live (any real invocation would delete real data) — ver
 that the same helper runs as the first line, before `DB::transaction()`, in every case.
 
 **Files changed:** `app/Http/Controllers/RuleSetController.php` · `SECURITY.md` · `claude.md`.
+
+**Follow-up (same day) — H-05, same gap found codebase-wide.** User asked directly whether other
+parts of the app had the same flaw. Correct call: `store()`/`update()` across the codebase are
+uniformly gated by `FormRequest::authorize()`, but `create()`/`edit()`/`destroy()` — which don't
+take a `FormRequest` — had the identical no-check gap in `DepartmentController`,
+`SectionController`, `DivisionController`, `FolderController` (both section- and division-scoped
+folder variants), and `DocumentController`'s five `edit*Doc()` review-form methods. Most severe:
+any authenticated user, regardless of role, could delete any department/section/division/folder
+outright (cascading to every document beneath it). Fixed with the same pattern as H-04 — one
+private authorization helper per controller, mirroring that controller's own paired
+`FormRequest::authorize()` logic exactly, called first-line in every previously-unguarded method.
+Verified live via `php artisan tinker` for `Department`/`Section` (403 for unrelated non-admin,
+pass for admin); `Division`/`Folder`/`Document` had no fixtures in the local dev DB to exercise
+live, verified by code review instead (identical helper shape, identical placement, logic
+transcribed directly from each `FormRequest`). Full writeup: `SECURITY.md` H-05.
+
+**Files changed:** `app/Http/Controllers/DepartmentController.php` ·
+`app/Http/Controllers/SectionController.php` · `app/Http/Controllers/DivisionController.php` ·
+`app/Http/Controllers/FolderController.php` · `app/Http/Controllers/DocumentController.php` ·
+`SECURITY.md`.

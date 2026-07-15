@@ -70,6 +70,7 @@ H-03 is a newly-introduced authorization bypass, caught during self-review of th
 | ID | Finding | Severity | Status |
 |----|---------|---------|--------|
 | H-04 | `RuleSetController::create()`/`edit()`/`destroy()` had no authorization check beyond `auth` middleware — any authenticated user could view any department's rule-set/policy forms, and **delete any rule set or policy** (cascading to all its documents) regardless of admin/department-head status | HIGH | **FIXED** |
+| H-05 | Same class of bug found codebase-wide on user-triggered follow-up: `DepartmentController`, `SectionController`, `DivisionController`, `FolderController` (`create`/`edit`/`destroy`, both section- and division-scoped folder variants), and `DocumentController`'s five `edit*` review-form methods all had no authorization check beyond `auth` middleware | HIGH | **FIXED** |
 | — | Mass-assignment of `policy_status`/`previous_policy_id` (H-03-style bypass via supersession fields) | — | **CONFIRMED NOT EXPLOITABLE** |
 | — | `policy_type_other`/`state_other` free-text fields — XSS / stored-script injection | — | **PASS** |
 | — | Blade output of new policy fields (`policy_type`, `state`, `effective_start_date`/`effective_end_date`) | — | **PASS (auto-escaped, no `{!! !!}`)** |
@@ -125,6 +126,81 @@ same helper, same call-first-line placement, verified by code review that it run
 `DB::transaction()` in every case.
 
 **Files affected:** `app/Http/Controllers/RuleSetController.php`
+
+---
+
+### H-05 · Same Authorization Gap, Found Codebase-Wide
+
+**Severity:** HIGH
+**Status:** FIXED
+
+**Finding:**
+After fixing H-04, the user asked directly: "the auth flaw was likely oversighted, can you confirm
+no other parts have this flaw." Correct instinct — H-04 was one instance of a repeated pattern
+across every controller managing an organisational container (Department → Section → Division →
+Folder) plus `DocumentController`'s per-context edit forms, not a one-off in `RuleSetController`.
+Every one of these controllers follows the same shape: `store()`/`update()` are properly gated via
+a `FormRequest`'s `authorize()`, but `create()` (GET), `edit()` (GET), and `destroy()` (DELETE) —
+which don't take a `FormRequest` parameter — had **no authorization check at all**, protected only
+by the route group's blanket `['auth', 'throttle:mutations']` middleware. Confirmed by reading
+every controller's method list and checking for a constructor, middleware call, or inline
+`abort`/`authorize` — found none in `DepartmentController`, `SectionController`,
+`DivisionController`, `FolderController`, or the affected `DocumentController` methods before this
+fix. Concretely, before this fix, any authenticated user regardless of role could:
+
+- **Delete any department** (`DepartmentController::destroy()`) — cascades to every section,
+  division, folder, rule set, and document beneath it via model relations/soft-deletes.
+- **Delete any section** (`SectionController::destroy()`).
+- **Delete any internal division** (`DivisionController::destroy()`) — soft-deletes every document
+  in it with an audit entry first, same as the RuleSet/Folder pattern.
+- **Delete any folder**, section- or division-scoped (`FolderController::destroy()`/
+  `destroyForDivision()`) — same cascade-and-archive pattern.
+- View the `create`/`edit` forms for any of the above regardless of department/section/division
+  assignment (form/data disclosure).
+- View the review/edit form for **any document** via `DocumentController::edit()` and its four
+  `edit*Doc()` siblings (`editRuleSetDoc`, `editDivisionDoc`, `editSectionFolderDoc`,
+  `editDivisionFolderDoc`) — lower severity than the `destroy()` findings since the corresponding
+  `update()`/`destroy()` mutations were already correctly gated via `UpdateDocumentRequest`/
+  `DeleteDocumentRequest`, but still a metadata/content disclosure gap for documents outside a
+  viewer's normal scope (e.g. `pending_approval`, `authenticated`-visibility, or a different
+  department's document).
+
+**Why this happened:** every one of these controllers was written with the *intent* that
+authorization lives in the paired `FormRequest`, and that pattern **does** work correctly for
+`store()`/`update()`. But `create()`/`edit()`/`destroy()` don't naturally take a `FormRequest` (no
+validation to run), so the same author, working from the same mental model each time, never added
+an equivalent check to those three methods — a systemic blind spot in how this codebase's
+authorization convention was applied, not an isolated mistake in one file. The RuleSet version
+(H-04) was caught first only because it was the most recently touched controller in this session's
+scope; the same review pattern applied to the rest of the codebase surfaced the identical gap five
+more times.
+
+**Fix:** the same pattern used for H-04 — a private `authorizeManage()` (or `authorizeEdit()` on
+`DocumentController`) helper per controller, mirroring that controller's own paired `FormRequest`
+`authorize()` logic exactly, called as the first line of every previously-unguarded method:
+
+| Controller | Helper mirrors | Applied to |
+|---|---|---|
+| `DepartmentController` | `Store`/`UpdateDepartmentRequest`: `isAdmin() \|\| hasPrivilege('organization.head')` | `create()`, `edit()`, `destroy()` |
+| `SectionController` | `Store`/`UpdateSectionRequest`: `isAdmin() \|\| (department.head && department_id match)` | `create()`, `edit()`, `destroy()` |
+| `DivisionController` | `Store`/`UpdateDivisionRequest`: `isAdmin() \|\| (section.head && section_id match) \|\| (department.head && department_id match)` | `create()`, `edit()`, `destroy()` |
+| `FolderController` | `Store`/`UpdateFolderRequest`: `canUploadTo(division ?? section)` | `create()`, `edit()`, `destroy()`, `createForDivision()`, `editForDivision()`, `destroyForDivision()` |
+| `DocumentController` | `UpdateDocumentRequest`: `isAdmin() \|\| (ruleSet.kind === 'policy' && canManagePolicy(ruleSet))` | `edit()`, `editRuleSetDoc()`, `editDivisionDoc()`, `editSectionFolderDoc()`, `editDivisionFolderDoc()` |
+
+`RuleSetController` (H-04) already covered `kind=rules`/`kind=policy` the same way.
+
+**Verification:** exercised `Department::edit()` and `Section::edit()` live via `php artisan
+tinker` against real `User`/`Department`/`Section` records (read-only calls, no mutation) — a
+non-admin user unrelated to the target got `HTTP 403` on both, an admin was let through on both.
+`Division`/`Folder`/`Document` fixtures didn't exist in the local dev database to exercise live,
+so those were verified by code review only: identical helper pattern, identical
+call-before-anything-else placement, logic transcribed directly from the corresponding
+`FormRequest::authorize()` with no behavioral drift. `destroy()` methods were not exercised live on
+any controller (any real invocation would delete real data) for the same reason as H-04.
+
+**Files affected:** `app/Http/Controllers/DepartmentController.php`,
+`app/Http/Controllers/SectionController.php`, `app/Http/Controllers/DivisionController.php`,
+`app/Http/Controllers/FolderController.php`, `app/Http/Controllers/DocumentController.php`
 
 ---
 
