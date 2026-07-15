@@ -15,7 +15,7 @@
 
 <form id="ruleSetForm" method="POST"
       action="{{ route("departments.{$kind}.store", [$department->levelAlias(), $department]) }}"
-      novalidate class="max-w-2xl">
+      novalidate class="{{ $isPolicy ? 'max-w-4xl' : 'max-w-2xl' }}">
     @csrf
 
     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700">
@@ -37,13 +37,13 @@
             @if($isPolicy)
             {{-- State toggle: primary flow assumes Uttar Pradesh, secondary reveals a state picker --}}
             <div class="mb-4">
-                <div class="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-sm font-medium">
+                <div class="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-sm font-medium divide-x divide-slate-200 dark:divide-slate-700">
                     <button type="button" id="btn-up-policy"
-                            class="px-3 py-2 bg-indigo-600 text-white transition-colors">
+                            class="policy-toggle-btn px-3 py-2 transition-colors">
                         <i class="ti ti-map-pin text-sm"></i> Add UP Policy
                     </button>
                     <button type="button" id="btn-other-state-policy"
-                            class="px-3 py-2 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                            class="policy-toggle-btn px-3 py-2 transition-colors">
                         <i class="ti ti-world text-sm"></i> Add Other State's Policy
                     </button>
                 </div>
@@ -191,18 +191,33 @@
         const stateHidden = document.getElementById('state-hidden');
         const stateSelect = document.getElementById('state');
 
+        // Swap the *entire* class set per state (rather than toggling individual
+        // utility classes) — mixing a toggled `bg-indigo-600` with a static
+        // `dark:bg-slate-800` left over from the inactive markup caused the
+        // dark-mode `.dark .dark\:bg-slate-800` selector (two classes) to beat
+        // the plain `.bg-indigo-600` (one class) on specificity, so the "Other
+        // State" button never actually highlighted in dark mode, and the "UP"
+        // button fell back to a plain white background instead of a dark one
+        // once deselected.
+        const ACTIVE_CLASSES   = ['bg-indigo-600', 'text-white'];
+        const INACTIVE_CLASSES = [
+            'bg-white', 'dark:bg-slate-900/60',
+            'text-slate-600', 'dark:text-slate-300',
+            'hover:bg-slate-50', 'dark:hover:bg-slate-700',
+            'hover:text-indigo-600', 'dark:hover:text-indigo-400',
+        ];
+
+        function applyToggleState(btn, active) {
+            btn.classList.remove(...ACTIVE_CLASSES, ...INACTIVE_CLASSES);
+            btn.classList.add(...(active ? ACTIVE_CLASSES : INACTIVE_CLASSES));
+        }
+
         function setMode(otherState) {
             stateWrap.classList.toggle('hidden', !otherState);
             stateHidden.disabled = otherState;
             stateSelect.disabled = !otherState;
-            btnUp.classList.toggle('bg-indigo-600', !otherState);
-            btnUp.classList.toggle('text-white', !otherState);
-            btnUp.classList.toggle('bg-white', otherState);
-            btnUp.classList.toggle('text-slate-500', otherState);
-            btnOther.classList.toggle('bg-indigo-600', otherState);
-            btnOther.classList.toggle('text-white', otherState);
-            btnOther.classList.toggle('bg-white', !otherState);
-            btnOther.classList.toggle('text-slate-500', !otherState);
+            applyToggleState(btnUp, !otherState);
+            applyToggleState(btnOther, otherState);
         }
         // Repopulated after a validation error where "other state" mode was in use.
         const oldState = stateSelect.value;
