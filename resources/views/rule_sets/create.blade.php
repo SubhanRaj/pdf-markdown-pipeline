@@ -14,7 +14,7 @@
 ]" />
 
 <form id="ruleSetForm" method="POST"
-      action="{{ route(\"departments.{$kind}.store\", [$department->levelAlias(), $department]) }}"
+      action="{{ route("departments.{$kind}.store", [$department->levelAlias(), $department]) }}"
       novalidate class="max-w-2xl">
     @csrf
 
