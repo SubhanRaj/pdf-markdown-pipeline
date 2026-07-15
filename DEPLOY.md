@@ -328,3 +328,28 @@ possible for this specific CPU) through `Process::env()` from `config('ocr.engin
 no shell profile changes needed. **Known limitation, not a bug:** CPU-only inference of Surya's
 vision-LLM does not reliably finish a single dense A4 page within its own 600-second timeout on
 this hardware — see `OCR_RESEARCH.md` for the Vulkan/iGPU acceleration option that wasn't pursued.
+
+## Docling (structure detection)
+
+Added 2026-07-15, same per-checkout venv convention as the OCR engines above — not provisioned
+by `composer install`, must be set up once per machine:
+
+```bash
+$PY312 -m venv storage/app/private/ocr-engines/docling
+storage/app/private/ocr-engines/docling/bin/pip install docling
+```
+
+Verify: `storage/app/private/ocr-engines/docling/bin/docling --version` (confirmed working:
+`Docling version: 2.113.0` on the Ubuntu AIO box). No extra binaries or system packages needed
+beyond the venv itself — unlike Surya's `llama.cpp` dependency above.
+
+**Always pass `--ocr-engine`/`--ocr-lang` explicitly when invoking Docling directly** — its
+default OCR backend (RapidOCR) silently resolves to a Chinese-pretrained model otherwise (see
+`STRUCTURE_RESEARCH.md` Finding 2). The app's own `config/docling.php` and
+`ConvertDocumentToMarkdown::runDoclingStructureAnalysis()` already do this correctly; this note
+is only for anyone testing the CLI by hand.
+
+**Never pass `--force-ocr` on a multi-page document** — timed out past 10 minutes with zero
+output on a 112-page real document during evaluation (Docling has no partial-result streaming).
+Default mode (OCR only on detected bitmap regions, trust the text layer elsewhere) is the only
+mode this app uses in production.

@@ -1760,3 +1760,84 @@ as the next step if this needs a stronger guarantee than documentation.
 **Files changed:** `claude.md` · `SECURITY.md` · deleted `app/Policies/DocumentPolicy.php`,
 `app/Policies/DepartmentPolicy.php`, `app/Policies/SectionPolicy.php`,
 `app/Policies/RuleSetPolicy.php`.
+
+---
+
+## M32 — Docling Structure Detection, Phase 1 (COMPLETED 2026-07-15)
+
+Adds automatic structure/layout detection ahead of the existing text-extraction pipeline
+(M30/M31), addressing a problem M30 didn't solve: even a good text-layer or OCR pass still
+flattens tables into run-on paragraphs and loses heading hierarchy. Evaluated hands-on against
+real other-state excise policy PDFs before building anything — see `STRUCTURE_RESEARCH.md` for
+the full write-up (four real Docling CLI runs, the RapidOCR-defaults-to-Chinese bug found, the
+`--force-ocr` impracticality finding at real page counts, and the Kruti Dev legacy-font
+discovery made along the way).
+
+### What shipped
+
+- **`config/docling.php`** — new registry, parallel to `config/ocr.php`'s main-OCR-engine
+  registry: Docling's venv path, default structure-OCR engine (`tesseract`), and the three
+  engines Docling can actually call directly (`tesseract`/`easyocr`/`rapidocr` — confirmed it
+  cannot use Paddle or Surya as a backend), each with the `hi`/`hin+eng`-style lang code its
+  CLI expects.
+- **`ConvertDocumentToMarkdown` gains a Pass 0** (`runDoclingStructureAnalysis()`), run
+  automatically before the existing text-layer pass, for every document, every time. Invokes
+  Docling's own CLI (`docling convert --to json --ocr-engine ... --ocr-lang ...`), parses its
+  JSON export (`texts[].label === 'section_header'` for headings, `tables[].data.table_cells[]`
+  for cell-level data — schema confirmed by inspecting a real 110MB+ export during evaluation),
+  and trims it down to a compact structure map: headings + table cells + bounding boxes only.
+  Non-fatal — any Docling failure (bad venv, timeout, malformed output) is logged and the rest
+  of the job proceeds exactly as before; structure detection never blocks text extraction.
+- **Storage: file, not database.** The compact map is written as a `{slug}.structure.json`
+  sibling file on the `public` disk (same convention as the existing `.pre-ocr.md` backup) —
+  the raw Docling export (100MB+ per document) is deleted immediately after parsing, same
+  "never retain large intermediates" discipline as `RunOcrExtraction`'s `ocr_tmp/` directory.
+  `discardMarkdown()` now deletes `.structure.json` alongside the Markdown draft it was produced
+  with, and clears the four new `structure_*` metadata keys.
+- **New route** `GET /documents/{id}/structure` → `DocumentController::structureJson()`, gated
+  with the same `canManageDocument()` helper used by `convert()`/`convertOcr()`/
+  `discardMarkdown()` — deliberately not shipped as an unscoped read the way `convert-status`
+  (L-04) currently is; this is new code written immediately after M31.2's H-04/H-05 fixes and
+  does not repeat that pattern.
+- **UI** — a small informational strip ("Structure: N headings, M tables detected") on
+  `documents/show` once analysis completes, with a "View raw JSON" link for admins/
+  policy-managers; a matching small icon badge on the Pipeline monitor page. Deliberately
+  informational only this round — **not** merged into the rendered Markdown yet.
+- An engine-choice `<select>` (Tesseract/EasyOCR/RapidOCR) was initially placed next to the
+  Convert button, then **removed on review** — spotted as inconsistent with the codebase's own
+  established pattern of never surfacing an OCR-engine choice until there's a result to react to
+  (the main OCR-engine dropdown in Compare & Verify only appears *after* conversion). `convert()`
+  always uses `config('docling.default_ocr_engine')` now; the `structure_engine` request param
+  and `config/docling.php` registry remain in place for a future "re-analyze with a different
+  engine" control if one is ever built, just not exposed as a pre-conversion choice.
+- **Kruti Dev / legacy-font detection** — `pdf_structure_extractor.py`'s `extract_pdf()` now
+  checks each character's `fontname` against `LEGACY_HINDI_FONT_RE` (Kruti Dev, Chanakya,
+  DevLys, Shusha, Walkman, etc.) — the same font-metadata read already used there for bold
+  detection. When matched, a sentinel marker is prepended to the script's stdout output;
+  `ConvertDocumentToMarkdown` strips it and forces `needs_ocr_review = true` unconditionally,
+  independent of the existing `(cid:\d+)`/char-count checks — neither of which catches this case,
+  since these fonts produce readable-looking-but-wrong text (`Hkkjr` instead of `भारत`), not
+  cid-fallback tokens or sparse output. Deliberately a detection-and-flag fix, not a character
+  remapping table — remapping risks silently producing subtly-wrong text in a legal government
+  document, which is worse than asking a human to check.
+- Job timeout bumped from 900s to 1200s to give the added Docling pass headroom (measured
+  2-3 minutes on real 54-112 page documents during evaluation).
+
+### Deliberately deferred (Phase 2, not built this round)
+
+The geometric merge — aligning whichever OCR engine's word-level bounding boxes into Docling's
+detected region/table boxes, to actually reconstruct structured Markdown for scanned documents
+instead of relying solely on `pdf_structure_extractor.py`'s own heuristic row/column clustering.
+Deferred deliberately until real structure output has been reviewed against enough real
+documents in the UI to know whether the heuristic-only path is actually insufficient in
+practice, rather than building the more complex merge blind. Also deferred: PaddleOCR's
+Hindi-only recognition model gap (`devanagari_PP-OCRv5_mobile_rec`, no English-specific model)
+and increasing PaddleOCR's CPU/resource limits — both noted as open follow-ups in
+`OCR_RESEARCH.md`, not implemented.
+
+**Files changed:** `config/docling.php` (new) · `app/Jobs/ConvertDocumentToMarkdown.php` ·
+`app/Http/Controllers/DocumentController.php` · `routes/web.php` ·
+`resources/python/pdf_structure_extractor.py` ·
+`resources/views/documents/show.blade.php` · `resources/views/documents/pipeline.blade.php` ·
+`claude.md` · `README.md` · `ROADMAP.md` · `STRUCTURE_RESEARCH.md` (new) · `OCR_RESEARCH.md` ·
+`DEPLOY.md`.
