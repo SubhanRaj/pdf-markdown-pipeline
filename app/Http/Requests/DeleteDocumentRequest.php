@@ -31,6 +31,10 @@ class DeleteDocumentRequest extends FormRequest
                 return false;
             }
 
+            if ($context instanceof \App\Models\RuleSet && $context->kind === 'policy') {
+                return $user->canManagePolicy($context);
+            }
+
             return $user->canDeleteFrom($context);
         }
 

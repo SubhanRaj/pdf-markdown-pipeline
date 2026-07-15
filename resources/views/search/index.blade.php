@@ -97,7 +97,7 @@
                 (bool) $doc->folder            => route('documents.folders.show',           [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->folder, $doc]),
                 (bool) $doc->division          => route('documents.divisions.show',         [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->division, $doc]),
                 (bool) $doc->section           => route('documents.show',                   [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]),
-                default                        => route('documents.rules.show',             [$doc->department->levelAlias(), $doc->department, $doc->ruleSet, $doc]),
+                default                        => route("documents.{$doc->ruleSet->kind}.show",             [$doc->department->levelAlias(), $doc->department, $doc->ruleSet, $doc]),
             };
         @endphp
         <div class="flex items-start gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
@@ -214,7 +214,7 @@
                     @endif
                 </div>
             </div>
-            <a href="{{ route('departments.rules.show', [$ruleSet->department->levelAlias(), $ruleSet->department, $ruleSet]) }}"
+            <a href="{{ route("departments.{$ruleSet->kind}.show", [$ruleSet->department->levelAlias(), $ruleSet->department, $ruleSet]) }}"
                class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all"
                title="Browse rule set">
                 <i class="ti ti-arrow-right text-base"></i>

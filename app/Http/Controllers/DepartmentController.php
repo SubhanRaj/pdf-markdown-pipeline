@@ -65,11 +65,25 @@ class DepartmentController extends Controller
             ->get();
 
         $ruleSets = $department->ruleSets()
+            ->rules()
             ->withCount(['documents' => $visibilityScope])
             ->orderBy('name')
             ->get();
 
-        return view('department.show', compact('department', 'sections', 'ruleSets'));
+        $policies = $department->ruleSets()
+            ->currentPolicy()
+            ->withCount(['documents' => $visibilityScope])
+            ->orderBy('name')
+            ->get();
+
+        $historicalPolicies = $department->ruleSets()
+            ->policy()
+            ->where('policy_status', 'superseded')
+            ->withCount(['documents' => $visibilityScope])
+            ->orderBy('name')
+            ->get();
+
+        return view('department.show', compact('department', 'sections', 'ruleSets', 'policies', 'historicalPolicies'));
     }
 
     public function edit(string $level, Department $department): View

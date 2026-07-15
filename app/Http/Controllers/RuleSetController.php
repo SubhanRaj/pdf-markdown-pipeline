@@ -19,28 +19,55 @@ class RuleSetController extends Controller
 {
     use ManagesDocumentFiles;
 
-    public function create(string $level, Department $department): View
+    public function create(string $level, Department $department, string $kind = 'rules'): View
     {
-        return view('rule_sets.create', compact('department'));
+        $defaultPolicyType = match (true) {
+            str_contains($department->slug, 'excise') => 'excise_policy',
+            str_contains($department->slug, 'cane')   => 'cane_policy',
+            str_contains($department->slug, 'sugar')  => 'sugar_policy',
+            default                                    => null,
+        };
+
+        return view('rule_sets.create', compact('department', 'kind', 'defaultPolicyType'));
     }
 
-    public function store(StoreRuleSetRequest $request, string $level, Department $department): RedirectResponse
+    public function store(StoreRuleSetRequest $request, string $level, Department $department, string $kind = 'rules'): RedirectResponse
     {
         try {
-            DB::transaction(function () use ($request, $department) {
-                $slug = RuleSet::uniqueSlugForDepartment($request->validated()['name'], $department->id);
+            DB::transaction(function () use ($request, $department, $kind) {
+                $validated = $request->validated();
+                $slug = RuleSet::uniqueSlugForDepartment($validated['name'], $department->id);
 
-                $department->ruleSets()->create([
-                    ...$request->validated(),
+                $newRuleSet = $department->ruleSets()->create([
+                    ...$validated,
                     'slug' => $slug,
+                    'kind' => $kind,
                 ]);
+
+                if ($kind === 'policy') {
+                    // A new policy period supersedes the current one for the same
+                    // department + state + policy_type line, if one already exists.
+                    $previousCurrent = RuleSet::currentPolicy()
+                        ->where('department_id', $department->id)
+                        ->where('state', $validated['state'])
+                        ->where('policy_type', $validated['policy_type'])
+                        ->where('id', '!=', $newRuleSet->id)
+                        ->first();
+
+                    if ($previousCurrent) {
+                        $previousCurrent->update(['policy_status' => 'superseded']);
+                        $newRuleSet->update(['previous_policy_id' => $previousCurrent->id]);
+                    }
+                }
             });
 
-            flash()->success("Rule set \"{$request->validated()['name']}\" created.");
+            $label = $kind === 'policy' ? 'Policy' : 'Rule set';
+            flash()->success("{$label} \"{$request->validated()['name']}\" created.");
             return redirect()->route('departments.show', [$department->levelAlias(), $department]);
         } catch (\Throwable $e) {
             Log::error('RuleSetController@store failed', [
                 'dept_id' => $department->id,
+                'kind'    => $kind,
                 'error'   => $e->getMessage(),
             ]);
             flash()->error('Failed to create rule set. Please try again.');
@@ -115,7 +142,9 @@ class RuleSetController extends Controller
                 ->values()
             : collect();
 
-        return view('rule_sets.show', compact('department', 'ruleSet', 'rootDocuments', 'totalCount', 'parentOptions', 'sort', 'filterYear', 'availableYears'));
+        $supersededBy = $ruleSet->policy_status === 'superseded' ? $ruleSet->supersededBy : null;
+
+        return view('rule_sets.show', compact('department', 'ruleSet', 'rootDocuments', 'totalCount', 'parentOptions', 'sort', 'filterYear', 'availableYears', 'supersededBy'));
     }
 
     public function edit(string $level, Department $department, RuleSet $ruleSet): View
@@ -128,8 +157,9 @@ class RuleSetController extends Controller
         try {
             DB::transaction(fn () => $ruleSet->update($request->validated()));
 
-            flash()->success("Rule set \"{$ruleSet->name}\" updated.");
-            return redirect()->route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
+            $label = $ruleSet->kind === 'policy' ? 'Policy' : 'Rule set';
+            flash()->success("{$label} \"{$ruleSet->name}\" updated.");
+            return redirect()->route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]);
         } catch (\Throwable $e) {
             Log::error('RuleSetController@update failed', [
                 'rule_set_id' => $ruleSet->id,
@@ -166,7 +196,8 @@ class RuleSetController extends Controller
                 $this->archiveFiles($doc);
             }
 
-            flash()->success("Rule set \"{$ruleSet->name}\" and all its documents deleted.");
+            $label = $ruleSet->kind === 'policy' ? 'Policy' : 'Rule set';
+            flash()->success("{$label} \"{$ruleSet->name}\" and all its documents deleted.");
             return redirect()->route('departments.show', [$department->levelAlias(), $department]);
         } catch (\Throwable $e) {
             Log::error('RuleSetController@destroy failed', [

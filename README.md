@@ -22,6 +22,7 @@ While built for government requirements, the architecture is fully open-source a
 - **Bulk Upload & Conversion Pipeline Monitor** — a dedicated bulk-upload page (any scoped department/section/division/folder/rule-set, sequential multi-file upload, optional auto-convert) and a pipeline monitor page listing every document still mid-conversion with live status.
 - **Strict Siloed Architecture** — A hierarchical directory structure (Level → Body → Section/RuleSet) maps directly to database records, preventing context leakage between administrative units.
 - **Dual Document Taxonomy** — Documents belong to either a **Section** (for GOs, notices, policy circulars) or a **Rule Set** (for Acts, Rules, and their amendments), each with dedicated vault paths and URL structures.
+- **Policy Taxonomy** — Department-level-only policy containers (`RuleSet` with `kind=policy`) for the state/government's actual named policies — UP Excise Policy, UP Cane Policy, UP Sugar Policy, UP Import/Export Policy — distinct from the subject-specific Rules (Bar, Beer, Bottling, Distillery, Vending) that already live under the Rule Set taxonomy. A new policy period automatically **supersedes** the previous one for the same department + state + policy type (marked historical, never deleted — old URLs keep resolving for pending case citations), while mid-season corrections use the existing amendment flow. `state` and `policy_type` are controlled dropdowns (with a sanitized "Other" free-text fallback) so search and filtering never fragment on casing. Upload defaults to Uttar Pradesh; a separate action adds another state's policy. Managed by admins or the owning department's `department.head` only — everyone else is view-only.
 - **Metadata Injection** — Processed Markdown files carry YAML frontmatter (department, section, GO reference, dates, etc.), enabling accurate context retrieval for downstream LLM/RAG pipelines.
 - **Maker-Checker Approval Workflow** — Bulk-onboarding operators can have all their uploads held in `pending_approval` until a designated approver reviews them. Approval scope follows the existing organisational hierarchy (section / department / global). Approvers can approve, reject (with mandatory reason), or reclassify (move document to the correct section/division/rule set without re-uploading). Rejected documents can be resubmitted by the uploader. The entire flow is audit-logged.
 - **Full Audit Trail** — Every document state transition (`Uploaded → Processing → Review → Verified`, including `pending_approval` and `rejected`) is logged with the acting user and timestamp.
@@ -34,7 +35,7 @@ While built for government requirements, the architecture is fully open-source a
 | Core Framework | Laravel 13, PHP 8.4 |
 | Database | MariaDB 12 |
 | Web Server | Apache (mod_php or php-fpm) — no Nginx |
-| Frontend / UI | Blade Templates, Tailwind CSS v4 (Play CDN + `typography` plugin), Parsedown, `marked.js` (CDN, client-side Markdown preview only) — no Node, no npm, no build step |
+| Frontend / UI | Blade Templates, Tailwind CSS v4 (Play CDN + `typography` plugin), Parsedown, `marked.js` (CDN, client-side Markdown preview only), `Cleave.js` (CDN, masked date inputs on the Policy create/edit form) — no Node, no npm, no build step |
 | Text Extraction | Python `markitdown`, via the [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package |
 | OCR Engines | Tesseract (`hin`+`eng`, default), EasyOCR, PaddleOCR, Surya — selectable per re-extraction, each in its own Python venv (`storage/app/private/ocr-engines/`, pyenv 3.12.8) |
 | Queue | Laravel database queue driver (local single-box deployment, no Redis dependency) |
@@ -195,10 +196,15 @@ Unique constraint: `(section_id, division_id, slug)`.
 |---|---|---|
 | `id` | bigint PK | |
 | `department_id` | FK → departments | `restrictOnDelete` |
-| `name` | string | Full name of the Act/Rule (e.g. *U.P. Excise Act 1910*) |
+| `name` | string | Full name of the Act/Rule, or the policy period's name |
 | `slug` | string | Auto-generated from name |
 | `description` | text nullable | Optional summary |
 | `requires_approval` | boolean | default false — any upload to this rule set is held for approval |
+| `kind` | enum | `rules` (default) \| `policy` — see Policy Taxonomy below |
+| `state`, `policy_type` | string nullable | Policy-only; dropdown-controlled, sanitized "Other" fallback |
+| `effective_start_date`, `effective_end_date` | date nullable | Policy-only; descriptive, not authoritative |
+| `policy_status` | enum | Policy-only; `current` (default) \| `superseded` |
+| `previous_policy_id` | FK → rule_sets nullable | Policy-only; self-referencing, set on the policy that supersedes another |
 | `metadata` | json nullable | Category, origin year, etc. |
 | timestamps + softDeletes | | |
 
@@ -281,6 +287,11 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | DELETE | `documents.rules.destroy` | Auth |
 | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | GET | `documents.rules.pdf` | Public* |
 | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/review` | GET | `documents.rules.edit` | Auth |
+| `/documents/{level}/{dept}/policy/{rule_set}/{doc}` | GET | `documents.policy.show` | Public* |
+| `/documents/{level}/{dept}/policy/{rule_set}/{doc}` | PATCH | `documents.policy.update` | Admin or department.head |
+| `/documents/{level}/{dept}/policy/{rule_set}/{doc}` | DELETE | `documents.policy.destroy` | Admin or department.head |
+| `/documents/{level}/{dept}/policy/{rule_set}/{doc}/pdf` | GET | `documents.policy.pdf` | Public* |
+| `/documents/{level}/{dept}/policy/{rule_set}/{doc}/review` | GET | `documents.policy.edit` | Admin or department.head |
 | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | GET | `documents.folders.show` | Public* |
 | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | PATCH | `documents.folders.update` | Auth |
 | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | DELETE | `documents.folders.destroy` | Auth |
@@ -331,6 +342,12 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | `/departments/{level}/{dept}/rules/{rule_set}` | GET | `departments.rules.show` | Public |
 | `/departments/{level}/{dept}/rules/{rule_set}` | PATCH | `departments.rules.update` | Auth |
 | `/departments/{level}/{dept}/rules/{rule_set}` | DELETE | `departments.rules.destroy` | Auth |
+| `/departments/{level}/{dept}/policy/create` | GET | `departments.policy.create` | Auth |
+| `/departments/{level}/{dept}/policy` | POST | `departments.policy.store` | Admin or department.head |
+| `/departments/{level}/{dept}/policy/{rule_set}` | GET | `departments.policy.show` | Public |
+| `/departments/{level}/{dept}/policy/{rule_set}/edit` | GET | `departments.policy.edit` | Admin or department.head |
+| `/departments/{level}/{dept}/policy/{rule_set}` | PATCH | `departments.policy.update` | Admin or department.head |
+| `/departments/{level}/{dept}/policy/{rule_set}` | DELETE | `departments.policy.destroy` | Admin or department.head |
 
 *Folder show routes 403 if `folder.visibility = 'authenticated'` and user is guest.
 
@@ -479,6 +496,15 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - "Revert to Text Extraction" button + `POST /documents/{id}/revert-ocr` — restores the pre-OCR Markdown (backed up once by `RunOcrExtraction`, never overwritten by later OCR re-runs) if a given engine's OCR result turns out worse than the original text-layer pass
 
 **Next up:** production integration decision on which OCR engine to default to per document type, once enough real documents have been compared across all four; Surya GPU acceleration (Vulkan backend, Intel iGPU) if full-page OCR speed on that engine becomes a priority; vault path file resolution refinements on verification.
+
+**Completed (2026-07-15 — Policy Taxonomy):**
+- `RuleSet.kind` (`rules` | `policy`) discriminator — Policy reuses the `RuleSet` model/controller/views rather than a parallel model; department-level-only, available to every department (existing or future), no allowlist
+- Controlled vocabularies — `RuleSet::POLICY_TYPES` (Excise/Cane/Sugar/Import/Export/Other) and `RuleSet::STATES` (28 states + 8 UTs), both dropdown-only with a sanitized "Other" free-text fallback so search/filtering never fragments on casing
+- Year-over-year supersession — a new policy for the same department + state + policy type automatically flips the previous `current` one to `superseded` (linked via `previous_policy_id`) inside the same transaction as creation; superseded policies are never deleted, stay fully browsable/citable at their original URL, and can still receive amendments
+- `effective_start_date`/`effective_end_date` are descriptive only — `policy_status`, not dates, is what the app trusts for "is this the policy to cite"; entered via Cleave.js-masked `DD-MM-YYYY` fields (CDN, page-scoped) rather than a native date picker
+- Upload flow defaults to Uttar Pradesh (hidden `state` field); a separate "Add Other State's Policy" action reveals the state dropdown
+- `User::canManagePolicy()`/`canManagePolicyForDepartment()` — admin or the owning department's `department.head` only; everyone else is view-only for policy documents (convert/OCR/verify/discard/edit/delete all gated the same way, both client- and server-side)
+- Department show page gets a "Policies" panel (current only) plus a collapsed "Historical Policies" disclosure; Bulk Upload's Rule Set picker now includes policy containers (tagged `[Policy]`/`(Superseded)`) in the same dropdown, since both submit via `rule_set_id` identically
 
 ## 🚀 Future Roadmap
 

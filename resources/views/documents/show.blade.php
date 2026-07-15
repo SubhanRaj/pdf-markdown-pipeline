@@ -33,13 +33,21 @@
     $isDivisionDoc       = ! $isFolderDoc && $division !== null;
     $wing                = ($isRuleSetDoc || $isDivisionDoc || $isFolderDoc) ? null : ($section->wing ?? null);
 
+    $isPolicyDoc = $isRuleSetDoc && $ruleSet->kind === 'policy';
+    // Policy documents are managed by admins or the owning department's department.head only —
+    // everyone else who could normally edit/convert/verify a document is view-only for policy.
+    $canManageDoc = auth()->check() && (
+        auth()->user()->isAdmin()
+        || ($isPolicyDoc && auth()->user()->canManagePolicy($ruleSet))
+    );
+
     if ($isRuleSetDoc) {
         $contextName    = $ruleSet->name;
-        $contextUrl     = route('departments.rules.show',   [$department->levelAlias(), $department, $ruleSet]);
-        $pdfRoute       = route('documents.rules.pdf',      [$department->levelAlias(), $department, $ruleSet, $document]);
-        $editRoute      = route('documents.rules.edit',     [$department->levelAlias(), $department, $ruleSet, $document]);
-        $updateRoute    = route('documents.rules.update',   [$department->levelAlias(), $department, $ruleSet, $document]);
-        $destroyRoute   = route('documents.rules.destroy',  [$department->levelAlias(), $department, $ruleSet, $document]);
+        $contextUrl     = route("departments.{$ruleSet->kind}.show",   [$department->levelAlias(), $department, $ruleSet]);
+        $pdfRoute       = route("documents.{$ruleSet->kind}.pdf",      [$department->levelAlias(), $department, $ruleSet, $document]);
+        $editRoute      = route("documents.{$ruleSet->kind}.edit",     [$department->levelAlias(), $department, $ruleSet, $document]);
+        $updateRoute    = route("documents.{$ruleSet->kind}.update",   [$department->levelAlias(), $department, $ruleSet, $document]);
+        $destroyRoute   = route("documents.{$ruleSet->kind}.destroy",  [$department->levelAlias(), $department, $ruleSet, $document]);
     } elseif ($isDivisionFolderDoc) {
         $contextName    = $folder->name;
         $contextUrl     = route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder]);
@@ -73,7 +81,7 @@
     // Resolves the show URL for another document within this same context
     // (used for parent-document and amendment cross-links below).
     $linkForDoc = function ($doc) use ($isRuleSetDoc, $isDivisionFolderDoc, $isSectionFolderDoc, $isDivisionDoc, $department, $section, $division, $ruleSet, $folder) {
-        if ($isRuleSetDoc)        return route('documents.rules.show',            [$department->levelAlias(), $department, $ruleSet, $doc]);
+        if ($isRuleSetDoc)        return route("documents.{$ruleSet->kind}.show",            [$department->levelAlias(), $department, $ruleSet, $doc]);
         if ($isDivisionFolderDoc) return route('documents.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder, $doc]);
         if ($isSectionFolderDoc)  return route('documents.folders.show',          [$department->levelAlias(), $department, $section, $folder, $doc]);
         if ($isDivisionDoc)       return route('documents.divisions.show',        [$department->levelAlias(), $department, $section, $division, $doc]);
@@ -173,7 +181,7 @@
     </div>
 
     @auth
-    @if(auth()->user()->isAdmin())
+    @if($canManageDoc)
     @php $ruleIsLocked = $document->document_type === 'rule' && $document->amendments->isNotEmpty(); @endphp
     <div class="flex items-center gap-2 flex-shrink-0">
         @if(! $ruleIsLocked)
@@ -225,7 +233,7 @@
             Str::title(str_replace('_', ' ', $document->department->level)),
             $document->department->name,
             $wing ? Str::title(str_replace('_', ' ', $wing)) : null,
-            $isRuleSetDoc ? 'rules' : null,
+            $isRuleSetDoc ? $ruleSet->kind : null,
             $contextName,
             $document->original_filename,
         ]);
@@ -297,7 +305,7 @@
                 </span>
                 @endif
             </p>
-            @auth @if(auth()->user()->isAdmin())
+            @auth @if($canManageDoc)
             <button type="button" id="open-compare-modal-btn"
                     class="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0">
                 <i class="ti ti-columns text-sm"></i> Compare &amp; Verify
@@ -391,7 +399,7 @@
                 </div>
                 @endif
                 <div>
-                    <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">{{ $isRuleSetDoc ? 'Rule Set' : ($isFolderDoc ? 'Folder' : 'Section') }}</dt>
+                    <dt class="text-xs text-slate-400 dark:text-slate-500 mb-0.5">{{ $isPolicyDoc ? 'Policy' : ($isRuleSetDoc ? 'Rule Set' : ($isFolderDoc ? 'Folder' : 'Section')) }}</dt>
                     <dd>
                         <a href="{{ $contextUrl }}"
                            class="text-indigo-600 dark:text-indigo-400 hover:underline text-sm">
@@ -444,7 +452,7 @@
             </dl>
 
             @auth
-            @if(auth()->user()->isAdmin())
+            @if($canManageDoc)
             {{-- Visibility control for admins --}}
             <div class="px-5 pb-4 pt-1 border-t border-slate-100 dark:border-slate-700">
                 <p class="text-xs text-slate-400 dark:text-slate-500 mb-2">Visibility</p>
@@ -574,7 +582,7 @@
 
 {{-- ── Compare & Verify modal — side-by-side original vs. extracted Markdown ──── --}}
 @auth
-@if(auth()->user()->isAdmin() && $hasMarkdown && ! $isVerified)
+@if($canManageDoc && $hasMarkdown && ! $isVerified)
 <div id="compare-modal"
      style="display:none;position:fixed;inset:0;z-index:50;background:rgba(15,23,42,0.75)"
      onclick="if(event.target===this)document.getElementById('compare-modal').style.display='none'">

@@ -35,7 +35,7 @@
                     <i class="ti ti-folder-open text-sm mr-1"></i> Section / Division / Folder
                 </button>
                 <button type="button" data-mode="ruleset" class="ctx-tab flex-1 text-xs font-medium px-3 py-2 rounded-lg border transition-colors">
-                    <i class="ti ti-gavel text-sm mr-1"></i> Rule Set (Acts &amp; Rules)
+                    <i class="ti ti-gavel text-sm mr-1"></i> Rule Set / Policy
                 </button>
             </div>
 
@@ -66,7 +66,7 @@
 
                 <div id="ruleset-path" class="space-y-3" style="display:none">
                     <div>
-                        <label for="pick-ruleset" class="field-label">Rule Set</label>
+                        <label for="pick-ruleset" class="field-label">Rule Set / Policy</label>
                         <select id="pick-ruleset" class="field-input"></select>
                     </div>
                     <p id="ruleset-hint" class="text-xs text-slate-400 dark:text-slate-500"></p>
@@ -315,10 +315,11 @@
 
     function onRuleSetChange() {
         const rs = currentRuleSet(currentDept());
+        const noun = rs && rs.kind === 'policy' ? 'Policy' : 'Rule';
         rulesetHint.textContent = rs
             ? (rs.hasRuleDoc
-                ? 'A root Rule document already exists — new uploads here should typically use "Amendment to Rule" and reference it below.'
-                : 'No root Rule document yet — the first upload here should typically use document type "Rule".')
+                ? `A root ${noun} document already exists — new uploads here should typically use "Amendment" and reference it below.`
+                : `No root ${noun} document yet — the first upload here should typically use document type "${noun}".`)
             : '';
         refreshParentOptions();
         refreshDestination();
@@ -344,7 +345,7 @@
         if (mode === 'ruleset') {
             const dept = currentDept();
             const rs = currentRuleSet(dept);
-            crumbs = dept && rs ? [dept.levelLabel, dept.name, 'Rules', rs.name] : [];
+            crumbs = dept && rs ? [dept.levelLabel, dept.name, (rs.kind === 'policy' ? 'Policy' : 'Rules'), rs.name] : [];
         } else {
             const dept = currentDept();
             const section = currentSection(dept);
