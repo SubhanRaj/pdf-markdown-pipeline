@@ -314,6 +314,22 @@
         </div>
         @endif
 
+        {{-- Structure Analysis (Docling) — informational only this round, not yet merged into
+             the rendered Markdown below. See STRUCTURE_RESEARCH.md. --}}
+        @if($document->metadata['structure_analyzed'] ?? false)
+        <div class="bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 rounded-lg px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap text-xs">
+            <span class="text-sky-700 dark:text-sky-300 flex items-center gap-1.5">
+                <i class="ti ti-layout-2 text-sm"></i>
+                Structure: {{ $document->metadata['structure_headings_count'] ?? 0 }} headings,
+                {{ $document->metadata['structure_tables_count'] ?? 0 }} tables detected
+                (Docling · {{ config('docling.ocr_engines.' . ($document->metadata['structure_engine'] ?? '') . '.label', $document->metadata['structure_engine'] ?? '?') }})
+            </span>
+            @auth @if($canManageDoc)
+            <a href="{{ route('documents.structure', $document->id) }}" target="_blank" class="text-sky-600 dark:text-sky-400 hover:underline font-medium">View raw JSON</a>
+            @endif @endauth
+        </div>
+        @endif
+
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
             <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between flex-wrap gap-2">
                 <div class="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-xs font-medium flex-shrink-0">

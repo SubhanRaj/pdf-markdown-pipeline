@@ -85,6 +85,9 @@
                             @if($isPolling)<i class="ti ti-loader-2 animate-spin text-[10px]"></i>@endif
                             {{ $statusMeta['label'] }}
                         </span>
+                        @if($doc->metadata['structure_analyzed'] ?? false)
+                        <i class="ti ti-layout-2 text-[11px] text-sky-500 dark:text-sky-400 ml-1" title="Structure analyzed (Docling): {{ $doc->metadata['structure_headings_count'] ?? 0 }} headings, {{ $doc->metadata['structure_tables_count'] ?? 0 }} tables"></i>
+                        @endif
                     </td>
                     <td class="px-4 py-3 text-xs text-slate-400 dark:text-slate-500">
                         {{ $doc->metadata['extraction_method'] ?? '—' }}
