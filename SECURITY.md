@@ -71,6 +71,7 @@ H-03 is a newly-introduced authorization bypass, caught during self-review of th
 |----|---------|---------|--------|
 | H-04 | `RuleSetController::create()`/`edit()`/`destroy()` had no authorization check beyond `auth` middleware — any authenticated user could view any department's rule-set/policy forms, and **delete any rule set or policy** (cascading to all its documents) regardless of admin/department-head status | HIGH | **FIXED** |
 | H-05 | Same class of bug found codebase-wide on user-triggered follow-up: `DepartmentController`, `SectionController`, `DivisionController`, `FolderController` (`create`/`edit`/`destroy`, both section- and division-scoped folder variants), and `DocumentController`'s five `edit*` review-form methods all had no authorization check beyond `auth` middleware | HIGH | **FIXED** |
+| — | Process fix — `claude.md` "Auth & access control" now leads with this exact rule + fix pattern; four dead/unregistered `app/Policies/*.php` stub classes (never wired to Laravel's Gate, misleading dead code) deleted | — | **DOCUMENTED / CLEANED UP** |
 | — | Mass-assignment of `policy_status`/`previous_policy_id` (H-03-style bypass via supersession fields) | — | **CONFIRMED NOT EXPLOITABLE** |
 | — | `policy_type_other`/`state_other` free-text fields — XSS / stored-script injection | — | **PASS** |
 | — | Blade output of new policy fields (`policy_type`, `state`, `effective_start_date`/`effective_end_date`) | — | **PASS (auto-escaped, no `{!! !!}`)** |
@@ -201,6 +202,47 @@ any controller (any real invocation would delete real data) for the same reason 
 **Files affected:** `app/Http/Controllers/DepartmentController.php`,
 `app/Http/Controllers/SectionController.php`, `app/Http/Controllers/DivisionController.php`,
 `app/Http/Controllers/FolderController.php`, `app/Http/Controllers/DocumentController.php`
+
+---
+
+### Process Fix — Preventing H-04/H-05 From Recurring
+
+**Status:** DOCUMENTED, dead code removed; no automated regression test added (see "Not done" below)
+
+H-04/H-05 is not really six separate bugs — it's one systemic gap (authorization living
+exclusively in `FormRequest::authorize()`, which silently doesn't apply to methods that don't take
+a `FormRequest`) that got copy-pasted across every controller written to that convention. Fixing
+the six instances doesn't prevent a seventh the next time a controller is added. Three things were
+done to actually close the door on repetition, not just patch the current holes:
+
+1. **Made the rule explicit and unmissable in `claude.md`** (`### Auth & access control`, first
+   bullet) — spelled out exactly why `middleware('auth')` doesn't imply per-record authorization,
+   gave the concrete fix pattern (`authorizeManage()`/`authorizeEdit()` helper, called first-line),
+   and named this exact incident as the cautionary example. `claude.md` is the document every future
+   development session (human or AI) reads before touching this codebase — this is the most direct
+   lever available for "make sure this doesn't happen again."
+
+2. **Deleted four dead, misleading `app/Policies/*.php` stub classes** (`DocumentPolicy`,
+   `DepartmentPolicy`, `SectionPolicy`, `RuleSetPolicy`) — all four were `php artisan make:policy`
+   boilerplate that returned `false` unconditionally, were never registered with `Gate::policy()`
+   or auto-discovered, and were never called anywhere (`grep` confirmed zero references outside
+   their own files). Leaving them in place was actively dangerous: a future developer skimming
+   `app/Policies/` could reasonably assume Laravel's Policy/Gate mechanism was the authorization
+   system in use here, when in fact every real check lives in hand-written `FormRequest::authorize()`
+   methods and (as of this fix) controller-level helpers. Half-wired authorization scaffolding that
+   *looks* like it's doing something is worse than no scaffolding at all, because it invites false
+   confidence instead of prompting the "wait, is this actually checked?" question that would have
+   caught H-04/H-05 sooner.
+
+3. **Not done, flagged instead of silently skipped:** an automated regression test (e.g. a Pest
+   Feature test that walks every management route as a low-privilege user and asserts `403`) would
+   be the strongest possible guard — documentation can be skipped, a failing CI check cannot. Not
+   added in this pass because the test infrastructure is currently unconfigured for it:
+   `tests/Pest.php` has `RefreshDatabase` commented out, and `database/factories/{Department,
+   Section,RuleSet}Factory.php` are all empty `make:factory` stubs with no `definition()` fields —
+   building this properly means standing up the project's test database wiring from scratch, which
+   is a larger, separate piece of work than this fix. Recommended as the next concrete step if this
+   class of bug needs a stronger guarantee than "the docs say so."
 
 ---
 
