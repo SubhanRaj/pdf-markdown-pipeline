@@ -882,6 +882,14 @@ in `UpdateFolderRequest`): `policy_status`/`previous_policy_id` are never in `Up
 ::rules()`, so they can never appear in `validated()` regardless of what a raw PATCH sends — only
 the supersession logic inside `store()` may set them.
 
+**Fixed 2026-07-15 (`SECURITY.md` H-04):** the `canManagePolicy()`/`canManagePolicyForDepartment()`
+checks above are only enforced by `StoreRuleSetRequest`/`UpdateRuleSetRequest::authorize()` — but
+`RuleSetController::create()`, `edit()`, and `destroy()` call no `FormRequest` at all and had *no*
+authorization check beyond the route's blanket `auth` middleware, so any logged-in user (not just
+`department.head`/admin) could view any department's policy forms and — critically — delete any
+rule set or policy outright. Fixed with a private `authorizeManage()` helper on the controller that
+mirrors the same check, called first-line in all three methods.
+
 **Routes** — every `/rules` route block in `routes/web.php` has a sibling `/policy` block, same
 controller methods, disambiguated by a `kind` route default (`->defaults('kind', 'policy')` /
 `->defaults('kind', 'rules')`, applied **per-route**, not on the `Route::prefix()->name()->group()`

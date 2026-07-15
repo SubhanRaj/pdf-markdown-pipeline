@@ -1671,3 +1671,42 @@ for the Excise department); `php -l` on both touched Form Request files; a tinke
 **Files changed:** `resources/views/rule_sets/create.blade.php` ·
 `app/Http/Requests/StoreRuleSetRequest.php` · `app/Http/Requests/UpdateRuleSetRequest.php` ·
 `README.md` · `claude.md`.
+
+## M31.2 — Policy Taxonomy: security audit, Pass 5 (2026-07-15)
+
+Went through `RuleSetController` and the two Policy Form Requests specifically looking for
+authorization gaps introduced or widened by the Policy Taxonomy work — full findings in
+`SECURITY.md` Pass 5. One real HIGH finding, three confirmed-clean checks.
+
+**H-04 (HIGH, fixed) — `create()`/`edit()`/`destroy()` had no authorization check.**
+`store()`/`update()` are correctly gated by `StoreRuleSetRequest`/`UpdateRuleSetRequest::authorize()`
+(`canManagePolicyForDepartment()`/`canManagePolicy()` for `kind=policy`, `isAdmin()` for
+`kind=rules`), but the other three controller methods call no `FormRequest` and had nothing beyond
+the route's blanket `auth` middleware — meaning any authenticated user, regardless of role or
+department, could view any department's create/edit forms and, critically, **delete any rule set
+or policy outright** (cascading to every document under it, soft-deleted with an audit trail but
+still fully removed from the live tree). This bug predates Policy Taxonomy — `destroy()` has been
+unguarded since the original Rule Sets feature — but this module raised the stakes by putting
+named legal policy documents behind the same unguarded route and opening `create()`/`edit()` up to
+"every department, existing or future." Fixed with a private `authorizeManage()` helper on
+`RuleSetController` mirroring the exact same check as the two Form Requests, called as the first
+line of all three methods — before any view render or database mutation.
+
+**Confirmed clean:** mass-assignment of `policy_status`/`previous_policy_id` (both `$fillable`,
+but never reachable from `validated()` since neither is in either Form Request's `rules()` — only
+the internal supersession logic in `store()` writes them, with hardcoded values); XSS via the
+`policy_type_other`/`state_other` free-text fields (stripped at write time via `strip_tags()`,
+escaped at render time via `{{ }}` — no `{!! !!}` anywhere in `resources/views/rule_sets/`); the
+department-scoped policy-type dropdown lock added in M31.1 is enforced server-side too, not just a
+client-side `<select>` restriction (`StoreRuleSetRequest::rules()`'s `Rule::in()` still validates
+against the full `POLICY_TYPES` vocabulary regardless of what the view renders, so the "lock" is a
+UX convenience on top of a real server-side allow-list, not the only thing standing between a user
+and an arbitrary policy type).
+
+**Verification:** exercised the `authorizeManage()` fix directly via `php artisan tinker` against
+real `User` records — a non-admin user unrelated to the target department got `HTTP 403` calling
+`edit()` on an in-memory (unsaved) `RuleSet`, and an admin user was still let through. `destroy()`'s
+guard wasn't exercised live (any real invocation would delete real data) — verified by code review
+that the same helper runs as the first line, before `DB::transaction()`, in every case.
+
+**Files changed:** `app/Http/Controllers/RuleSetController.php` · `SECURITY.md` · `claude.md`.
