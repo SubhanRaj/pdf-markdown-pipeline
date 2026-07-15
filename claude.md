@@ -890,6 +890,15 @@ authorization check beyond the route's blanket `auth` middleware, so any logged-
 rule set or policy outright. Fixed with a private `authorizeManage()` helper on the controller that
 mirrors the same check, called first-line in all three methods.
 
+**Follow-up (`SECURITY.md` H-05):** the identical gap existed codebase-wide — `Department`,
+`Section`, `Division`, and `Folder` controllers' `create()`/`edit()`/`destroy()`, plus
+`DocumentController`'s five `edit*Doc()` review forms, all had no check beyond `auth` middleware.
+Every `store()`/`update()` was already correctly gated via a `FormRequest`, but the three methods
+that don't take one were uniformly missed across every controller that follows this pattern — not
+a one-off. Fixed the same way: one authorization helper per controller, mirroring that
+controller's own paired `FormRequest::authorize()` logic, called first-line everywhere it was
+missing.
+
 **Routes** — every `/rules` route block in `routes/web.php` has a sibling `/policy` block, same
 controller methods, disambiguated by a `kind` route default (`->defaults('kind', 'policy')` /
 `->defaults('kind', 'rules')`, applied **per-route**, not on the `Route::prefix()->name()->group()`

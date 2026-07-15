@@ -30,6 +30,23 @@ class DocumentController extends Controller
 {
     use ManagesDocumentFiles;
 
+    /**
+     * Same authorize() logic as UpdateDocumentRequest, duplicated here because the review/edit
+     * GET forms render outside a FormRequest. See SECURITY.md H-04.
+     */
+    private function authorizeEdit(Document $document): void
+    {
+        $user = auth()->user();
+
+        if ($user->isAdmin()) {
+            return;
+        }
+
+        $ruleSet = $document->ruleSet;
+
+        abort_unless($ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet), 403);
+    }
+
     public function bulkUploadForm(): View
     {
         $user = auth()->user();
@@ -372,6 +389,8 @@ class DocumentController extends Controller
 
     public function edit(string $level, Department $department, Section $section, Document $document): View
     {
+        $this->authorizeEdit($document);
+
         return view('documents.edit', compact('document', 'department', 'section'));
     }
 
@@ -765,6 +784,8 @@ class DocumentController extends Controller
 
     public function editRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): View
     {
+        $this->authorizeEdit($document);
+
         return view('documents.edit', compact('document', 'department', 'ruleSet'));
     }
 
@@ -857,6 +878,8 @@ class DocumentController extends Controller
 
     public function editDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): View
     {
+        $this->authorizeEdit($document);
+
         return view('documents.edit', compact('document', 'department', 'section', 'division'));
     }
 
@@ -949,6 +972,8 @@ class DocumentController extends Controller
 
     public function editSectionFolderDoc(string $level, Department $department, Section $section, Folder $folder, Document $document): View
     {
+        $this->authorizeEdit($document);
+
         return view('documents.edit', compact('document', 'department', 'section', 'folder'));
     }
 
@@ -1041,6 +1066,8 @@ class DocumentController extends Controller
 
     public function editDivisionFolderDoc(string $level, Department $department, Section $section, Division $division, Folder $folder, Document $document): View
     {
+        $this->authorizeEdit($document);
+
         return view('documents.edit', compact('document', 'department', 'section', 'division', 'folder'));
     }
 

@@ -28,8 +28,20 @@ class DepartmentController extends Controller
         return view('department.index', compact('departments'));
     }
 
+    /**
+     * Same authorize() logic as Store/UpdateDepartmentRequest, duplicated here because
+     * create/edit/destroy render or mutate state outside a FormRequest. See SECURITY.md H-04.
+     */
+    private function authorizeManage(): void
+    {
+        $user = auth()->user();
+        abort_unless($user->isAdmin() || $user->hasPrivilege('organization.head'), 403);
+    }
+
     public function create(): View
     {
+        $this->authorizeManage();
+
         return view('department.create');
     }
 
@@ -88,6 +100,8 @@ class DepartmentController extends Controller
 
     public function edit(string $level, Department $department): View
     {
+        $this->authorizeManage();
+
         return view('department.edit', compact('department'));
     }
 
@@ -110,6 +124,8 @@ class DepartmentController extends Controller
 
     public function destroy(string $level, Department $department): RedirectResponse
     {
+        $this->authorizeManage();
+
         try {
             DB::transaction(fn () => $department->delete());
 

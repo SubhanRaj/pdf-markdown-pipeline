@@ -17,8 +17,25 @@ use Illuminate\View\View;
 
 class DivisionController extends Controller
 {
+    /**
+     * Same authorize() logic as Store/UpdateDivisionRequest, duplicated here because
+     * create/edit/destroy render or mutate state outside a FormRequest. See SECURITY.md H-04.
+     */
+    private function authorizeManage(Section $section): void
+    {
+        $user = auth()->user();
+
+        $allowed = $user->isAdmin()
+            || ($user->hasPrivilege('section.head') && $user->section_id === $section->id)
+            || ($user->hasPrivilege('department.head') && $user->department_id === $section->department_id);
+
+        abort_unless($allowed, 403);
+    }
+
     public function create(string $level, Department $department, Section $section): View
     {
+        $this->authorizeManage($section);
+
         return view('divisions.create', compact('department', 'section'));
     }
 
@@ -126,6 +143,8 @@ class DivisionController extends Controller
 
     public function edit(string $level, Department $department, Section $section, Division $division): View
     {
+        $this->authorizeManage($section);
+
         return view('divisions.edit', compact('department', 'section', 'division'));
     }
 
@@ -148,6 +167,8 @@ class DivisionController extends Controller
 
     public function destroy(string $level, Department $department, Section $section, Division $division): RedirectResponse
     {
+        $this->authorizeManage($section);
+
         try {
             DB::transaction(function () use ($division) {
                 // Soft-delete all documents in this division with an audit entry
