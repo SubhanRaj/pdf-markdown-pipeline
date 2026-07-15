@@ -1,7 +1,11 @@
+<?php
+$isPolicy  = $ruleSet->kind === 'policy';
+$canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canManagePolicy($ruleSet)));
+?>
 <x-layout
     title="{{ $ruleSet->name }}"
     page-title="{{ $ruleSet->name }}"
-    page-subtitle="{{ $department->name }} · Rules &amp; Regulations"
+    page-subtitle="{{ $department->name }} · {{ $isPolicy ? 'Policy' : 'Rules & Regulations' }}"
 >
 
 <x-breadcrumb :items="[
@@ -12,8 +16,21 @@
     ['name' => $ruleSet->name,            'url' => null],
 ]" />
 
+@if($isPolicy && $ruleSet->policy_status === 'superseded')
+<div class="mb-4 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+    <i class="ti ti-clock-pause text-base flex-shrink-0"></i>
+    <span>
+        Superseded — kept for historical reference only.
+        @if($supersededBy)
+        Current policy:
+        <a href="{{ route('departments.policy.show', [$department->levelAlias(), $department, $supersededBy]) }}" class="font-medium underline hover:no-underline">{{ $supersededBy->name }}</a>
+        @endif
+    </span>
+</div>
+@endif
+
 @php
-    $hasRuleDoc      = $rootDocuments->where('document_type', 'rule')->isNotEmpty();
+    $hasRuleDoc      = $rootDocuments->where('document_type', $isPolicy ? 'policy' : 'rule')->isNotEmpty();
     $canUploadRule   = ! $hasRuleDoc;
     $canUploadAmend  = $hasRuleDoc;
 @endphp
@@ -24,7 +41,7 @@
 <div class="flex items-start justify-between gap-4 mb-6">
     <div class="flex items-center gap-4">
         <div class="w-12 h-12 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
-            <i class="ti ti-book text-indigo-500 dark:text-indigo-400 text-xl"></i>
+            <i class="ti {{ $isPolicy ? 'ti-file-certificate' : 'ti-book' }} text-indigo-500 dark:text-indigo-400 text-xl"></i>
         </div>
         <div>
             <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">{{ $ruleSet->name }}</h2>
@@ -43,23 +60,23 @@
     </div>
     <div class="flex items-center gap-2 flex-wrap justify-end">
         @auth
-        @if(auth()->user()->canUploadTo($ruleSet))
-        {{-- Upload Rule — disabled once a rule doc exists --}}
+        @if($isPolicy ? auth()->user()->canManagePolicy($ruleSet) : auth()->user()->canUploadTo($ruleSet))
+        {{-- Upload root document — disabled once one exists --}}
         <button type="button"
                 @if($canUploadRule) onclick="document.getElementById('modal-rule').style.display='block'" @endif
-                @if(! $canUploadRule) disabled title="A rule document already exists. Delete it first to re-upload." @endif
+                @if(! $canUploadRule) disabled title="{{ $isPolicy ? 'A policy document already exists. Delete it first to re-upload.' : 'A rule document already exists. Delete it first to re-upload.' }}" @endif
                 class="inline-flex items-center gap-1.5 border text-sm font-medium px-3 py-2 rounded-lg transition-all
                        {{ $canUploadRule
                           ? 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer'
                           : 'bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-700/50 text-slate-300 dark:text-slate-600 cursor-not-allowed' }}">
             <i class="ti ti-file-plus text-base"></i>
-            <span class="hidden sm:inline">Upload Rule</span>
+            <span class="hidden sm:inline">{{ $isPolicy ? 'Upload Policy Document' : 'Upload Rule' }}</span>
         </button>
 
-        {{-- Upload Amendment — disabled until a rule doc exists --}}
+        {{-- Upload Amendment — disabled until a root document exists --}}
         <button type="button"
                 @if($canUploadAmend) onclick="document.getElementById('modal-amendment').style.display='block'" @endif
-                @if(! $canUploadAmend) disabled title="Upload a base rule document before adding amendments." @endif
+                @if(! $canUploadAmend) disabled title="{{ $isPolicy ? 'Upload the base policy document before adding amendments.' : 'Upload a base rule document before adding amendments.' }}" @endif
                 class="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg transition-colors
                        {{ $canUploadAmend
                           ? 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer'
@@ -69,8 +86,8 @@
         </button>
         @endif
         @endauth
-        @auth @if(auth()->user()->isAdmin())
-        <a href="{{ route('departments.rules.edit', [$department->levelAlias(), $department, $ruleSet]) }}"
+        @auth @if($canManage)
+        <a href="{{ route("departments.{$ruleSet->kind}.edit", [$department->levelAlias(), $department, $ruleSet]) }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
         </a>
@@ -79,7 +96,7 @@
             <i class="ti ti-trash text-base"></i>
         </button>
         <form id="delete-ruleset-form" method="POST"
-              action="{{ route('departments.rules.destroy', [$department->levelAlias(), $department, $ruleSet]) }}"
+              action="{{ route("departments.{$ruleSet->kind}.destroy", [$department->levelAlias(), $department, $ruleSet]) }}"
               style="display:none">
             @csrf @method('DELETE')
         </form>
@@ -97,7 +114,7 @@
         <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
             <div class="flex items-center gap-3">
                 <i class="ti ti-file-plus text-indigo-500 text-lg"></i>
-                <span class="text-sm font-semibold text-slate-800 dark:text-slate-100">Upload Rule Document</span>
+                <span class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $isPolicy ? 'Upload Policy Document' : 'Upload Rule Document' }}</span>
                 <span class="text-xs text-slate-400 dark:text-slate-500">— {{ $ruleSet->name }}</span>
             </div>
             <button type="button" onclick="document.getElementById('modal-rule').style.display='none'"
@@ -138,7 +155,7 @@
                         <select id="rule-type" name="document_type" class="field-input">
                             @foreach(\App\Models\Document::DOCUMENT_TYPES as $key => $label)
                                 @if($key !== 'rule_amendment')
-                                <option value="{{ $key }}" @selected($key === 'rule')>{{ $label }}</option>
+                                <option value="{{ $key }}" @selected($key === ($isPolicy ? 'policy' : 'rule'))>{{ $label }}</option>
                                 @endif
                             @endforeach
                         </select>
@@ -160,7 +177,7 @@
                     <div class="bg-slate-50 dark:bg-slate-800/60 rounded-lg px-4 py-3">
                         <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">Saving to</p>
                         <p class="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
-                            {{ Str::title(str_replace('_', ' ', $department->level)) }} › {{ $department->name }} › Rules › {{ $ruleSet->name }}
+                            {{ Str::title(str_replace('_', ' ', $department->level)) }} › {{ $department->name }} › {{ $isPolicy ? 'Policy' : 'Rules' }} › {{ $ruleSet->name }}
                         </p>
                     </div>
                     <div class="flex items-center gap-3 mt-auto pt-2">
@@ -228,7 +245,7 @@
                     <input type="hidden" name="document_type" value="rule_amendment">
                     <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50">
                         <i class="ti ti-git-merge text-amber-500 text-sm"></i>
-                        <span class="text-xs font-medium text-amber-700 dark:text-amber-300">Type: Amendment to Rule</span>
+                        <span class="text-xs font-medium text-amber-700 dark:text-amber-300">Type: Amendment</span>
                     </div>
                     <div>
                         <label for="amend-parent" class="field-label">Amends <span class="text-red-500">*</span></label>
@@ -282,7 +299,7 @@
                     <div class="bg-slate-50 dark:bg-slate-800/60 rounded-lg px-4 py-3">
                         <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">Saving to</p>
                         <p class="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
-                            {{ Str::title(str_replace('_', ' ', $department->level)) }} › {{ $department->name }} › Rules › {{ $ruleSet->name }}
+                            {{ Str::title(str_replace('_', ' ', $department->level)) }} › {{ $department->name }} › {{ $isPolicy ? 'Policy' : 'Rules' }} › {{ $ruleSet->name }}
                         </p>
                     </div>
                     <div class="flex items-center gap-3 mt-auto pt-2">
@@ -313,7 +330,7 @@
         </div>
         {{-- Sort / filter controls --}}
         @if($totalCount > 1)
-        <form method="GET" action="{{ route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]) }}"
+        <form method="GET" action="{{ route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]) }}"
               class="flex items-center gap-2 flex-wrap">
             <select name="sort" onchange="this.form.submit()"
                     class="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
@@ -334,7 +351,7 @@
             </select>
             @endif
             @if($filterYear)
-            <a href="{{ route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]) }}"
+            <a href="{{ route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]) }}"
                class="text-xs text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors" title="Clear filter">
                 <i class="ti ti-x"></i>
             </a>
@@ -663,11 +680,11 @@
             const isDark = document.documentElement.classList.contains('dark');
             const docCount = {{ $totalCount }};
             Swal.fire({
-                title: 'Delete Rule Set?',
+                title: 'Delete {{ $isPolicy ? "Policy" : "Rule Set" }}?',
                 html: '<p class="text-sm mb-2">You are about to delete <strong>{{ e($ruleSet->name) }}</strong>.</p>'
                     + (docCount > 0
                         ? '<p class="text-sm text-red-500">This will also move <strong>' + docCount + ' document(s)</strong> to trash.</p>'
-                        : '<p class="text-sm text-gray-400">No documents are associated with this rule set.</p>'),
+                        : '<p class="text-sm text-gray-400">No documents are associated with this container.</p>'),
                 icon: 'warning',
                 showCancelButton: true,
                 confirmButtonText: 'Yes, delete it',

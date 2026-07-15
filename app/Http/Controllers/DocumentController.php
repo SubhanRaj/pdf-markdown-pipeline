@@ -131,13 +131,34 @@ class DocumentController extends Controller
                 })->values();
 
             $ruleSets = in_array($scope, ['global', 'department'], true)
-                ? $department->ruleSets()->orderBy('name')->get()->map(function (RuleSet $ruleSet) use ($mapParentOptions) {
+                ? $department->ruleSets()->rules()->orderBy('name')->get()->map(function (RuleSet $ruleSet) use ($mapParentOptions) {
                     $rootDocs = $ruleSet->documents()->whereNull('parent_id')->get(['id', 'document_type']);
 
                     return [
                         'id'            => $ruleSet->id,
+                        'kind'          => 'rules',
                         'name'          => $ruleSet->name,
                         'hasRuleDoc'    => $rootDocs->where('document_type', 'rule')->isNotEmpty(),
+                        'parentOptions' => $mapParentOptions($ruleSet->documents()->whereNull('parent_id')),
+                    ];
+                })->values()
+                : collect();
+
+            // Policy management is stricter than the generic upload scope (admin or the
+            // department's own department.head only — see User::canManagePolicy()). Merged into
+            // the same "Rule Set" picker rather than a separate tab — both submit via
+            // rule_set_id, so a parallel UI mode would just be a duplicate of this one with a
+            // different source array. Superseded policies are included — amendments are allowed
+            // on any policy regardless of status.
+            $policies = $user->canManagePolicyForDepartment($department)
+                ? $department->ruleSets()->policy()->orderBy('name')->get()->map(function (RuleSet $ruleSet) use ($mapParentOptions) {
+                    $rootDocs = $ruleSet->documents()->whereNull('parent_id')->get(['id', 'document_type']);
+
+                    return [
+                        'id'            => $ruleSet->id,
+                        'kind'          => 'policy',
+                        'name'          => '[Policy] ' . $ruleSet->name . ($ruleSet->policy_status === 'superseded' ? ' (Superseded)' : ''),
+                        'hasRuleDoc'    => $rootDocs->where('document_type', 'policy')->isNotEmpty(),
                         'parentOptions' => $mapParentOptions($ruleSet->documents()->whereNull('parent_id')),
                     ];
                 })->values()
@@ -150,7 +171,7 @@ class DocumentController extends Controller
                 'levelAlias'  => $department->levelAlias(),
                 'levelLabel'  => $department->levelLabel(),
                 'sections'    => $sections,
-                'ruleSets'    => $ruleSets,
+                'ruleSets'    => $ruleSets->concat($policies)->values(),
             ];
         })->values()->all();
     }
@@ -326,7 +347,7 @@ class DocumentController extends Controller
             }
 
             $redirectUrl = match(true) {
-                $ruleSet !== null => route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]),
+                $ruleSet !== null => route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]),
                 $folder  !== null => $division !== null
                     ? route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder])
                     : route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $folder]),
@@ -767,7 +788,7 @@ class DocumentController extends Controller
                 }
             });
             flash()->success('Document updated successfully.');
-            return redirect()->route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $document]);
+            return redirect()->route("documents.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet, $document]);
         } catch (\Throwable $e) {
             Log::error('DocumentController@updateRuleSetDoc failed', ['document_id' => $document->id, 'error' => $e->getMessage()]);
             flash()->error('Failed to update document. Please try again.');
@@ -792,7 +813,7 @@ class DocumentController extends Controller
             $this->archiveFiles($document);
 
             flash()->success('Document moved to archive.');
-            return redirect()->route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
+            return redirect()->route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]);
         } catch (\Throwable $e) {
             Log::error('DocumentController@destroyRuleSetDoc failed', [
                 'document_id' => $document->id,
@@ -1081,13 +1102,31 @@ class DocumentController extends Controller
 
     // ── Markdown conversion (button-triggered, applies to all five doc contexts) ──
 
-    public function convert(int $id): JsonResponse
+    /**
+     * Admin, or (for a policy-kind rule-set document only) the owning department's
+     * department.head — same lifecycle-management gate used by convert/convertOcr/revertOcr/
+     * discardMarkdown/updateMarkdown. Everyone else is view-only.
+     */
+    private function canManageDocument(Document $document): bool
     {
-        if (! auth()->user()->isAdmin()) {
-            abort(403);
+        $user = auth()->user();
+
+        if ($user->isAdmin()) {
+            return true;
         }
 
+        $ruleSet = $document->ruleSet;
+
+        return $ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet);
+    }
+
+    public function convert(int $id): JsonResponse
+    {
         $document = Document::findOrFail($id);
+
+        if (! $this->canManageDocument($document)) {
+            abort(403);
+        }
 
         if (! in_array($document->status, ['uploaded', 'review', 'verified', 'failed'], true)) {
             return response()->json(['message' => 'Document is not in a convertible state.'], 422);
@@ -1105,11 +1144,11 @@ class DocumentController extends Controller
     /** Explicit, human-triggered OCR re-extraction — never auto-run. See RunOcrExtraction. */
     public function convertOcr(int $id, Request $request): JsonResponse
     {
-        if (! auth()->user()->isAdmin()) {
+        $document = Document::findOrFail($id);
+
+        if (! $this->canManageDocument($document)) {
             abort(403);
         }
-
-        $document = Document::findOrFail($id);
 
         if (! in_array($document->status, ['review', 'verified', 'failed'], true)) {
             return response()->json(['message' => 'Document is not in a state that supports OCR re-extraction.'], 422);
@@ -1133,11 +1172,11 @@ class DocumentController extends Controller
     /** Discard an OCR result and restore the pre-OCR text-layer Markdown saved by RunOcrExtraction. */
     public function revertOcr(int $id): JsonResponse
     {
-        if (! auth()->user()->isAdmin()) {
+        $document = Document::findOrFail($id);
+
+        if (! $this->canManageDocument($document)) {
             abort(403);
         }
-
-        $document = Document::findOrFail($id);
 
         if (($document->metadata['extraction_method'] ?? null) !== 'ocr') {
             return response()->json(['message' => 'This document is not currently showing an OCR result.'], 422);
@@ -1238,11 +1277,11 @@ class DocumentController extends Controller
      */
     public function discardMarkdown(int $id): JsonResponse
     {
-        if (! auth()->user()->isAdmin()) {
+        $document = Document::findOrFail($id);
+
+        if (! $this->canManageDocument($document)) {
             abort(403);
         }
-
-        $document = Document::findOrFail($id);
 
         if (! $document->markdown_path) {
             return response()->json(['message' => 'This document has no Markdown draft to discard.'], 422);

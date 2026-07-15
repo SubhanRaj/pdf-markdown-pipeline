@@ -183,13 +183,19 @@ Both check `withTrashed()` and append `-2`, `-3` on collision. **Folder slug is 
 |---|---|---|
 | `id` | bigint PK | |
 | `department_id` | FK → departments | `restrictOnDelete` |
-| `name` | string | Full name of the Act/Rule (e.g. *U.P. Excise Act 1910*) |
+| `name` | string | Full name of the Act/Rule, or the policy period's name (e.g. *U.P. Excise Act 1910*, *UP Excise Policy 2026-27*) |
 | `slug` | string | Auto-generated from name; unique per department |
 | `description` | text nullable | Optional summary (max 500 chars) |
+| `kind` | enum | `rules` (default) \| `policy` — discriminates Acts/Rules containers from Policy containers; see "Policy Taxonomy" below |
+| `state` | string nullable | Only meaningful when `kind=policy` — e.g. `Uttar Pradesh`, `Odisha`; dropdown-controlled (`RuleSet::STATES`), with a sanitized free-text fallback for `other` |
+| `policy_type` | string nullable | Only meaningful when `kind=policy` — dropdown-controlled (`RuleSet::POLICY_TYPES`: `excise_policy`, `cane_policy`, `sugar_policy`, `import_policy`, `export_policy`, `other`), same free-text fallback |
+| `effective_start_date` / `effective_end_date` | date nullable | Only meaningful when `kind=policy` — descriptive only; does **not** drive whether a policy is "current" (see `policy_status` below) |
+| `policy_status` | enum | Only meaningful when `kind=policy` — `current` (default) \| `superseded` |
+| `previous_policy_id` | FK → rule_sets nullable | `nullOnDelete` — self-referencing; set on the *new* policy period when it supersedes an older one for the same department + state + policy_type |
 | `metadata` | json nullable | Category, origin year, etc. |
 | `timestamps` + `softDeletes` | | |
 
-Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueSlugForDepartment($name, $departmentId)` — checks `withTrashed()` to avoid reusing slugs of soft-deleted rule sets.
+Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueSlugForDepartment($name, $departmentId)` — checks `withTrashed()` to avoid reusing slugs of soft-deleted rule sets. Composite index `(department_id, kind, state, policy_type, policy_status)` backs the supersession lookup in `RuleSetController::store()`.
 
 ### `documents`
 | Column | Type | Notes |
@@ -276,7 +282,7 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 
 **Privilege escalation safety:** `StoreUserRequest` and `UpdateUserRequest` validate `privileges.*` as `in:` against `User::PRIVILEGES` — unknown strings are rejected. Privileges can only be set via `admin.*` routes (gated by `IsAdmin` middleware). `UpdateProfileRequest` has no privilege fields — self-escalation is impossible.
 
-## What's built (as of 2026-07-13, updated)
+## What's built (as of 2026-07-15, updated)
 
 ### Modules / controllers
 
@@ -287,6 +293,7 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 | Departments | `DepartmentController` | Full CRUD; slug-based route model binding; loads rule sets for show page |
 | Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + multi-file upload modal + folder cards; `requires_approval` toggle on edit page |
 | Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; multi-file upload modal on show page pre-selects `rule_amendment` type; `requires_approval` toggle on edit page |
+| **Policy** | **`RuleSetController` (same class, `kind='policy'`)** | **Department-level-only policy containers (UP Excise/Cane/Sugar/Import/Export Policy, one per state+type+period) with year-over-year supersession (`policy_status`, `previous_policy_id`) instead of a single flat container; mutations gated to admin or the owning department's `department.head` via `User::canManagePolicy()`; see "Policy Taxonomy" below** |
 | Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal, amendment hierarchy, and folder cards; `requires_approval` toggle on edit page |
 | **Folders** | **`FolderController`** | **Full CRUD under sections (and optionally divisions); show page is a hub with upload modal + document list (amendment chain supported via `parent_id`); `requires_approval` toggle; archive cascades to all contained docs; visibility gate on folder page** |
 | Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions, folder names/descriptions; guests see `visibility = 'public'` docs and folders only; results capped at 50 docs + 20 sections + 20 rule sets + 20 folders; `->publishable()` scope hides pending/rejected |
@@ -497,6 +504,11 @@ Controller method signatures **must** declare `string $level` as their first par
 | DELETE | `/documents/{level}/{dept}/rules/{rule_set}/{doc}` | `documents.rules.destroy` | Auth |
 | GET | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/pdf` | `documents.rules.pdf` | Public* |
 | GET | `/documents/{level}/{dept}/rules/{rule_set}/{doc}/review` | `documents.rules.edit` | Auth |
+| GET | `/documents/{level}/{dept}/policy/{rule_set}/{doc}` | `documents.policy.show` | Public* |
+| PATCH | `/documents/{level}/{dept}/policy/{rule_set}/{doc}` | `documents.policy.update` | Admin or department.head |
+| DELETE | `/documents/{level}/{dept}/policy/{rule_set}/{doc}` | `documents.policy.destroy` | Admin or department.head |
+| GET | `/documents/{level}/{dept}/policy/{rule_set}/{doc}/pdf` | `documents.policy.pdf` | Public* |
+| GET | `/documents/{level}/{dept}/policy/{rule_set}/{doc}/review` | `documents.policy.edit` | Admin or department.head |
 | GET | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | `documents.folders.show` | Public* |
 | PATCH | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | `documents.folders.update` | Auth |
 | DELETE | `/documents/{level}/{dept}/{section}/folders/{folder}/{doc}` | `documents.folders.destroy` | Auth |
@@ -557,6 +569,12 @@ Controller method signatures **must** declare `string $level` as their first par
 | GET | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.show` | Public |
 | PATCH | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.update` | Auth |
 | DELETE | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.destroy` | Auth |
+| GET | `/departments/{level}/{dept}/policy/create` | `departments.policy.create` | Auth |
+| POST | `/departments/{level}/{dept}/policy` | `departments.policy.store` | Admin or department.head |
+| GET | `/departments/{level}/{dept}/policy/{rule_set}` | `departments.policy.show` | Public |
+| GET | `/departments/{level}/{dept}/policy/{rule_set}/edit` | `departments.policy.edit` | Admin or department.head |
+| PATCH | `/departments/{level}/{dept}/policy/{rule_set}` | `departments.policy.update` | Admin or department.head |
+| DELETE | `/departments/{level}/{dept}/policy/{rule_set}` | `departments.policy.destroy` | Admin or department.head |
 
 *Folder show routes 403 if `folder.visibility = 'authenticated'` and the user is a guest.
 
@@ -788,6 +806,110 @@ Both modals share a `makeQueue(ids)` JS factory function that handles multi-file
 **Edit lock on rule docs with amendments:** `documents/show.blade.php` — if `$document->document_type === 'rule'` and `$document->amendments->isNotEmpty()`, the Edit button is replaced with a greyed-out disabled `<span>`.
 
 **Cascade delete:** `RuleSetController@destroy` — before soft-deleting the rule set, iterates all documents via `$ruleSet->documents()->each(...)`, writes a `DocumentStatusHistory` row per doc, then soft-deletes each doc — all inside the same `DB::transaction()`. Users do not need to delete documents manually before deleting a rule set.
+
+### Policy Taxonomy (kind=policy RuleSets)
+
+**Implemented 2026-07-15.** Reuses the `RuleSet` model/controller/views with a `kind` discriminator
+(`rules` | `policy`) rather than a parallel model — see `POLICY_TAXONOMY_PLAN.md`'s history for the
+full design rationale before it was folded in here (delete that file once this section is trusted
+as the source of truth). Available to **every department, existing or future** — no allowlist —
+because it's structurally just another `RuleSet`, which only ever belongs to a `department_id`
+(never a section/division), so Policy is inherently department-level-only, the same way Rule Sets
+already are.
+
+**What a Policy container is:** the state/government's actual named policy for a subject area —
+*UP Excise Policy*, *UP Cane Policy*, *UP Sugar Policy*, *UP Import Policy*, *UP Export Policy* —
+for one year or a multi-year span. **Not** a Policy: Bar, Beer, Vending, Bottling, Distillery rules
+— those are subject-specific rules that live *inside* a policy document but get pulled into their
+own standalone `RuleSet` (`kind=rules`) purely so a reader interested in just Bar rules doesn't
+have to read the whole consolidated policy PDF. Policy and Rules are two independent taxonomies
+(`/policy` vs `/rules` URLs) with no FK relationship between them — related by subject matter only.
+
+**Controlled vocabularies** — `policy_type` and `state` are dropdown-only (never free text by
+default), preventing "Excise Policy" / "excise policy" / "Excise policy" from fragmenting search
+and filtering:
+- `RuleSet::POLICY_TYPES` — `excise_policy`, `cane_policy`, `sugar_policy`, `import_policy`,
+  `export_policy`, `other`.
+- `RuleSet::STATES` — the 28 states + 8 union territories of India, hardcoded. `RuleSet::
+  DEFAULT_STATE` = `'Uttar Pradesh'`.
+- **`other` escape hatch on both fields** — selecting `Other` reveals a `state_other`/
+  `policy_type_other` text input; `StoreRuleSetRequest`/`UpdateRuleSetRequest` validate it with the
+  same Unicode-safe pattern (`\p{L}\p{M}\p{N}\p{P}\p{Z}\s`) and `strip_tags`/`trim` sanitation used
+  everywhere else in this codebase, `max:100`, then swap the sentinel `"other"` for the sanitized
+  value before it's persisted — the `state`/`policy_type` columns never store the literal word
+  `"other"`. Both Form Requests override `validated()` (no-arg call only) to do this swap.
+
+**Effective period is descriptive, not authoritative:** `effective_start_date`/`effective_end_date`
+are shown on the create/edit form (Cleave.js-masked `DD-MM-YYYY` text inputs feeding a hidden ISO
+field — chosen over native `<input type="date">` per explicit preference, and consistent with this
+codebase already having hit native-control dark-mode styling friction once with the OCR engine
+`<select>`) but are **not** what the app trusts for "is this the policy to cite." A policy period
+is valid until a new one replaces it, which rarely lines up exactly with a stated end date — the
+authoritative field is `policy_status`.
+
+**Supersession — reuses `RuleSetController::store()`, no separate "new period" endpoint:** creating
+a policy with the same `department_id` + `state` + `policy_type` as an existing `policy_status =
+'current'` row automatically flips the old row to `superseded` and sets the new row's
+`previous_policy_id` to the old row's id, inside the same `DB::transaction()` as the create. This
+is the smaller diff than a parallel endpoint, since both cases ("first policy ever for this line"
+and "new year replaces the current one") share every field. The create form shows a SweetAlert2
+confirmation before submitting a policy, warning that a same-line current policy (if any) will be
+marked historical — not deleted, not hidden, still fully reachable at its original URL forever
+(old case citations must keep working). `RuleSet::supersededBy()`/`previousPolicy()` are the two
+directions of this self-referencing relation.
+
+**Amendments work identically to Rule Sets, on any policy regardless of status** — the same
+two-modal pattern (`#modal-rule` relabels to "Upload Policy Document", `#modal-amendment` stays
+"Upload Amendment") is reused on `rule_sets/show.blade.php` when `$ruleSet->kind === 'policy'`.
+Amendments are explicitly allowed on `superseded` policies too — dormant means "not the default
+citation," not "frozen" (e.g. a court order or clarification can still attach to an old period).
+
+**Permissions — stricter than the generic upload scope:** `User::canManagePolicy(RuleSet
+$policySet)` — `isAdmin()` or (`hasPrivilege('department.head')` **and** `department_id` matches
+the policy's department). Deliberately not `canUploadTo()`, whose generic `department` scope would
+let any user with a bare matching `department_id` manage policy without holding the
+`department.head` privilege specifically. `User::canManagePolicyForDepartment(Department
+$department)` is the same check for the moment before a policy `RuleSet` exists yet (the
+create/store screen only has a `Department` to check against). Everyone else is view-only:
+`documents/show.blade.php`'s `$canManageDoc` and `rule_sets/show.blade.php`'s `$canManage` gate
+Edit/Convert/OCR/Verify/Discard/Delete controls; `DocumentController::canManageDocument()` and
+`UpdateDocumentMarkdownRequest::authorize()` enforce the same server-side for
+convert/convertOcr/revertOcr/discardMarkdown/updateMarkdown; `StoreDocumentRequest`/
+`UpdateDocumentRequest`/`DeleteDocumentRequest` branch to `canManagePolicy()` when the resolved
+`RuleSet` context is `kind=policy`. **Pitfall avoided** (per `SECURITY.md` H-03, a still-open bug
+in `UpdateFolderRequest`): `policy_status`/`previous_policy_id` are never in `UpdateRuleSetRequest
+::rules()`, so they can never appear in `validated()` regardless of what a raw PATCH sends — only
+the supersession logic inside `store()` may set them.
+
+**Routes** — every `/rules` route block in `routes/web.php` has a sibling `/policy` block, same
+controller methods, disambiguated by a `kind` route default (`->defaults('kind', 'policy')` /
+`->defaults('kind', 'rules')`, applied **per-route**, not on the `Route::prefix()->name()->group()`
+chain — `RouteRegistrar::group()` doesn't return a chainable route instance, only individual
+`Route::get()`/`post()`/etc. calls do). `RuleSetController::create()`/`store()` accept `string
+$kind = 'rules'`; every other method (`show`/`edit`/`update`/`destroy`) needs no signature change
+since they already receive a bound `RuleSet` whose own `kind` column is authoritative. See the
+Route map below for the full `/policy` list.
+
+**Upload flow default:** the department "Add Policy" flow defaults to Uttar Pradesh — the create
+form's primary button ("Add \[Department\]'s UP Policy") submits `state` via a hidden field, no
+picker shown; a secondary "Add Other State's Policy" button reveals the `RuleSet::STATES` dropdown.
+`RuleSetController::create()` also pre-selects a sensible `policy_type` default from the
+department's slug (`excise` → `excise_policy`, `cane` → `cane_policy`, `sugar` → `sugar_policy`) —
+a UI nicety only, never enforced.
+
+**Views:** `department/show.blade.php` has a "Policies" panel (current policies only, same
+list-item style as the existing Rule Sets panel) plus a collapsed `<details>` "Historical Policies"
+disclosure for superseded ones — both filtered server-side in `DepartmentController::show()` via
+`RuleSet::scopeCurrentPolicy()`/`scopePolicy()`. `rule_sets/show.blade.php` renders an amber
+"Superseded — kept for historical reference only. Current policy: →" banner when
+`policy_status === 'superseded'`. The Bulk Upload page's "Rule Set" tab (`documents/bulk-
+upload.blade.php`) was relabeled "Rule Set / Policy" and its picker now includes policy containers
+(prefixed `[Policy]`, superseded ones suffixed `(Superseded)`) merged into the same `<select>` as
+rule sets — both submit via `rule_set_id` identically, so a parallel tab/mode would have just
+duplicated the existing one with a different source array; `DocumentController::
+buildUploadScopeTree()` filters the policy half of that merged list through
+`canManagePolicyForDepartment()` rather than the generic `$scope` used for sections/rule-sets,
+since policy management is stricter.
 
 ### Maker-Checker Approval Workflow
 
@@ -1029,6 +1151,10 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 29. **Folders (Patravalis) are physical-file groupings, not organizational units** — `Section` and `Division` model the org chart (who issues the letter). `Folder` models the physical filing concept (a named dossier grouping all correspondence on a specific matter — court case, license dispute, audit query, service matter). Folders live under a section or division. A section/division can have both direct docs and folders simultaneously. Folders are not nested. Folder slug is immutable after creation (vault paths depend on it). `UpdateFolderRequest` does not accept a `slug` field. `shouldRequireApproval()` accepts `Folder` as a valid context type alongside `Section|Division|RuleSet`.
 
 30. **Folder visibility gates the folder page; contained doc visibility is independent** — if `folder.visibility = 'authenticated'`, the folder show page and its document PDF routes abort 403 for guests. Individual documents within the folder still carry their own `visibility` field — a public document inside an authenticated folder is reachable by direct URL (since the vault path is not secret once you know it), but you cannot browse to it via the folder. Do not cascade folder visibility to documents; enforce it only at the folder page and folder-doc route level.
+
+31. **Policy reuses `RuleSet` with a `kind` discriminator — not a parallel model** — `RuleSet.kind` (`rules` | `policy`) drives the same controller (`RuleSetController`), the same five `DocumentController` rule-set-document methods, and the same Blade views, branching only where the two genuinely differ: permission (`canManagePolicy()` vs the generic `canUploadTo()`/admin-only rules), and policy-only columns (`state`, `policy_type`, `effective_start_date`/`effective_end_date`, `policy_status`, `previous_policy_id`). Route names mirror this exactly — `departments.policy.*`/`documents.policy.*` sit next to `departments.rules.*`/`documents.rules.*`, both resolved via a `kind` route default applied **per-route** (`Route::get(...)->name(...)->defaults('kind', ...)`), never on the `Route::prefix()->name()->group()` chain itself — `RouteRegistrar::group()` does not return a chainable `Route` instance, so `->defaults()` on it throws `BadMethodCallException`. Do not introduce a separate `Policy` model/controller/view set; extend the `kind`-aware branches in the existing ones instead.
+
+32. **A policy period is valid until superseded, not until its stated end date** — `policy_status` (`current` | `superseded`) is the only field the app trusts to answer "is this the policy to cite." `effective_start_date`/`effective_end_date` are descriptive only. Creating a new policy for the same `department_id` + `state` + `policy_type` as an existing `current` one automatically flips the old row to `superseded` and links it via `previous_policy_id` — this happens inside `RuleSetController::store()` (no separate "new period" endpoint; the two cases — first policy ever vs. new year replacing the current one — share every field, so a parallel endpoint would just duplicate this one). Superseded policies are never deleted or hidden — they stay fully browsable and citable at their original URL forever (old case references must keep resolving), and amendments may still be uploaded to them.
 
 ## Frontend architecture
 

@@ -41,8 +41,13 @@ Route::prefix('documents')->name('documents.')->group(function () {
     });
     // Rule-set-based documents
     Route::prefix('/{level}/{department}/rules/{rule_set}')->name('rules.')->group(function () {
-        Route::get('/{document}',     [DocumentController::class, 'showRuleSetDoc'])->name('show');
-        Route::get('/{document}/pdf', [DocumentController::class, 'pdfRuleSetDoc'])->name('pdf');
+        Route::get('/{document}',     [DocumentController::class, 'showRuleSetDoc'])->name('show')->defaults('kind', 'rules');
+        Route::get('/{document}/pdf', [DocumentController::class, 'pdfRuleSetDoc'])->name('pdf')->defaults('kind', 'rules');
+    });
+    // Policy-based documents (same controller methods as rule-set docs — RuleSet.kind discriminates)
+    Route::prefix('/{level}/{department}/policy/{rule_set}')->name('policy.')->group(function () {
+        Route::get('/{document}',     [DocumentController::class, 'showRuleSetDoc'])->name('show')->defaults('kind', 'policy');
+        Route::get('/{document}/pdf', [DocumentController::class, 'pdfRuleSetDoc'])->name('pdf')->defaults('kind', 'policy');
     });
     // Section-folder documents
     Route::prefix('/{level}/{department}/{section}/folders/{folder}')->name('folders.')->group(function () {
@@ -86,8 +91,13 @@ Route::prefix('departments')->name('departments.')->group(function () {
     });
 
     Route::prefix('/{level}/{department}/rules')->name('rules.')->group(function () {
-        Route::get('/create',     [RuleSetController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
-        Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show');
+        Route::get('/create',     [RuleSetController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations'])->defaults('kind', 'rules');
+        Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show')->defaults('kind', 'rules');
+    });
+    // Policy — department-level only, available to every department (existing or future)
+    Route::prefix('/{level}/{department}/policy')->name('policy.')->group(function () {
+        Route::get('/create',     [RuleSetController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations'])->defaults('kind', 'policy');
+        Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show')->defaults('kind', 'policy');
     });
 });
 
@@ -120,9 +130,15 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
         Route::delete('/{level}/{department}/{section}/{document}',     [DocumentController::class, 'destroy'])->name('destroy');
         // Rule-set document mutations
         Route::prefix('/{level}/{department}/rules/{rule_set}')->name('rules.')->group(function () {
-            Route::get('/{document}/review', [DocumentController::class, 'editRuleSetDoc'])->name('edit');
-            Route::patch('/{document}',      [DocumentController::class, 'updateRuleSetDoc'])->name('update');
-            Route::delete('/{document}',     [DocumentController::class, 'destroyRuleSetDoc'])->name('destroy');
+            Route::get('/{document}/review', [DocumentController::class, 'editRuleSetDoc'])->name('edit')->defaults('kind', 'rules');
+            Route::patch('/{document}',      [DocumentController::class, 'updateRuleSetDoc'])->name('update')->defaults('kind', 'rules');
+            Route::delete('/{document}',     [DocumentController::class, 'destroyRuleSetDoc'])->name('destroy')->defaults('kind', 'rules');
+        });
+        // Policy document mutations (same controller methods as rule-set docs)
+        Route::prefix('/{level}/{department}/policy/{rule_set}')->name('policy.')->group(function () {
+            Route::get('/{document}/review', [DocumentController::class, 'editRuleSetDoc'])->name('edit')->defaults('kind', 'policy');
+            Route::patch('/{document}',      [DocumentController::class, 'updateRuleSetDoc'])->name('update')->defaults('kind', 'policy');
+            Route::delete('/{document}',     [DocumentController::class, 'destroyRuleSetDoc'])->name('destroy')->defaults('kind', 'policy');
         });
         // Division document mutations
         Route::prefix('/{level}/{department}/{section}/divisions/{division}')->name('divisions.')->group(function () {
@@ -185,10 +201,18 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
 
         // Rule sets — mutations (admin only — enforced in Form Request authorize())
         Route::prefix('/{level}/{department}/rules')->name('rules.')->group(function () {
-            Route::post('/',               [RuleSetController::class, 'store'])->name('store');
-            Route::get('/{rule_set}/edit', [RuleSetController::class, 'edit'])->name('edit');
-            Route::patch('/{rule_set}',    [RuleSetController::class, 'update'])->name('update');
-            Route::delete('/{rule_set}',   [RuleSetController::class, 'destroy'])->name('destroy');
+            Route::post('/',               [RuleSetController::class, 'store'])->name('store')->defaults('kind', 'rules');
+            Route::get('/{rule_set}/edit', [RuleSetController::class, 'edit'])->name('edit')->defaults('kind', 'rules');
+            Route::patch('/{rule_set}',    [RuleSetController::class, 'update'])->name('update')->defaults('kind', 'rules');
+            Route::delete('/{rule_set}',   [RuleSetController::class, 'destroy'])->name('destroy')->defaults('kind', 'rules');
+        });
+
+        // Policy — mutations (admin or department.head for their own department — enforced in Form Request authorize())
+        Route::prefix('/{level}/{department}/policy')->name('policy.')->group(function () {
+            Route::post('/',               [RuleSetController::class, 'store'])->name('store')->defaults('kind', 'policy');
+            Route::get('/{rule_set}/edit', [RuleSetController::class, 'edit'])->name('edit')->defaults('kind', 'policy');
+            Route::patch('/{rule_set}',    [RuleSetController::class, 'update'])->name('update')->defaults('kind', 'policy');
+            Route::delete('/{rule_set}',   [RuleSetController::class, 'destroy'])->name('destroy')->defaults('kind', 'policy');
         });
     });
 });

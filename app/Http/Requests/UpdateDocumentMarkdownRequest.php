@@ -2,14 +2,31 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Document;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateDocumentMarkdownRequest extends FormRequest
 {
-    /** Editing extracted Markdown during review is an admin-only action, same gate as Edit/Delete/Convert. */
+    /**
+     * Editing extracted Markdown during review is admin-only, same gate as Edit/Delete/Convert —
+     * except for a policy-kind rule-set document, where the owning department's department.head
+     * may also manage the full lifecycle (see RuleSet::kind, User::canManagePolicy()).
+     */
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() ?? false;
+        $user = $this->user();
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        $document = Document::find($this->route('id'));
+        $ruleSet  = $document?->ruleSet;
+
+        return $ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet);
     }
 
     protected function prepareForValidation(): void

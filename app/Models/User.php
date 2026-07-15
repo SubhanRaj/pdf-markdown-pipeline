@@ -232,6 +232,28 @@ class User extends Authenticatable
     }
 
     /**
+     * Whether this user may create/manage (upload, edit, convert, verify, start a new period
+     * for) the given policy container. Deliberately stricter than canUploadTo()'s generic
+     * department scope — a bare department_id match is not enough for policy, the user must
+     * hold the department.head privilege (or be admin).
+     */
+    public function canManagePolicy(RuleSet $policySet): bool
+    {
+        return $this->isAdmin()
+            || ($this->hasPrivilege('department.head') && $this->department_id === $policySet->department_id);
+    }
+
+    /**
+     * Same check as canManagePolicy(), but for the moment before a policy RuleSet exists yet
+     * (the create/store screen only has a Department to check against).
+     */
+    public function canManagePolicyForDepartment(Department $department): bool
+    {
+        return $this->isAdmin()
+            || ($this->hasPrivilege('department.head') && $this->department_id === $department->id);
+    }
+
+    /**
      * Resolve [department_id, section_id, division_id] from a Section, Division, or RuleSet.
      * @return array{int|null, int|null, int|null}
      */

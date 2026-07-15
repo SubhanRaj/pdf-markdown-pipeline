@@ -8,9 +8,9 @@
 
     if ($isRuleSetDoc) {
         $contextName  = $ruleSet->name;
-        $contextUrl   = route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]);
-        $updateRoute  = route('documents.rules.update', [$department->levelAlias(), $department, $ruleSet, $document]);
-        $showRoute    = route('documents.rules.show',   [$department->levelAlias(), $department, $ruleSet, $document]);
+        $contextUrl   = route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]);
+        $updateRoute  = route("documents.{$ruleSet->kind}.update", [$department->levelAlias(), $department, $ruleSet, $document]);
+        $showRoute    = route("documents.{$ruleSet->kind}.show",   [$department->levelAlias(), $department, $ruleSet, $document]);
     } elseif ($isDivisionFolderDoc) {
         $contextName  = $folder->name;
         $contextUrl   = route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder]);

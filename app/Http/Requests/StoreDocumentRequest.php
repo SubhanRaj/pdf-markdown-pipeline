@@ -83,6 +83,10 @@ class StoreDocumentRequest extends FormRequest
             return false;
         }
 
+        if ($context instanceof RuleSet && $context->kind === 'policy') {
+            return $user->canManagePolicy($context);
+        }
+
         return $user->canUploadTo($context);
     }
 

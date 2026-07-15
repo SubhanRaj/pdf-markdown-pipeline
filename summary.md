@@ -1490,3 +1490,126 @@ set.
   server-side for the verified view (defense in depth on an admin-only, never-persisted preview).
   Editing itself stays a plain textarea — no CodeMirror/Monaco; the actual complaint was "I can't
   see formatting while reviewing," not "I need a code editor."
+
+---
+
+## M31 — Policy Taxonomy (COMPLETED 2026-07-15)
+
+**Goal:** a first-class Policy taxonomy for the state/government's actual named policies (UP
+Excise Policy, UP Cane Policy, UP Sugar Policy, UP Import/Export Policy — and other states'
+published policies for reference), distinct from the existing Rule Set taxonomy which already
+handles subject-specific rules (Bar, Beer, Bottling, Distillery, Vending) extracted from those
+same policy documents for standalone browsing. Design went through two revision rounds with the
+user before coding — full history preserved in `POLICY_TAXONOMY_PLAN.md` until this milestone
+entry and the `CLAUDE.md`/`README.md` updates fully absorbed it (that file is deleted as of this
+commit).
+
+**Design decision — reuse `RuleSet`, don't build a parallel model:** a new `kind` enum column
+(`rules` | `policy`) on `rule_sets` discriminates the two. Same controller (`RuleSetController`),
+same five `DocumentController` rule-set-document methods, same Blade views — branching only on
+the two things that genuinely differ: permission (`canManagePolicy()` instead of the generic
+`canUploadTo()`/admin-only rules gate) and policy-only columns. This is structurally why Policy is
+department-level-only "for free" — `RuleSet` never has a section/division FK, so neither does
+Policy, and it works automatically for every department including ones created after this
+milestone shipped.
+
+**Schema (`2026_07_15_000001_add_policy_fields_to_rule_sets_table.php`, alter-in-place, no new
+table):** `kind` enum default `rules`; `state`/`policy_type` string nullable (policy-only, dropdown
+values from `RuleSet::STATES`/`POLICY_TYPES`, or a sanitized free-text value when `Other` is
+picked); `effective_start_date`/`effective_end_date` date nullable (descriptive only); `policy_status`
+enum (`current` default | `superseded`); `previous_policy_id` self-referencing FK, `nullOnDelete`.
+Composite index `(department_id, kind, state, policy_type, policy_status)` backs the supersession
+lookup.
+
+**Supersession — the core new behavior, not just a relabeled Rule Set:** creating a policy for a
+department + state + policy_type combination that already has a `current` row flips that old row
+to `superseded` and sets the new row's `previous_policy_id`, inside the same `DB::transaction()`
+as the create in `RuleSetController::store()` — no separate "start new period" endpoint, since
+"first policy ever for this line" and "new year replaces the current one" share every field and
+differ only in whether a matching row already exists. Superseded policies are **never** deleted or
+hidden: they stay fully browsable, keep their original URL working forever (a pending court case
+citing an old policy must keep resolving), and can still receive amendments — dormant means "not
+the default citation," not "frozen." `RuleSet::supersededBy()`/`previousPolicy()` are the two
+relation directions. The create form shows a SweetAlert2 confirmation before a supersession-causing
+submit, so a department head can't accidentally demote a still-relevant policy without realizing.
+
+**Controlled vocabularies, not free text:** `RuleSet::POLICY_TYPES` (`excise_policy`, `cane_policy`,
+`sugar_policy`, `import_policy`, `export_policy`, `other`) and `RuleSet::STATES` (28 states + 8
+union territories, hardcoded). Both fields are `<select>`-only in the UI, with an `Other` entry
+that reveals a `state_other`/`policy_type_other` text input — validated with this codebase's
+standard Unicode-safe pattern (`\p{L}\p{M}\p{N}\p{P}\p{Z}\s`), `strip_tags`/`trim` sanitized,
+`max:100`, and the literal sentinel `"other"` is swapped for the sanitized value before persisting
+(`StoreRuleSetRequest`/`UpdateRuleSetRequest` override the no-arg `validated()` call to do this).
+**Correction mid-build:** an earlier draft of `POLICY_TYPES` incorrectly included Bar/Beer/
+Vending/Bottling/Distillery — the user caught this: those are Rules (already the existing
+`RuleSet` `kind=rules` taxonomy), not Policies, since a policy document covers a whole subject
+area and those are narrower rule extracts pulled out of it for easier reading, not standalone
+named policies themselves. Fixed before any further schema/UI work referenced the wrong list.
+
+**Effective period is descriptive, not authoritative:** `effective_start_date`/`effective_end_date`
+are shown on the form but `policy_status` is the only field the app trusts for "is this the policy
+to cite" — a policy's stated end date rarely lines up exactly with when it's actually replaced.
+Entered via **Cleave.js** (CDN, page-scoped to the policy create/edit view, not global) masked
+`DD-MM-YYYY` text inputs feeding a hidden ISO field, chosen over a native `<input type="date">`
+per explicit user preference — consistent with this codebase already having hit native-control
+dark-mode styling friction once before (the 2026-07-14 OCR engine dropdown fix).
+
+**Permissions — stricter than generic upload scope:** `User::canManagePolicy(RuleSet $policySet)`
+= `isAdmin()` or (`hasPrivilege('department.head')` and matching `department_id`).
+`canManagePolicyForDepartment(Department $department)` is the same check before a policy `RuleSet`
+exists yet (create/store screen). Deliberately not `canUploadTo()`, whose generic `department`
+scope would let any bare-`department_id` user manage policy without the `department.head`
+privilege. Wired into: `StoreRuleSetRequest`/`UpdateRuleSetRequest::authorize()`;
+`StoreDocumentRequest`/`UpdateDocumentRequest`/`DeleteDocumentRequest` (branch when the resolved
+`RuleSet` context is `kind=policy`); a new `DocumentController::canManageDocument()` helper backing
+`convert`/`convertOcr`/`revertOcr`/`discardMarkdown`; `UpdateDocumentMarkdownRequest::authorize()`.
+Client-side, `documents/show.blade.php` gets a `$canManageDoc` variable and `rule_sets/show.blade.php`
+gets `$canManage`, both gating Edit/Convert/OCR/Verify/Discard/Delete controls identically to the
+server-side checks. **Pitfall explicitly avoided** (flagged by the still-open `SECURITY.md` H-03
+bug in `UpdateFolderRequest`): `policy_status`/`previous_policy_id` are never included in
+`UpdateRuleSetRequest::rules()`, so they can never be smuggled into `validated()` via a raw PATCH —
+only the transaction inside `store()` may set them.
+
+**Routing:** every `/rules` route block in `routes/web.php` gets a sibling `/policy` block, same
+controller methods, disambiguated via a `kind` route default. **Bug caught during verification:**
+`->defaults('kind', 'policy')` cannot be chained on `Route::prefix()->name()->group()` —
+`RouteRegistrar::group()` returns void/non-chainable, only individual `Route::get()`/`post()`/etc.
+calls return a `Route` instance that supports `->defaults()`. Fixed by moving `->defaults()` onto
+each individual route definition inside every group, both new and existing.
+
+**Views:** `rule_sets/create.blade.php` — "Add \[Dept\]'s UP Policy" (state hidden, defaults to
+Uttar Pradesh) vs. "Add Other State's Policy" (reveals the state dropdown) toggle buttons;
+`policy_type`/`state` dropdowns with `Other` fallback; Cleave.js date pair; supersession-warning
+SweetAlert2 confirm. `rule_sets/edit.blade.php` — same fields editable, plus a current/superseded
+status chip. `rule_sets/show.blade.php` — amber "Superseded — kept for historical reference only"
+banner with a link to the current policy when applicable; upload modals relabel to "Upload Policy
+Document"/"Upload Amendment" when `kind=policy`, reusing the existing two-modal pattern and
+`makeQueue()` JS factory unchanged. `department/show.blade.php` — new "Policies" panel (current
+only) plus a collapsed `<details>` "Historical Policies" disclosure, both server-filtered via new
+`RuleSet::scopeCurrentPolicy()`/`scopePolicy()` query scopes in `DepartmentController::show()`.
+`documents/bulk-upload.blade.php` — the existing "Rule Set" picker tab (relabeled "Rule Set /
+Policy") now includes policy containers merged into the same `<select>` (prefixed `[Policy]`,
+superseded ones suffixed `(Superseded)`) rather than a duplicate tab/mode, since both submit via
+`rule_set_id` identically; `DocumentController::buildUploadScopeTree()` filters the policy half of
+that list through `canManagePolicyForDepartment()` rather than the generic upload `$scope`.
+
+**Verification performed before considering this done:** `php artisan migrate --pretend` (clean
+SQL), `php -l` on every touched PHP file, `Blade::compileString()` on every touched view, `php
+artisan route:list` confirming the full `/policy` route tree registered symmetrically with `/rules`,
+a tinker-driven create → second-create → supersede → verify cycle (rolled back, no residue), and a
+real `php artisan serve` + `curl` round-trip creating an actual policy row, confirming it rendered
+correctly on both its own show page and the department page's new Policies panel, then deleting the
+test fixture — `storage/logs/laravel.log` line count confirmed unchanged (no new errors) across the
+whole verification pass.
+
+**Files changed:** `database/migrations/2026_07_15_000001_add_policy_fields_to_rule_sets_table.php`
+(new) · `app/Models/RuleSet.php` · `app/Models/User.php` · `routes/web.php` ·
+`app/Http/Controllers/RuleSetController.php` · `app/Http/Controllers/DocumentController.php` ·
+`app/Http/Controllers/DepartmentController.php` · `app/Http/Requests/StoreRuleSetRequest.php` ·
+`app/Http/Requests/UpdateRuleSetRequest.php` · `app/Http/Requests/StoreDocumentRequest.php` ·
+`app/Http/Requests/UpdateDocumentRequest.php` · `app/Http/Requests/DeleteDocumentRequest.php` ·
+`app/Http/Requests/UpdateDocumentMarkdownRequest.php` ·
+`resources/views/rule_sets/{create,edit,show,_doc_row}.blade.php` ·
+`resources/views/department/show.blade.php` · `resources/views/documents/show.blade.php` ·
+`resources/views/documents/bulk-upload.blade.php` · `CLAUDE.md` · `README.md` ·
+`POLICY_TAXONOMY_PLAN.md` (deleted, folded into the above).

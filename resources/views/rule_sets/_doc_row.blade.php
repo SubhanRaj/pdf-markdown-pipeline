@@ -98,15 +98,15 @@
 
     {{-- Actions --}}
     <div class="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-        <a href="{{ route('documents.rules.show', [$department->levelAlias(), $department, $ruleSet, $doc]) }}"
+        <a href="{{ route("documents.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet, $doc]) }}"
            class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all"
            title="View">
             <i class="ti ti-eye text-base"></i>
         </a>
-        @auth @if(auth()->user()->isAdmin())
+        @auth @if(auth()->user()->isAdmin() || ($ruleSet->kind === 'policy' && auth()->user()->canManagePolicy($ruleSet)))
         <button type="button"
                 class="doc-delete-btn inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-                data-action="{{ route('documents.rules.destroy', [$department->levelAlias(), $department, $ruleSet, $doc]) }}"
+                data-action="{{ route("documents.{$ruleSet->kind}.destroy", [$department->levelAlias(), $department, $ruleSet, $doc]) }}"
                 data-title="{{ e($doc->title) }}"
                 title="Delete">
             <i class="ti ti-trash text-base"></i>

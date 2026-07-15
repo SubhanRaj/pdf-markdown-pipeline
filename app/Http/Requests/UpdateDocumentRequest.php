@@ -9,7 +9,21 @@ class UpdateDocumentRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() ?? false;
+        $user = $this->user();
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        // Editing document metadata is otherwise admin-only, except a policy-kind rule-set
+        // document may also be managed by the owning department's department.head.
+        $document = $this->route('document');
+        $ruleSet  = $document instanceof Document ? $document->ruleSet : null;
+
+        return $ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet);
     }
 
     protected function prepareForValidation(): void
