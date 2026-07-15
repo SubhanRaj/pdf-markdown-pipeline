@@ -1730,3 +1730,33 @@ transcribed directly from each `FormRequest`). Full writeup: `SECURITY.md` H-05.
 `app/Http/Controllers/SectionController.php` · `app/Http/Controllers/DivisionController.php` ·
 `app/Http/Controllers/FolderController.php` · `app/Http/Controllers/DocumentController.php` ·
 `SECURITY.md`.
+
+**Second follow-up (same day) — process fix so this class of bug doesn't recur.** User flagged
+this as a major flaw and asked for it to be documented so it never repeats, plus any further
+schema/controller cleanup needed. Two concrete actions, not just a note:
+
+1. `claude.md`'s "Auth & access control" section now leads with an explicit rule: every
+   controller method that mutates or reveals scoped data must be authorized itself —
+   `middleware('auth')` never implies per-record authorization — with H-04/H-05 named as the
+   cautionary example and the exact fix pattern (`authorizeManage()` helper, called first-line,
+   mirroring the sibling `FormRequest::authorize()`) spelled out so the next controller gets it
+   right the first time.
+2. Deleted four dead `app/Policies/*.php` stub classes (`DocumentPolicy`, `DepartmentPolicy`,
+   `SectionPolicy`, `RuleSetPolicy`) — `make:policy` boilerplate that always returned `false`,
+   was never registered with Laravel's `Gate`, and was never called anywhere. Confirmed via grep
+   (zero references outside their own files) before deleting. Left in place, these were a real
+   risk in their own right: a future developer skimming `app/Policies/` could easily assume
+   Laravel's Policy/Gate system was the actual authorization mechanism here, when every real
+   check lives in hand-written `FormRequest`/controller code. Half-wired-looking protection is
+   worse than an obvious gap.
+
+**Explicitly not done, flagged rather than skipped:** an automated regression test walking every
+management route as a low-privilege user and asserting `403` would be the strongest possible
+guard against a repeat — but `tests/Pest.php` has `RefreshDatabase` commented out and the
+`Department`/`Section`/`RuleSet` factories are empty `make:factory` stubs with no fields, so
+building that properly means standing up the test database wiring from scratch first. Recommended
+as the next step if this needs a stronger guarantee than documentation.
+
+**Files changed:** `claude.md` · `SECURITY.md` · deleted `app/Policies/DocumentPolicy.php`,
+`app/Policies/DepartmentPolicy.php`, `app/Policies/SectionPolicy.php`,
+`app/Policies/RuleSetPolicy.php`.
