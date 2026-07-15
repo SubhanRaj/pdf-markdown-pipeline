@@ -19,8 +19,27 @@ class RuleSetController extends Controller
 {
     use ManagesDocumentFiles;
 
+    /**
+     * Same authorize() logic as Store/UpdateRuleSetRequest, duplicated here because create/edit/
+     * destroy render or mutate state outside a FormRequest and previously had no check at all
+     * beyond the 'auth' middleware — any authenticated user could view any department's forms or,
+     * critically, delete any rule set/policy. See SECURITY.md Pass 5.
+     */
+    private function authorizeManage(Department $department, string $kind, ?RuleSet $ruleSet = null): void
+    {
+        $user = auth()->user();
+
+        $allowed = $kind === 'policy'
+            ? ($ruleSet ? $user->canManagePolicy($ruleSet) : $user->canManagePolicyForDepartment($department))
+            : $user->isAdmin();
+
+        abort_unless($allowed, 403);
+    }
+
     public function create(string $level, Department $department, string $kind = 'rules'): View
     {
+        $this->authorizeManage($department, $kind);
+
         $defaultPolicyType = match (true) {
             str_contains($department->slug, 'excise') => 'excise_policy',
             str_contains($department->slug, 'cane')   => 'cane_policy',
@@ -149,6 +168,8 @@ class RuleSetController extends Controller
 
     public function edit(string $level, Department $department, RuleSet $ruleSet): View
     {
+        $this->authorizeManage($department, $ruleSet->kind, $ruleSet);
+
         return view('rule_sets.edit', compact('department', 'ruleSet'));
     }
 
@@ -172,6 +193,8 @@ class RuleSetController extends Controller
 
     public function destroy(string $level, Department $department, RuleSet $ruleSet): RedirectResponse
     {
+        $this->authorizeManage($department, $ruleSet->kind, $ruleSet);
+
         $docsToArchive = [];
 
         try {

@@ -9,6 +9,7 @@
 **Scope (Pass 2):** Login/auth Fortify stack, session configuration, password policy, rate limiting  
 **Scope (Pass 3):** M29 Folders (Patravali) module — new controller, Form Requests, models, routes, views (2026-07-04)
 **Scope (Pass 4):** M30 Text Extraction & Markdown Conversion Pipeline — new jobs, controller methods, routes, views, Compare & Verify modal (2026-07-13)
+**Scope (Pass 5):** M31/M31.1 Policy Taxonomy — `RuleSet.kind` discriminator, department-scoped policy authorization, year-over-year supersession, controlled-vocabulary "other" free text (2026-07-15)
 
 ---
 
@@ -63,6 +64,108 @@ H-03 is a newly-introduced authorization bypass, caught during self-review of th
 | — | `RunOcrExtraction` / `ConvertDocumentToMarkdown` subprocess calls | — | **PASS** |
 | — | OCR temp files (`storage/app/private/ocr_tmp/`) | — | **PASS** |
 | — | Discard/verify state-machine guards | — | **PASS** |
+
+### Pass 5 — Policy Taxonomy Module (M31/M31.1, 2026-07-15)
+
+| ID | Finding | Severity | Status |
+|----|---------|---------|--------|
+| H-04 | `RuleSetController::create()`/`edit()`/`destroy()` had no authorization check beyond `auth` middleware — any authenticated user could view any department's rule-set/policy forms, and **delete any rule set or policy** (cascading to all its documents) regardless of admin/department-head status | HIGH | **FIXED** |
+| — | Mass-assignment of `policy_status`/`previous_policy_id` (H-03-style bypass via supersession fields) | — | **CONFIRMED NOT EXPLOITABLE** |
+| — | `policy_type_other`/`state_other` free-text fields — XSS / stored-script injection | — | **PASS** |
+| — | Blade output of new policy fields (`policy_type`, `state`, `effective_start_date`/`effective_end_date`) | — | **PASS (auto-escaped, no `{!! !!}`)** |
+| — | Department-scoped policy-type dropdown lock (client-side) re-verified as server-enforced | — | **PASS** |
+
+---
+
+### H-04 · `RuleSetController` create/edit/destroy Had No Authorization Check
+
+**Severity:** HIGH
+**Status:** FIXED
+
+**Finding:**
+`store()` and `update()` are gated by `StoreRuleSetRequest`/`UpdateRuleSetRequest`, whose
+`authorize()` correctly checks `canManagePolicyForDepartment()`/`canManagePolicy()` for
+`kind=policy` and `isAdmin()` for `kind=rules`. But `create()` (GET form), `edit()` (GET form),
+and — critically — `destroy()` (DELETE) call no `FormRequest` at all; their only route-level
+protection was the blanket `['auth', 'throttle:mutations']` middleware, which admits *any*
+logged-in user regardless of role. Concretely, before this fix, any authenticated user —
+including a plain viewer account with no `department.head` privilege and no admin flag — could:
+
+- `GET /departments/dept/{any-department}/policy/create` and `.../rules/create` for a
+  department they have no relationship to (form/data disclosure — low on its own).
+- `GET /departments/dept/{any-department}/policy/{rule_set}/edit` for any existing rule set or
+  policy, in any department (form/data disclosure).
+- `DELETE /departments/dept/{any-department}/policy/{rule_set}` (or the `rules` equivalent) for
+  **any** rule set or policy in **any** department — `destroy()` soft-deletes every document
+  under that rule set with an audit trail entry, archives their files, then deletes the rule set
+  itself. No ownership, department, or role check gated this at all.
+
+This predates the Policy Taxonomy work (`destroy()` has been unguarded since the original Rule
+Sets feature, commit `0bf0255`), but Policy Taxonomy raised the stakes: it put a department's
+*named legal policy documents* (UP Excise Policy, Cane Policy, ...) behind the exact same
+unguarded `destroy()` route as internal rule sets, and made `create()`/`edit()` reachable for
+every department "existing or future" per the route comment — so the blast radius of the
+pre-existing gap grew with this module rather than shrinking it. Caught during this pass's
+review specifically because Pass 5 asked "does the new Policy authorization surface actually get
+enforced everywhere it's supposed to," not just in the two `FormRequest`s that were written for
+it.
+
+**Fix:** added a private `authorizeManage(Department $department, string $kind, ?RuleSet
+$ruleSet = null)` helper to `RuleSetController` that mirrors the exact same authorize() logic as
+the two `FormRequest`s (`canManagePolicy()`/`canManagePolicyForDepartment()` for `kind=policy`,
+`isAdmin()` for `kind=rules`), called as the first line of `create()`, `edit()`, and `destroy()`
+— `abort_unless(..., 403)` before any view render or any database mutation.
+
+**Verification:** exercised directly via `php artisan tinker` against real `User` records (no
+data mutated — used an in-memory, unsaved `RuleSet` instance to avoid touching the database) —
+confirmed a non-admin user with no relationship to the target department gets `HTTP 403` calling
+`edit()`, and an admin user is still allowed through. `destroy()`'s guard was not exercised live
+(any real invocation would be destructive against real data), but is structurally identical —
+same helper, same call-first-line placement, verified by code review that it runs before the
+`DB::transaction()` in every case.
+
+**Files affected:** `app/Http/Controllers/RuleSetController.php`
+
+---
+
+### Mass-Assignment of `policy_status`/`previous_policy_id` — Re-Verified, Not Exploitable
+
+**Status:** CONFIRMED NOT EXPLOITABLE
+
+Both fields are listed in `RuleSet::$fillable`, which on its own would be a classic
+H-03-style mass-assignment bypass (the same class of bug as the Pass 3 Folders finding) if user
+input ever reached them. Checked both write paths:
+
+- `store()` builds the new record from `$request->validated()` (never `$request->all()`), and
+  neither field appears in `StoreRuleSetRequest::rules()` — Laravel's `validated()` only returns
+  keys declared in `rules()`, so no client-supplied value for either field can reach `create()`
+  no matter what a raw POST body contains.
+- `update()` uses `$request->validated()` the same way; `UpdateRuleSetRequest::rules()` also
+  excludes both fields (this exclusion was already called out as deliberate in that file's own
+  doc comment, referencing H-03).
+- The only two places either field is ever written are inside `RuleSetController::store()`'s
+  `DB::transaction()` — `$previousCurrent->update(['policy_status' => 'superseded'])` and
+  `$newRuleSet->update(['previous_policy_id' => $previousCurrent->id])` — both hardcoded
+  server-side values, never derived from request input.
+
+**No fix needed** — the fillable listing is necessary for these two internal `update()` calls to
+work at all; the actual protection is that no user-facing validation path ever exposes the keys.
+
+---
+
+### Free-Text "Other" Fields (`policy_type_other`, `state_other`) — XSS Check
+
+**Status:** PASS
+
+Both fields accept arbitrary user text (e.g. a manually-typed "Import Policy") and are rendered
+back in `rule_sets/show.blade.php`, `rule_sets/edit.blade.php`, and `department/show.blade.php`.
+Confirmed: (1) `prepareForValidation()` in both Form Requests runs `strip_tags(trim(...))` before
+the value ever reaches `Str::title()` or the database — HTML tags are stripped, not escaped, so a
+literal `<script>` submission is reduced to inert text before storage; (2) the `regex`
+Unicode-text validation rule (`/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u`) additionally rejects control
+characters and most non-text bytes; (3) every Blade template in `resources/views/rule_sets/`
+outputs these fields exclusively via `{{ }}` (auto-escaped) — grepped the directory for `{!! !!}`
+and found none. Defense in depth: sanitized at write time *and* escaped at render time.
 
 ---
 
