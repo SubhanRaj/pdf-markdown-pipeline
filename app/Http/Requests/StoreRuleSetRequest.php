@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Models\Department;
 use App\Models\RuleSet;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class StoreRuleSetRequest extends FormRequest
@@ -40,7 +41,11 @@ class StoreRuleSetRequest extends FormRequest
             $merge['state']             = trim(strip_tags($this->input('state', ''))) ?: RuleSet::DEFAULT_STATE;
             $merge['policy_type']       = trim(strip_tags($this->input('policy_type', '')));
             $merge['state_other']       = strip_tags(trim($this->input('state_other', ''))) ?: null;
-            $merge['policy_type_other'] = strip_tags(trim($this->input('policy_type_other', ''))) ?: null;
+            // Title-cased so a manually-typed "other" policy type always lands in the DB the
+            // same way regardless of how the user capitalized it (e.g. "import POLIcy" ->
+            // "Import Policy") — search/filtering on policy_type never fragments on casing.
+            $policyTypeOther = strip_tags(trim($this->input('policy_type_other', '')));
+            $merge['policy_type_other'] = $policyTypeOther !== '' ? Str::title($policyTypeOther) : null;
         }
 
         $this->merge($merge);
