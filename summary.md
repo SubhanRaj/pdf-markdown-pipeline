@@ -1613,3 +1613,61 @@ whole verification pass.
 `resources/views/department/show.blade.php` · `resources/views/documents/show.blade.php` ·
 `resources/views/documents/bulk-upload.blade.php` · `CLAUDE.md` · `README.md` ·
 `POLICY_TAXONOMY_PLAN.md` (deleted, folded into the above).
+
+---
+
+## M31.1 — Policy Taxonomy: post-merge fixes (2026-07-15)
+
+Real-world use of the M31 create form (`/departments/{level}/{dept}/policy/create`) surfaced four
+issues within the first session after merge — three UI bugs and one authorization/data-quality
+gap. All fixed directly on `main` (the feature branch was already merged; these were treated as
+immediate follow-up fixes, not a new feature branch).
+
+**Bug 1 — `ParseError`, page fully down.** `route(\"departments.{$kind}.store\", ...)` inside
+`action="{{ ... }}"` used backslash-escaped quotes — invalid PHP syntax outside a string literal,
+since `{{ }}` is already a raw-PHP context and doesn't need the surrounding HTML attribute's
+quoting escaped. 500'd on every load. Fixed to plain double quotes, matching the already-working
+pattern in `rule_sets/show.blade.php`/`_doc_row.blade.php`. **Gap in M31's own verification
+claim:** M31's write-up above states `Blade::compileString()` was run on every touched view, which
+would have caught this — either that check didn't actually cover this file, or the escaping was
+introduced after that check ran. Worth treating "ran a compile check" as verified-per-file, not
+verified-per-commit, next time.
+
+**Bug 2 — dark-mode toggle contrast.** The "Add UP Policy"/"Add Other State's Policy" buttons'
+click handler toggled base utility classes (`bg-indigo-600`, `text-white`, `bg-white`,
+`text-slate-500`) but never touched the `dark:` variants baked into the static markup. In dark
+mode, `.dark .dark\:bg-slate-800` (two classes) outranks `.bg-indigo-600` (one class) on CSS
+specificity — so "Other State" never visibly highlighted when selected, and "UP" reverted to a
+plain white background (not a dark one) once deselected. Fixed by swapping the *entire*
+active/inactive class list per button (new `applyToggleState()` helper) instead of toggling
+individual utilities in place.
+
+**Bug 3 — form width.** `max-w-2xl` (the shared Rule Set/Policy form width) left a lot of dead
+space for the Policy variant specifically, which has more fields than the plain Rule Set form and
+sits on a page with no sidebar-type content competing for width. Widened to `max-w-4xl` for the
+Policy branch only; the plain Rule Set create form is untouched at `max-w-2xl`.
+
+**Bug 4 — policy type not actually scoped to department.** `RuleSetController::create()` already
+computed a `$defaultPolicyType` from the department's slug (`excise` → `excise_policy`, etc.), but
+the create form's dropdown still listed *every* `RuleSet::POLICY_TYPES` entry — the computed
+default only pre-selected one option in a list that still let an Excise upload be filed as a Cane
+Policy by mistake. The dropdown now renders only the matched type + `other` when
+`$defaultPolicyType` resolves (falls back to the full list only if the department's slug matches
+none of the three heuristics) — a department can only upload its own named policy through the
+controlled options; anything genuinely different (Import/Export Policy, etc.) goes through the
+existing `other` free-text field. That free-text value is now also title-cased server-side
+(`Illuminate\Support\Str::title()`, applied in `prepareForValidation()` in both
+`StoreRuleSetRequest` and `UpdateRuleSetRequest`, before the "other" swap in `validated()`) so
+`"import POLIcy"` and `"Import policy"` both persist as `"Import Policy"` — otherwise the `other`
+escape hatch would have quietly reintroduced the exact casing-fragmentation problem the controlled
+vocabulary was built to prevent.
+
+**Verification performed:** `php artisan view:clear` + a real `php artisan serve` + `curl`
+round-trip against `/departments/dept/excise/policy/create` after each fix (confirmed 200 and
+correct rendered markup — locked `policy_type` `<select>` showing only `excise_policy` + `other`
+for the Excise department); `php -l` on both touched Form Request files; a tinker call confirming
+`Str::title('import POLIcy')` → `'Import Policy'`.
+
+**Files changed:** `resources/views/rule_sets/create.blade.php` ·
+`app/Http/Requests/StoreRuleSetRequest.php` · `app/Http/Requests/UpdateRuleSetRequest.php` ·
+`README.md` · `claude.md`.

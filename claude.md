@@ -893,9 +893,21 @@ Route map below for the full `/policy` list.
 **Upload flow default:** the department "Add Policy" flow defaults to Uttar Pradesh — the create
 form's primary button ("Add \[Department\]'s UP Policy") submits `state` via a hidden field, no
 picker shown; a secondary "Add Other State's Policy" button reveals the `RuleSet::STATES` dropdown.
-`RuleSetController::create()` also pre-selects a sensible `policy_type` default from the
-department's slug (`excise` → `excise_policy`, `cane` → `cane_policy`, `sugar` → `sugar_policy`) —
-a UI nicety only, never enforced.
+`RuleSetController::create()` resolves a `$defaultPolicyType` from the department's slug (`excise`
+→ `excise_policy`, `cane` → `cane_policy`, `sugar` → `sugar_policy`). **Fixed 2026-07-15
+(post-merge):** originally this was a UI nicety only (pre-selected the matching option inside a
+dropdown that still listed every policy type) — a department could still accidentally file its
+upload under another department's policy type. The `policy_type` `<select>` on the create form is
+now actually locked to that one match plus `other` when `$defaultPolicyType` resolves (falls back
+to the full `RuleSet::POLICY_TYPES` list only if the department's slug doesn't match any of the
+three heuristics), so a department genuinely can only upload its own named policy through the
+dropdown — anything else (e.g. Import/Export Policy) goes through the existing `other` free-text
+escape hatch. That free-text value is now also title-cased server-side
+(`Illuminate\Support\Str::title()`, in both `StoreRuleSetRequest::prepareForValidation()` and
+`UpdateRuleSetRequest::prepareForValidation()`, before it lands in `validated()['policy_type']`
+via the "other" swap) — `"import POLIcy"` and `"Import policy"` both persist as `"Import Policy"`,
+so this escape hatch can't reintroduce the casing fragmentation the controlled vocabulary exists
+to prevent.
 
 **Views:** `department/show.blade.php` has a "Policies" panel (current policies only, same
 list-item style as the existing Rule Sets panel) plus a collapsed `<details>` "Historical Policies"
@@ -910,6 +922,22 @@ duplicated the existing one with a different source array; `DocumentController::
 buildUploadScopeTree()` filters the policy half of that merged list through
 `canManagePolicyForDepartment()` rather than the generic `$scope` used for sections/rule-sets,
 since policy management is stricter.
+
+**Fixed 2026-07-15 (post-merge, `rule_sets/create.blade.php`):**
+- The `action="{{ route(\"departments.{$kind}.store\", ...) }}"` line used backslash-escaped
+  quotes, which is invalid PHP syntax inside a `{{ }}` block (that's already a raw-PHP context —
+  the HTML attribute's own quoting doesn't need escaping in there, same as the working pattern
+  already used in `rule_sets/show.blade.php`/`_doc_row.blade.php`). This 500'd every load of
+  `/departments/{level}/{dept}/policy/create` with a `ParseError`. Fixed to plain double quotes.
+- The "Add UP Policy" / "Add Other State's Policy" toggle buttons' JS toggled base utility
+  classes (`bg-indigo-600`) while a static `dark:bg-slate-800` class from the inactive markup
+  never got removed — in dark mode the two-class `dark:` selector outranks the one-class active
+  selector on specificity, so "Other State" never visibly highlighted when selected, and "UP"
+  fell back to a glaring plain-white background once deselected. Rewrote the toggle to swap the
+  entire active/inactive class set per button (`applyToggleState()`) instead of toggling
+  individual utilities.
+- The Policy variant of this form is `max-w-4xl` (the plain Rule Set variant stays `max-w-2xl`)
+  — this page has no sidebar-type content competing for width.
 
 ### Maker-Checker Approval Workflow
 
