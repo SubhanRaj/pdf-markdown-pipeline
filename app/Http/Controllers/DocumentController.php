@@ -1163,9 +1163,39 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Original PDF file not found.'], 404);
         }
 
-        ConvertDocumentToMarkdown::dispatch($document->id);
+        $structureEngine = request()->input('structure_engine', config('docling.default_ocr_engine'));
+
+        if (! array_key_exists($structureEngine, config('docling.ocr_engines'))) {
+            return response()->json(['message' => 'Unknown structure OCR engine selected.'], 422);
+        }
+
+        ConvertDocumentToMarkdown::dispatch($document->id, $structureEngine);
 
         return response()->json(['status' => 'processing']);
+    }
+
+    /**
+     * Returns the compact Docling structure map (headings + table cells + bboxes) produced by
+     * ConvertDocumentToMarkdown's Pass 0, for the informational "Structure" panel in the review
+     * UI. Gated the same as every other document-mutation-adjacent endpoint in this
+     * controller — this is new code added after H-04/H-05/L-04 (see SECURITY.md), so it does
+     * not repeat the "forgot the authorization check" pattern those fixes closed.
+     */
+    public function structureJson(int $id): JsonResponse
+    {
+        $document = Document::findOrFail($id);
+
+        if (! $this->canManageDocument($document)) {
+            abort(403);
+        }
+
+        $structurePath = preg_replace('/\.pdf$/i', '.structure.json', $document->original_pdf_path ?? '');
+
+        if (! $structurePath || ! Storage::disk('public')->exists($structurePath)) {
+            return response()->json(['message' => 'No structure analysis available for this document.'], 404);
+        }
+
+        return response()->json(json_decode(Storage::disk('public')->get($structurePath), true));
     }
 
     /** Explicit, human-triggered OCR re-extraction — never auto-run. See RunOcrExtraction. */
@@ -1247,11 +1277,15 @@ class DocumentController extends Controller
         $document = Document::findOrFail($id);
 
         return response()->json([
-            'status'            => $document->status,
-            'extraction_method' => $document->metadata['extraction_method'] ?? null,
-            'ocr_engine'        => $document->metadata['ocr_engine'] ?? null,
-            'needs_ocr_review'  => (bool) ($document->metadata['needs_ocr_review'] ?? false),
-            'has_markdown'      => (bool) ($document->markdown_path && Storage::disk('public')->exists($document->markdown_path)),
+            'status'                   => $document->status,
+            'extraction_method'       => $document->metadata['extraction_method'] ?? null,
+            'ocr_engine'              => $document->metadata['ocr_engine'] ?? null,
+            'needs_ocr_review'        => (bool) ($document->metadata['needs_ocr_review'] ?? false),
+            'has_markdown'            => (bool) ($document->markdown_path && Storage::disk('public')->exists($document->markdown_path)),
+            'structure_analyzed'      => (bool) ($document->metadata['structure_analyzed'] ?? false),
+            'structure_engine'        => $document->metadata['structure_engine'] ?? null,
+            'structure_headings_count' => $document->metadata['structure_headings_count'] ?? null,
+            'structure_tables_count'  => $document->metadata['structure_tables_count'] ?? null,
         ]);
     }
 
@@ -1326,8 +1360,19 @@ class DocumentController extends Controller
                     Storage::disk('public')->delete($document->markdown_path);
                 }
 
+                // Structure map is scoped to the draft it was produced alongside — discard it
+                // the same way the Markdown itself is discarded, not kept around indefinitely.
+                $structurePath = preg_replace('/\.pdf$/i', '.structure.json', $document->original_pdf_path);
+                if ($structurePath && Storage::disk('public')->exists($structurePath)) {
+                    Storage::disk('public')->delete($structurePath);
+                }
+
                 $metadata = $document->metadata ?? [];
-                unset($metadata['extraction_method'], $metadata['needs_ocr_review'], $metadata['manually_edited']);
+                unset(
+                    $metadata['extraction_method'], $metadata['needs_ocr_review'], $metadata['manually_edited'],
+                    $metadata['structure_analyzed'], $metadata['structure_engine'],
+                    $metadata['structure_headings_count'], $metadata['structure_tables_count'],
+                );
 
                 $document->update([
                     'markdown_path' => null,

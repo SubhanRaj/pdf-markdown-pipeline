@@ -122,6 +122,7 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
         Route::post('/{id}/convert-ocr',           [DocumentController::class, 'convertOcr'])->where('id', '[0-9]+')->name('convert-ocr');
         Route::post('/{id}/revert-ocr',            [DocumentController::class, 'revertOcr'])->where('id', '[0-9]+')->name('revert-ocr');
         Route::get('/{id}/convert-status',         [DocumentController::class, 'conversionStatus'])->where('id', '[0-9]+')->name('convert-status');
+        Route::get('/{id}/structure',              [DocumentController::class, 'structureJson'])->where('id', '[0-9]+')->name('structure');
         Route::patch('/{id}/markdown',             [DocumentController::class, 'updateMarkdown'])->where('id', '[0-9]+')->name('markdown.update');
         Route::delete('/{id}/markdown',            [DocumentController::class, 'discardMarkdown'])->where('id', '[0-9]+')->name('markdown.discard');
         Route::post('/', [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads');
