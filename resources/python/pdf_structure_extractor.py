@@ -60,6 +60,18 @@ class TableBlock:
 
 NUMBERED_PREFIX_RE = re.compile(r'^(\d+(?:\.\d+)*)[\.\)]?\s+')
 
+# Legacy non-Unicode Devanagari fonts (Kruti Dev, Chanakya, DevLys, Shusha, Walkman, etc.) map
+# their glyphs into the Latin/ASCII code range with no real ToUnicode CMap. pdfminer still
+# extracts "text" from these — readable-looking but wrong (e.g. "Hkkjr" instead of "भारत") —
+# which is worse than the (cid:N) fallback case already checked in ConvertDocumentToMarkdown's
+# isGoodQuality(), since char-count and cid-token checks both pass. Detected here, at the only
+# place this script already reads per-character font names (see bold_count below), rather than
+# attempting a character remapping table — remapping risks silently producing subtly-wrong text
+# in a legal government document; flagging for human review matches this script's existing
+# quality philosophy. Confirmed against a real document during the Docling evaluation — see
+# STRUCTURE_RESEARCH.md.
+LEGACY_HINDI_FONT_RE = re.compile(r'kruti|chanakya|devlys|shusha|walkman|agra|shree.?dev', re.IGNORECASE)
+
 # Table-row grouping tolerances, in the source's native units (PDF points for --mode pdf,
 # pixels for every OCR-based mode) — coarse on purpose since OCR bounding boxes are noisier
 # than pdfminer's exact glyph coordinates.
@@ -261,7 +273,14 @@ def _reading_order_sort(lines: list[Line]) -> list[Line]:
     return sorted(lines, key=lambda l: (l.page, -round(l.y0 / ROW_Y_TOLERANCE), l.x0))
 
 
+# Set by extract_pdf() when a legacy non-Unicode font is detected; read by main() afterward.
+# Module-level rather than threading a second return value through every extractor, since only
+# --mode pdf can hit this (OCR-based modes read rendered pixels, never a font's broken cmap).
+detected_legacy_font: str | None = None
+
+
 def extract_pdf(path: str) -> list[Line]:
+    global detected_legacy_font
     from pdfminer.high_level import extract_pages
     from pdfminer.layout import LTTextLine, LTChar, LTTextContainer
 
@@ -278,6 +297,11 @@ def extract_pdf(path: str) -> list[Line]:
                     continue
                 avg_size = sum(c.height for c in chars) / len(chars)
                 bold_count = sum(1 for c in chars if 'bold' in c.fontname.lower())
+                if detected_legacy_font is None:
+                    for c in chars:
+                        if LEGACY_HINDI_FONT_RE.search(c.fontname):
+                            detected_legacy_font = c.fontname
+                            break
                 lines.append(Line(
                     text=text_line.get_text(),
                     size=avg_size,
@@ -422,7 +446,12 @@ def main():
         'surya': extract_surya_dir,
     }
     lines = extractors[args.mode](args.input)
-    sys.stdout.write(classify_and_render(lines))
+    output = classify_and_render(lines)
+    if args.mode == 'pdf' and detected_legacy_font:
+        # Reuses the existing stdout-string contract with ConvertDocumentToMarkdown rather
+        # than adding a new IPC channel — isGoodQuality() strips this marker before saving.
+        output = f'<!-- LEGACY_FONT_DETECTED:{detected_legacy_font} -->\n' + output
+    sys.stdout.write(output)
 
 
 if __name__ == '__main__':
