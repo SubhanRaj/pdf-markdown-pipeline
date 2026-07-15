@@ -222,6 +222,22 @@ existing JSON column; `status` reuses values already named in `CLAUDE.md`'s enum
 
 ---
 
+### 2.5 Structure Detection (Docling) ✅ Phase 1 implemented (2026-07-15)
+
+**Status:** Structure-only phase implemented. The geometric merge phase below is the next increment, not yet built.
+
+**Rationale:** Section 2.4's pipeline extracts characters correctly but loses page *structure* — tables collapse into run-on paragraphs, headings disappear into body text — even when the underlying character recognition (Tesseract/EasyOCR/PaddleOCR) is accurate. Evaluated hands-on against real other-state excise policy PDFs (both a text-layer document and a 54-page scan): [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0) already implements the layout-detection → table-structure → structured-Markdown pattern this problem calls for, using a purpose-built vision model rather than a general LLM — confirmed fast (~3s/page) and no Ollama/LLM needed anywhere in this pipeline. Full write-up, including the RapidOCR-defaults-to-Chinese bug found and the `--force-ocr` impracticality finding: `STRUCTURE_RESEARCH.md`.
+
+**What shipped (Phase 1):**
+- Docling runs automatically as Pass 0 of every `ConvertDocumentToMarkdown` job — headings and table cells (with bounding boxes) detected and trimmed into a compact `{slug}.structure.json` sibling file on the `public` disk, never in the database.
+- Always uses the default engine (Tesseract, of the three — EasyOCR/RapidOCR — Docling can call directly; it cannot use Paddle or Surya) for Docling's own scanned-page OCR internally, discarded after structure detection — the main text still comes from section 2.4's pipeline. An engine-choice dropdown was tried next to the Convert button and removed on review: it broke the established pattern of only surfacing an engine choice once there's a result to react to (see `config/docling.php` if the default ever needs changing).
+- Informational only: shown as a small strip on `documents/show` ("Structure: N headings, M tables"), viewable as raw JSON via `GET /documents/{id}/structure`, discarded by `discardMarkdown()` alongside the Markdown draft.
+- A real, pre-existing gap found independently during this evaluation: legacy non-Unicode Devanagari fonts (Kruti Dev, Chanakya, DevLys) produce readable-looking-but-wrong text that neither the `(cid:\d+)` nor char-count quality check catches — fixed by detecting the font *name* directly and forcing `needs_ocr_review`.
+
+**Phase 2 (not yet built) — geometric merge:** align whichever OCR engine's word-level bounding boxes (Tesseract/EasyOCR/PaddleOCR/Surya) into Docling's detected region/table boxes, to actually reconstruct structured Markdown for scanned documents instead of relying solely on `pdf_structure_extractor.py`'s own row/column-clustering heuristics. Deferred deliberately until real structure output has been reviewed against enough real documents in the UI to know if the heuristic-only path is actually insufficient in practice.
+
+---
+
 ## Cross-Cutting Concerns
 
 ### CSP Nonce Migration (Post-CDN)
@@ -238,4 +254,4 @@ The current Parsedown post-processor uses a targeted `preg_replace` to strip `ja
 
 ---
 
-*Roadmap authored: 2026-06-25. Last updated: 2026-07-13 (2.4 Text Extraction Pipeline marked implemented — design revised from auto-OCR-fallback to human-gated OCR after concrete testing; see `summary.md` M30 and `SECURITY.md` Pass 4). All items subject to prioritisation based on NIC audit outcomes and departmental SOP review.*
+*Roadmap authored: 2026-06-25. Last updated: 2026-07-15 (2.5 Structure Detection/Docling added, Phase 1 marked implemented; see `summary.md` and `STRUCTURE_RESEARCH.md`). All items subject to prioritisation based on NIC audit outcomes and departmental SOP review.*

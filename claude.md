@@ -29,6 +29,7 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Web server | Apache (mod_php or php-fpm via mod_proxy_fcgi) — **no Nginx** |
 | Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Parsedown (markdown render) — **no Node, no npm, no build step** |
 | Text extraction | Python `markitdown`, via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
+| Structure detection | [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0), own venv (`storage/app/private/ocr-engines/docling/`) — layout/table-structure model, runs automatically as Pass 0 of every "Convert to Markdown" click, before markitdown's text-layer pass. Detects headings and table cells with bounding boxes; stored as a compact sibling `.structure.json`, informational only so far (not yet merged into the rendered Markdown — see `STRUCTURE_RESEARCH.md`). |
 | OCR | Selectable engine — Tesseract (`hin`+`eng`, default), EasyOCR, PaddleOCR, or Surya — invoked via `symfony/process`. **Never automatic** — triggered only by an explicit "Run OCR-Based Extraction" action (with an engine dropdown) from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below and `config/ocr.php`. |
 | Queue | Laravel **database** queue driver — deliberately no Redis, single-box local deployment |
 | Disk | Single local filesystem disk (`public`); logical separation enforced by path convention, not multiple disks |
@@ -301,7 +302,7 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 | Archive | `DocumentController` (existing methods) | Soft-deleted documents accessible to all authenticated users; "Archive" in all UI; counts split active vs archived; restore gated by `documents.restore` privilege; permanent delete gated by `documents.force-delete` + requires reason + letter PDF upload — letter stored on the **private `local` disk** (`storage/app/private/archive_letters/`), never on public disk; letter path stored in `document_status_histories.metadata` |
 | Activity Log | `Admin\ActivityLogController` | Admin-only audit view at `GET /admin/activity-logs`; filterable by user, action, and IP; paginates the `activity_logs` table (50/page); `LogMutation` middleware records all authenticated POST/PATCH/DELETE requests; `Login` event listener records every successful login with IP, UA, and guard |
 | Approval Queue | `ApprovalController` | Maker-checker workflow at `GET /approvals`; three tabs (Pending / Rejected / My Submissions); approve, reject, reclassify, resubmit actions; scope-aware (approvers see only their org boundary); PDF preview via slide-over drawer; bulk approve/reject |
-| **Text Extraction / OCR** | **`DocumentController` (`convert`, `convertOcr`, `conversionStatus`, `updateMarkdown`, `discardMarkdown`)** | **Button-triggered Markdown conversion (`ConvertDocumentToMarkdown` job) + on-demand OCR re-extraction (`RunOcrExtraction` job); Compare & Verify split-pane modal on `documents/show`; see dedicated section below** |
+| **Text Extraction / OCR / Structure** | **`DocumentController` (`convert`, `convertOcr`, `conversionStatus`, `structureJson`, `updateMarkdown`, `discardMarkdown`)** | **Button-triggered Markdown conversion (`ConvertDocumentToMarkdown` job, now also runs a Docling structure-detection Pass 0) + on-demand OCR re-extraction (`RunOcrExtraction` job); Compare & Verify split-pane modal on `documents/show`; see dedicated section below** |
 | **Bulk Upload** | **`DocumentController@bulkUploadForm`** | **`GET /documents/bulk-upload` — single page to upload multiple files to any department/section/division/folder/rule-set the user is scoped to, with optional auto-convert per file** |
 | **Conversion Pipeline monitor** | **`DocumentController@pipeline`** | **`GET /documents/pipeline` — table of every document not yet verified/archived (`uploaded`/`processing`/`ocr_pending`/`review`/`failed`), status tabs, live polling, per-row Convert/Retry** |
 
@@ -316,11 +317,33 @@ result is good enough or needs OCR, nothing burns minutes of queue time until so
 approval. A **Convert to Markdown** button on `documents/show` (and a per-row **Convert**/**Retry**
 button on the Pipeline monitor, and an **auto-convert** checkbox on the Bulk Upload page) calls
 `POST /documents/{id}/convert`, which dispatches `App\Jobs\ConvertDocumentToMarkdown`
-(`ShouldQueue`, `$timeout = 900`). Both `convert()` and `convertOcr()` are gated by
+(`ShouldQueue`, `$timeout = 1200` — bumped from 900 to give the Docling structure pass below
+headroom). Both `convert()` and `convertOcr()` are gated by
 `auth()->user()->isAdmin()` directly in the controller — same pattern as other admin-only
 document mutations in this codebase (Form-Request-only or controller-only isAdmin() checks,
 not the stricter `is_admin` route-group middleware, which is reserved for `admin.*` user
 management routes).
+
+**Pass 0 — Docling structure detection, runs automatically before text extraction:**
+Every "Convert to Markdown" click also runs Docling (`storage/app/private/ocr-engines/docling/`
+venv) against the original PDF via its own CLI (`docling convert --to json`), before the
+text-layer pass below. Always uses `config('docling.default_ocr_engine')` (Tesseract) as the
+backend Docling reads scanned regions with internally — no UI control for this; an earlier
+version exposed a "Structure OCR engine" dropdown next to the Convert button, but that broke the
+established pattern of never surfacing an engine choice before there's a result to react to (the
+main OCR-engine dropdown in Compare & Verify only appears *after* conversion, once quality is
+known) — removed after review, see `config/docling.php` if the engine ever needs changing.
+Whatever text Docling's own OCR produces internally is discarded either way, only the detected
+region/table structure (with bounding boxes) is kept. Docling's
+huge raw export (confirmed 100MB+ per document during evaluation) is trimmed down to headings +
+table cells and written as a compact sibling file, `{slug}.structure.json`, on the same `public`
+disk as the PDF/Markdown — never in the database. This is additive and non-fatal: any Docling
+failure is logged and the rest of the pipeline proceeds unaffected. This round, the structure
+map is **informational only** (shown as a small "Structure: N headings, M tables" strip on
+`documents/show`, viewable as raw JSON via `GET /documents/{id}/structure`) — it is not yet
+merged into the rendered Markdown; see `STRUCTURE_RESEARCH.md` for the two-phase plan and why
+the merge step is deferred. `discardMarkdown()` deletes the `.structure.json` sibling alongside
+the Markdown draft it was produced with, same lifecycle as the Markdown itself.
 
 **`ConvertDocumentToMarkdown` job — text-layer pass, always runs first:**
 1. Runs `resources/python/pdf_structure_extractor.py --mode pdf` through the same venv Python
@@ -337,15 +360,26 @@ management routes).
    flattened into one paragraph. Applies uniformly across all extraction modes (`pdf`, `hocr`,
    `easyocr`, `paddleocr`; Surya gets its own path, see below), each populating `Line.x0/x1/y0`
    from whatever positional data that mode's source provides.
-2. Quality-checks the output via `isGoodQuality()` — two independent failure signals, both
-   meaning "don't trust this text layer":
+2. Quality-checks the output via `isGoodQuality()` plus a separate legacy-font check, three
+   independent failure signals, all meaning "don't trust this text layer":
    - `(cid:\d+)` glyph-ID fallback tokens (pdfminer couldn't resolve a character to Unicode
-     because the embedded font has no usable ToUnicode CMap — very common in legacy
-     non-Unicode Devanagari fonts like Kruti Dev/Chanakya/DevLys). More than 5 occurrences ⇒
-     bad. Char-count alone doesn't catch this — a page full of `(cid:547)` garbage still has
+     because the embedded font has no usable ToUnicode CMap). More than 5 occurrences ⇒ bad.
+     Char-count alone doesn't catch this — a page full of `(cid:547)` garbage still has
      plenty of characters.
    - Near-empty text relative to page count (`char_count < page_count * 40`) — a real
      scanned/photographed page with no text layer at all.
+   - **Legacy non-Unicode font detected by name** (Kruti Dev, Chanakya, DevLys, Shusha,
+     Walkman, etc. — `LEGACY_HINDI_FONT_RE` in `pdf_structure_extractor.py`, checked against
+     pdfminer's per-character `fontname`). These fonts remap Devanagari glyphs into the
+     Latin/ASCII range with no real CMap, so pdfminer extracts *readable-looking but wrong*
+     text (`Hkkjr` instead of `भारत`) — neither the cid-token nor char-count check catches
+     this, since the output has plenty of real-looking characters. Found during the Docling
+     evaluation against a real UP policy document — see `STRUCTURE_RESEARCH.md`. Detected
+     via a sentinel marker (`<!-- LEGACY_FONT_DETECTED:{fontname} -->`) prepended to the
+     script's stdout output and stripped by `ConvertDocumentToMarkdown` before saving —
+     deliberately not a character-remapping table, which risks silently producing
+     subtly-wrong text in a legal document; flagging for human review matches this
+     pipeline's existing quality philosophy.
 3. Writes the Markdown regardless of quality (`status → review` either way) and sets
    `metadata.needs_ocr_review = true/false` — a bad text-layer result is still shown to the
    reviewer with a warning, not silently discarded, so nothing is stuck waiting on a human who
@@ -532,6 +566,7 @@ Controller method signatures **must** declare `string $level` as their first par
 | POST | `/documents/{id}/convert-ocr` | `documents.convert-ocr` | Admin (controller check) |
 | POST | `/documents/{id}/revert-ocr` | `documents.revert-ocr` | Admin (controller check) |
 | GET | `/documents/{id}/convert-status` | `documents.convert-status` | Auth (unscoped — see note) |
+| GET | `/documents/{id}/structure` | `documents.structure` | Admin/policy-manager (`canManageDocument()`) |
 | PATCH | `/documents/{id}/markdown` | `documents.markdown.update` | Admin (Form Request check) |
 | DELETE | `/documents/{id}/markdown` | `documents.markdown.discard` | Admin (controller check) |
 

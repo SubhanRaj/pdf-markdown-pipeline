@@ -153,3 +153,27 @@ Not evaluated in this round by explicit choice — on-premise is the current inv
 not a hard architectural rule (CLAUDE.md's stated "100% on-premise" mandate reflects a real
 data-privacy requirement for GO/gazette content, but the user has indicated cloud OCR APIs
 remain open for a future department-level discussion if no on-prem engine clears the bar).
+
+## Open follow-up (2026-07-15) — PaddleOCR's Hindi-only recognition model
+
+Noted during the Docling structure-detection evaluation (`STRUCTURE_RESEARCH.md`), not
+investigated further this round: `extract_paddleocr_dir()` in `pdf_structure_extractor.py` pins
+`text_recognition_model_name='devanagari_PP-OCRv5_mobile_rec'` — a Devanagari-specific
+recognition model with no English-specific counterpart. Detection (`PP-OCRv5_mobile_det`) is
+language-agnostic, but on a mixed Hindi/English page, English text runs through the same
+Devanagari-tuned recognizer and may be misread. This hasn't caused an observed accuracy problem
+in practice yet (the excise policy documents tested so far are heavily Hindi- or
+heavily English-dominant per page, not finely interleaved), but is worth testing explicitly if a
+genuinely mixed-script document surfaces a real issue.
+
+**If revisited:** PP-OCRv5 does ship multilingual recognition model variants — evaluating one
+would need the same rigor as the Candidate 1/2/3 comparisons above (a real accuracy/memory
+tradeoff test against a known document, not a blind config swap), since the current
+Devanagari-only pin was itself a deliberate, tested choice (see Candidate 1 above).
+
+**Also raised in passing, not investigated:** increasing PaddleOCR's CPU/thread resource
+allocation beyond its current defaults (the `enable_mkldnn=False` + mobile-model pin above are
+the only tuning applied so far). Yesterday's Paddle run on the Odisha document (see Candidate 1's
+"real-world case study") already used ~880-890% CPU (9 cores) without explicit thread tuning —
+whether further explicit `cpu_threads`-style configuration would meaningfully improve throughput
+on top of that hasn't been tested. Flagged here as a follow-up idea, not implemented.
