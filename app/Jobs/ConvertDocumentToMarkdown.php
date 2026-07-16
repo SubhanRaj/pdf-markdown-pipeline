@@ -55,7 +55,12 @@ class ConvertDocumentToMarkdown implements ShouldQueue
             // documents that didn't need it. If this pass looks low-quality (near-empty text —
             // i.e. actually a scanned/photographed page), we flag it for a human to decide,
             // via RunOcrExtraction triggered explicitly from the review screen.
-            $markdown = $this->tryStructuredExtract($absolutePdfPath);
+            $structurePath = preg_replace('/\.pdf$/i', '.structure.json', $document->original_pdf_path);
+            $structureAbsolutePath = ($structureMeta !== [] && Storage::disk('public')->exists($structurePath))
+                ? Storage::disk('public')->path($structurePath)
+                : null;
+
+            $markdown = $this->tryStructuredExtract($absolutePdfPath, $structureAbsolutePath);
 
             $legacyFont = null;
             if (preg_match('/^<!-- LEGACY_FONT_DETECTED:(.+?) -->\n/', $markdown, $m)) {
@@ -225,10 +230,17 @@ class ConvertDocumentToMarkdown implements ShouldQueue
      * own PDF converter, which only calls pdfminer.high_level.extract_text() and is plain-text
      * only by its own documentation ("most style information is ignored").
      */
-    private function tryStructuredExtract(string $absolutePdfPath): string
+    private function tryStructuredExtract(string $absolutePdfPath, ?string $structureJsonPath = null): string
     {
         try {
-            $result = Process::timeout(120)->run([$this->pythonBin, $this->extractorScript, '--mode', 'pdf', $absolutePdfPath]);
+            $command = [$this->pythonBin, $this->extractorScript, '--mode', 'pdf'];
+            if ($structureJsonPath !== null) {
+                $command[] = '--structure-json';
+                $command[] = $structureJsonPath;
+            }
+            $command[] = $absolutePdfPath;
+
+            $result = Process::timeout(120)->run($command);
 
             return $result->successful() ? trim($result->output()) : '';
         } catch (\Throwable) {

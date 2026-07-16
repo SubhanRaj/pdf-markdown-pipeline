@@ -43,7 +43,12 @@ class RunOcrExtraction implements ShouldQueue
         $absolutePdfPath = Storage::disk('public')->path($document->original_pdf_path);
 
         try {
-            $markdown = $this->runOcr($absolutePdfPath);
+            $structurePath = preg_replace('/\.pdf$/i', '.structure.json', $document->original_pdf_path);
+            $structureAbsolutePath = Storage::disk('public')->exists($structurePath)
+                ? Storage::disk('public')->path($structurePath)
+                : null;
+
+            $markdown = $this->runOcr($absolutePdfPath, $structureAbsolutePath);
 
             $markdownPath = preg_replace('/\.pdf$/i', '.md', $document->original_pdf_path);
 
@@ -100,7 +105,7 @@ class RunOcrExtraction implements ShouldQueue
         }
     }
 
-    private function runOcr(string $absolutePdfPath): string
+    private function runOcr(string $absolutePdfPath, ?string $structureJsonPath = null): string
     {
         $tmpDir = storage_path('app/private/ocr_tmp/' . uniqid('doc_', true));
         mkdir($tmpDir, 0755, true);
@@ -151,10 +156,17 @@ class RunOcrExtraction implements ShouldQueue
                 $mode = $this->engine;
             }
 
+            $command = [$pythonBin, $this->extractorScript, '--mode', $mode];
+            if ($structureJsonPath !== null) {
+                $command[] = '--structure-json';
+                $command[] = $structureJsonPath;
+            }
+            $command[] = $tmpDir;
+
             // These engines load large models per invocation, well beyond Tesseract's per-page cost.
             $structured = Process::timeout(1800)
                 ->env($engines[$this->engine]['env'] ?? [])
-                ->run([$pythonBin, $this->extractorScript, '--mode', $mode, $tmpDir]);
+                ->run($command);
 
             if (! $structured->successful()) {
                 throw new \RuntimeException("Structure extraction ({$this->engine}) failed: " . $structured->errorOutput());
