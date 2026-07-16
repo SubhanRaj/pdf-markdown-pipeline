@@ -280,6 +280,9 @@
             <p class="mt-1 text-xs text-indigo-500 dark:text-indigo-400">
                 Elapsed <span id="convert-elapsed">0:00</span> — OCR on scanned documents can take several minutes. This page updates automatically.
             </p>
+            <p id="convert-queue-note" class="mt-1 text-xs text-amber-600 dark:text-amber-400 hidden">
+                Waiting in queue — another document is currently processing (single worker, see CLAUDE.md).
+            </p>
         </div>
         @elseif($document->status === 'failed')
         <div id="markdown-card" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-6 py-8 text-center">
@@ -304,28 +307,17 @@
                     <i class="ti ti-alert-circle text-sm"></i> Text quality looks low — OCR option available inside.
                 </span>
                 @endif
+                @if($document->metadata['structure_analyzed'] ?? false)
+                <span class="inline-flex items-center gap-1 text-sky-700 dark:text-sky-300 font-medium">
+                    <i class="ti ti-layout-2 text-sm"></i> Structure detected — view inside.
+                </span>
+                @endif
             </p>
             @auth @if($canManageDoc)
             <button type="button" id="open-compare-modal-btn"
                     class="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0">
                 <i class="ti ti-columns text-sm"></i> Compare &amp; Verify
             </button>
-            @endif @endauth
-        </div>
-        @endif
-
-        {{-- Structure Analysis (Docling) — informational only this round, not yet merged into
-             the rendered Markdown below. See STRUCTURE_RESEARCH.md. --}}
-        @if($document->metadata['structure_analyzed'] ?? false)
-        <div class="bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 rounded-lg px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap text-xs">
-            <span class="text-sky-700 dark:text-sky-300 flex items-center gap-1.5">
-                <i class="ti ti-layout-2 text-sm"></i>
-                Structure: {{ $document->metadata['structure_headings_count'] ?? 0 }} headings,
-                {{ $document->metadata['structure_tables_count'] ?? 0 }} tables detected
-                (Docling · {{ config('docling.ocr_engines.' . ($document->metadata['structure_engine'] ?? '') . '.label', $document->metadata['structure_engine'] ?? '?') }})
-            </span>
-            @auth @if($canManageDoc)
-            <a href="{{ route('documents.structure', $document->id) }}" target="_blank" class="text-sky-600 dark:text-sky-400 hover:underline font-medium">View raw JSON</a>
             @endif @endauth
         </div>
         @endif
@@ -602,8 +594,8 @@
 <div id="compare-modal"
      style="display:none;position:fixed;inset:0;z-index:50;background:rgba(15,23,42,0.75)"
      onclick="if(event.target===this)document.getElementById('compare-modal').style.display='none'">
-    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(1400px,96vw);height:90vh"
-         class="bg-slate-100 dark:bg-slate-950 rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-300 dark:border-slate-700">
+    <div style="position:absolute;inset:0"
+         class="bg-slate-100 dark:bg-slate-950 shadow-2xl flex flex-col overflow-hidden">
 
         <div class="flex items-center justify-between px-6 py-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
             <div class="flex items-center gap-2">
@@ -616,6 +608,29 @@
                 <i class="ti ti-x"></i>
             </button>
         </div>
+
+        {{-- Structure Analysis (Docling) — shown first: confirms the document's layout/table
+             shape before the user decides between accepting the Markdown or running OCR.
+             Informational only this round, not yet merged into the rendered Markdown below.
+             See STRUCTURE_RESEARCH.md. --}}
+        @if($document->metadata['structure_analyzed'] ?? false)
+        <div class="mx-2 mt-2 flex-shrink-0">
+            <button type="button" id="structure-toggle-btn"
+                    data-structure-url="{{ route('documents.structure', $document->id) }}"
+                    class="w-full flex items-center justify-between gap-3 px-4 py-2 bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 rounded-lg text-xs hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors">
+                <span class="text-sky-700 dark:text-sky-300 flex items-center gap-1.5">
+                    <i class="ti ti-layout-2 text-sm"></i>
+                    Structure detected: {{ $document->metadata['structure_headings_count'] ?? 0 }} headings,
+                    {{ $document->metadata['structure_tables_count'] ?? 0 }} tables
+                    (Docling · {{ config('docling.ocr_engines.' . ($document->metadata['structure_engine'] ?? '') . '.label', $document->metadata['structure_engine'] ?? '?') }})
+                </span>
+                <span class="text-sky-600 dark:text-sky-400 font-medium flex items-center gap-1 flex-shrink-0">
+                    View structure <i class="ti ti-chevron-down text-sm" id="structure-toggle-icon"></i>
+                </span>
+            </button>
+            <div id="structure-panel" class="hidden mt-1 max-h-[32rem] overflow-y-auto bg-white dark:bg-slate-900 border border-sky-100 dark:border-sky-900/40 rounded-lg px-4 py-3 text-xs text-slate-700 dark:text-slate-300"></div>
+        </div>
+        @endif
 
         @if($needsOcrReview)
         <div class="mx-2 mt-2 px-4 py-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg flex-shrink-0 flex items-center gap-2">
@@ -700,6 +715,8 @@
 
 @push('scripts')
 <script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gridjs@6/dist/gridjs.umd.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridjs@6/dist/theme/mermaid.min.css">
 <script>
 try {
     const visForm = document.getElementById('visibility-form');
@@ -883,6 +900,117 @@ try {
             if (compareIframe && !compareIframe.src) {
                 compareIframe.src = compareIframe.dataset.src;
             }
+        });
+    }
+
+    // Structure (Docling) panel — fetched and rendered as a real heading outline + HTML
+    // tables on first expand, not a raw-JSON dump, so a reviewer can actually judge at a
+    // glance whether the detected structure looks complete before deciding OCR vs. accept.
+    const structureBtn   = document.getElementById('structure-toggle-btn');
+    const structurePanel = document.getElementById('structure-panel');
+    const structureIcon  = document.getElementById('structure-toggle-icon');
+
+    function escapeHtml(str) {
+        return String(str ?? '').replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        }[c]));
+    }
+
+    // Flattens Docling's row/col-span cell list into a plain rows×cols grid of strings — the
+    // simplest shape Grid.js (and any other tabular renderer) understands. Spanned cells repeat
+    // the anchor's text rather than staying blank, since Grid.js has no merged-cell concept.
+    function tableToGrid(table) {
+        const rows = table.num_rows ?? 0;
+        const cols = table.num_cols ?? 0;
+        const grid = Array.from({ length: rows }, () => Array(cols).fill(''));
+
+        (table.cells ?? []).forEach((cell) => {
+            const r = cell.row ?? 0;
+            const c = cell.col ?? 0;
+            if (r < 0 || c < 0 || r >= rows || c >= cols) return;
+            const text = (cell.text ?? '').trim();
+            for (let i = r; i < Math.min(rows, r + (cell.row_span || 1)); i++) {
+                for (let j = c; j < Math.min(cols, c + (cell.col_span || 1)); j++) {
+                    grid[i][j] = text;
+                }
+            }
+        });
+
+        return grid;
+    }
+
+    // Renders directly into the DOM (rather than building one big innerHTML string) because
+    // Grid.js instantiates against a real container element per table.
+    function renderStructure(panel, data) {
+        panel.innerHTML = '';
+
+        if (!data.headings?.length && !data.tables?.length) {
+            panel.innerHTML = '<p class="text-slate-400 dark:text-slate-500">No structure detected.</p>';
+            return;
+        }
+
+        if (data.headings?.length) {
+            const headingsHtml = `<div class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Headings (${data.headings.length})</div>` +
+                '<ul class="mb-4 space-y-0.5">' + data.headings.map((h) =>
+                    `<li><span class="text-slate-400 dark:text-slate-500">p.${h.page}</span> ${escapeHtml(h.text)}</li>`
+                ).join('') + '</ul>';
+            panel.insertAdjacentHTML('beforeend', headingsHtml);
+        }
+
+        if (data.tables?.length) {
+            panel.insertAdjacentHTML('beforeend', `<div class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Tables (${data.tables.length})</div>`);
+
+            data.tables.forEach((t, i) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'mb-4';
+                wrapper.innerHTML = `<div class="text-slate-400 dark:text-slate-500 mb-1">Table ${i + 1} — p.${t.page}, ${t.num_rows}×${t.num_cols}</div>`;
+                const gridContainer = document.createElement('div');
+                wrapper.appendChild(gridContainer);
+                panel.appendChild(wrapper);
+
+                const grid = tableToGrid(t);
+                if (window.gridjs && grid.length) {
+                    new gridjs.Grid({
+                        columns: grid[0].map((_, ci) => `Col ${ci + 1}`),
+                        data: grid.slice(1),
+                        search: true,
+                        sort: true,
+                        pagination: { limit: 8 },
+                        className: { table: 'text-[11px]' },
+                    }).render(gridContainer);
+                } else {
+                    gridContainer.innerHTML = '<p class="text-red-500">Table renderer failed to load.</p>';
+                }
+            });
+        }
+    }
+
+    if (structureBtn && structurePanel && structureIcon) {
+        structureBtn.addEventListener('click', function () {
+            const expanded = !structurePanel.classList.contains('hidden');
+            if (expanded) {
+                structurePanel.classList.add('hidden');
+                structureIcon.classList.remove('ti-chevron-up');
+                structureIcon.classList.add('ti-chevron-down');
+                return;
+            }
+
+            structurePanel.classList.remove('hidden');
+            structureIcon.classList.remove('ti-chevron-down');
+            structureIcon.classList.add('ti-chevron-up');
+
+            if (structurePanel.dataset.loaded) return;
+            structurePanel.innerHTML = '<p class="text-slate-400 dark:text-slate-500">Loading…</p>';
+
+            fetch(structureBtn.dataset.structureUrl)
+                .then((r) => r.json())
+                .then((data) => {
+                    renderStructure(structurePanel, data);
+                    structurePanel.dataset.loaded = '1';
+                })
+                .catch(() => {
+                    structurePanel.innerHTML = '<p class="text-red-500">Could not load structure data.</p>';
+                });
         });
     }
 
@@ -1085,7 +1213,10 @@ function startConversionPolling(card, elapsedElId) {
                     clearInterval(pollInterval);
                     clearInterval(elapsedTimer);
                     window.location.reload();
+                    return;
                 }
+                const queueNote = document.getElementById('convert-queue-note');
+                if (queueNote) queueNote.classList.toggle('hidden', !data.queued_behind_other_job);
             })
             .catch(function () { clearInterval(pollInterval); clearInterval(elapsedTimer); });
     }, 3000);
