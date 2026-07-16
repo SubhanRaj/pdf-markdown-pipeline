@@ -1169,6 +1169,19 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Unknown structure OCR engine selected.'], 422);
         }
 
+        DB::transaction(function () use ($document) {
+            $oldStatus = $document->status;
+            $document->update(['status' => 'processing']);
+
+            DocumentStatusHistory::create([
+                'document_id' => $document->id,
+                'actor_id'    => auth()->id(),
+                'from_status' => $oldStatus,
+                'to_status'   => 'processing',
+                'note'        => 'Convert to Markdown queued.',
+            ]);
+        });
+
         ConvertDocumentToMarkdown::dispatch($document->id, $structureEngine);
 
         return response()->json(['status' => 'processing']);
@@ -1220,6 +1233,19 @@ class DocumentController extends Controller
         if (! array_key_exists($engine, config('ocr.engines'))) {
             return response()->json(['message' => 'Unknown OCR engine selected.'], 422);
         }
+
+        DB::transaction(function () use ($document) {
+            $oldStatus = $document->status;
+            $document->update(['status' => 'ocr_pending']);
+
+            DocumentStatusHistory::create([
+                'document_id' => $document->id,
+                'actor_id'    => auth()->id(),
+                'from_status' => $oldStatus,
+                'to_status'   => 'ocr_pending',
+                'note'        => 'OCR re-extraction queued.',
+            ]);
+        });
 
         \App\Jobs\RunOcrExtraction::dispatch($document->id, $engine);
 
@@ -1276,8 +1302,22 @@ class DocumentController extends Controller
     {
         $document = Document::findOrFail($id);
 
+        $queuedElsewhere = false;
+        if (in_array($document->status, ['processing', 'ocr_pending'], true)) {
+            // Single serial queue worker (see CLAUDE.md) — while this document's job sits in
+            // the `jobs` table waiting its turn, another document's job may currently be
+            // `reserved_at`'d (actively running). Surface that so the UI can say "waiting in
+            // queue" instead of looking like conversion silently stalled.
+            $needle = '"documentId";i:'.$document->id.';';
+            $queuedElsewhere = DB::table('jobs')
+                ->whereNotNull('reserved_at')
+                ->where('payload', 'not like', '%'.$needle.'%')
+                ->exists();
+        }
+
         return response()->json([
             'status'                   => $document->status,
+            'queued_behind_other_job'  => $queuedElsewhere,
             'extraction_method'       => $document->metadata['extraction_method'] ?? null,
             'ocr_engine'              => $document->metadata['ocr_engine'] ?? null,
             'needs_ocr_review'        => (bool) ($document->metadata['needs_ocr_review'] ?? false),
