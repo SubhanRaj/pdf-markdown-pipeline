@@ -28,6 +28,7 @@ verifier sees consistent structure regardless of which extraction path produced 
 """
 import re
 import sys
+import json
 import glob
 import html
 import argparse
@@ -47,6 +48,13 @@ class Line:
     x0: float = 0.0
     x1: float = 0.0
     y0: float = 0.0
+    # Set when this line was part of a multi-cell row run that *looked* like a table but got
+    # rejected by detect_tables()'s sparse-grid check (see MIN_TABLE_ROWS/fill_ratio below).
+    # These lines are exactly the flattened, jumbled fragments of a table detect_tables()
+    # couldn't reconstruct — when Docling's structure JSON supplies a clean version of that
+    # same table for the same page, classify_and_render() drops these fragments rather than
+    # rendering both the garbled paragraph and the clean table back to back.
+    table_fragment: bool = False
     # Pre-rendered content (e.g. an OCR engine's own detected table HTML) that should be
     # emitted as-is, bypassing the heading/list/paragraph classifier entirely.
     raw: bool = False
@@ -150,8 +158,12 @@ def detect_tables(lines: list[Line]) -> list[Line | TableBlock]:
                     continue
 
                 # Rejected as a table (too sparse) — emit the whole run as plain lines rather
-                # than retrying row-by-row, which would re-scan the same run repeatedly.
+                # than retrying row-by-row, which would re-scan the same run repeatedly. Tagged
+                # so classify_and_render() can drop these specific lines if Docling later fills
+                # this page's table in from its own structure JSON.
                 for trow in table_rows:
+                    for line in trow:
+                        line.table_fragment = True
                     blocks.extend(trow)
                 i = j
                 continue
@@ -205,13 +217,68 @@ def heading_level_from_caps(text: str) -> int:
     return 1
 
 
-def classify_and_render(lines: list[Line]) -> str:
+def docling_table_blocks(structure_json_path: str) -> list[TableBlock]:
+    """
+    Loads the compact structure.json Docling's Pass 0 already wrote (see
+    ConvertDocumentToMarkdown::runDoclingStructureAnalysis) and turns its tables into
+    TableBlocks, keyed by page, for classify_and_render() to fill gaps the geometric
+    detect_tables() heuristic below missed. Docling's TableFormer model reads table shape far
+    more reliably than column-clustering on OCR bboxes — see STRUCTURE_RESEARCH.md.
+
+    ponytail: pipe-syntax Markdown tables can't express row/col spans, so a spanned cell's text
+    is placed only at its anchor position and the cells it spans are left blank — visually
+    close enough for review; a real merged-cell renderer would need HTML tables instead.
+    """
+    with open(structure_json_path, encoding='utf-8') as f:
+        data = json.load(f)
+
+    blocks = []
+    for table in data.get('tables', []):
+        rows, cols = table.get('num_rows') or 0, table.get('num_cols') or 0
+        if not rows or not cols:
+            continue
+        grid = [['' for _ in range(cols)] for _ in range(rows)]
+        for cell in table.get('cells', []):
+            r, c = cell.get('row'), cell.get('col')
+            if r is None or c is None or not (0 <= r < rows) or not (0 <= c < cols):
+                continue
+            grid[r][c] = (cell.get('text') or '').replace('\n', ' ').strip()
+        blocks.append(TableBlock(rows=grid, page=(table.get('page') or 1) - 1))
+    return blocks
+
+
+def classify_and_render(lines: list[Line], docling_tables: list[TableBlock] | None = None) -> str:
     sizes = [l.size for l in lines if isinstance(l, Line) and l.text.strip()]
     if not sizes:
         return ""
     median = statistics.median(sizes)
 
     list_re = re.compile(r'^\s*(\(?\d{1,3}[\.\)]|\(?[a-zA-Z][\.\)]|[-•*])\s+')
+
+    blocks = detect_tables(lines)
+
+    if docling_tables:
+        covered_pages = {b.page for b in blocks if isinstance(b, TableBlock)}
+        for table in docling_tables:
+            if table.page in covered_pages:
+                continue
+
+            # Drop this page's rejected-sparse fragments (see Line.table_fragment) — they're the
+            # same table Docling is about to supply cleanly, just jumbled, so keeping both would
+            # show the garbled version right next to the correct one.
+            blocks = [b for b in blocks if not (isinstance(b, Line) and b.page == table.page and b.table_fragment)]
+
+            # Insert right after this page's last block so it lands in the right section
+            # instead of only ever at the very end of the document.
+            insert_at = len(blocks)
+            for idx in range(len(blocks) - 1, -1, -1):
+                if blocks[idx].page == table.page:
+                    insert_at = idx + 1
+                    break
+                if blocks[idx].page < table.page:
+                    insert_at = idx + 1
+                    break
+            blocks.insert(insert_at, table)
 
     out: list[str] = []
     paragraph: list[str] = []
@@ -222,7 +289,7 @@ def classify_and_render(lines: list[Line]) -> str:
             out.append(' '.join(paragraph).strip())
             paragraph.clear()
 
-    for block in detect_tables(lines):
+    for block in blocks:
         if last_page is not None and block.page != last_page:
             flush_paragraph()
             out.append('\n---\n')
@@ -435,6 +502,7 @@ def extract_surya_dir(dir_path: str) -> list[Line]:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', choices=['pdf', 'hocr', 'easyocr', 'paddleocr', 'surya'], required=True)
+    parser.add_argument('--structure-json', default=None, help='Path to Docling\'s compact structure.json (Pass 0), used to fill in tables the geometric heuristic below misses')
     parser.add_argument('input', help='PDF file path (--mode pdf) or directory of page images/.hocr files (all other modes)')
     args = parser.parse_args()
 
@@ -446,7 +514,15 @@ def main():
         'surya': extract_surya_dir,
     }
     lines = extractors[args.mode](args.input)
-    output = classify_and_render(lines)
+
+    docling_tables = None
+    if args.structure_json:
+        try:
+            docling_tables = docling_table_blocks(args.structure_json)
+        except (OSError, json.JSONDecodeError):
+            docling_tables = None
+
+    output = classify_and_render(lines, docling_tables)
     if args.mode == 'pdf' and detected_legacy_font:
         # Reuses the existing stdout-string contract with ConvertDocumentToMarkdown rather
         # than adding a new IPC channel — isGoodQuality() strips this marker before saving.
