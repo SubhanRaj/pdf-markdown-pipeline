@@ -28,9 +28,9 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Database | MariaDB 12 |
 | Web server | Apache (mod_php or php-fpm via mod_proxy_fcgi) — **no Nginx** |
 | Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Parsedown (markdown render) — **no Node, no npm, no build step** |
-| Text extraction | Python `markitdown`, via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
+| Text extraction | Python `markitdown` (Microsoft, MIT), via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
 | Structure detection | [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0), own venv (`storage/app/private/ocr-engines/docling/`) — layout/table-structure model, runs automatically as Pass 0 of every "Convert to Markdown" click, before markitdown's text-layer pass. Detects headings and table cells with bounding boxes; stored as a compact sibling `.structure.json`, informational only so far (not yet merged into the rendered Markdown — see `STRUCTURE_RESEARCH.md`). |
-| OCR | Selectable engine — Tesseract (`hin`+`eng`, default), EasyOCR, PaddleOCR, or Surya — invoked via `symfony/process`. **Never automatic** — triggered only by an explicit "Run OCR-Based Extraction" action (with an engine dropdown) from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below and `config/ocr.php`. |
+| OCR | Selectable engine — Tesseract (Google/HP, `hin`+`eng`, default), EasyOCR (JaidedAI), PaddleOCR (Baidu), or Surya (VikParuchuri, open source) — invoked via `symfony/process`. **Never automatic** — triggered only by an explicit "Run OCR-Based Extraction" action (with an engine dropdown) from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below and `config/ocr.php`. |
 | Queue | Laravel **database** queue driver — deliberately no Redis, single-box local deployment |
 | Disk | Single local filesystem disk (`public`); logical separation enforced by path convention, not multiple disks |
 | Dev-only DB setup | [`subhanraj/laravel-db-provisioner`](https://github.com/SubhanRaj/laravel-db-provisioner) (`require-dev`) — `php artisan db:provision` generates a random per-project DB name/user/password rather than reusing a shared MariaDB admin account. Never used in production; see [DEPLOY.md](./DEPLOY.md#3-project-setup). |
@@ -324,6 +324,19 @@ document mutations in this codebase (Form-Request-only or controller-only isAdmi
 not the stricter `is_admin` route-group middleware, which is reserved for `admin.*` user
 management routes).
 
+**Fixed 2026-07-16 — status wasn't persisted before dispatch.** Both `convert()` and
+`convertOcr()` used to only fake `status: 'processing'`/`'ocr_pending'` in their JSON response,
+without saving it to the document — invisible when jobs ran within a second or two, but with the
+single serial queue worker backed up behind a slow job (a 14-minute PaddleOCR run on a 54-page
+scan), a newly-queued document's `status` column stayed at its old value (`uploaded`/`review`)
+for the whole wait. The polling JS (`startConversionPolling()`) treats any status other than
+`processing`/`ocr_pending` as "done" and reloads the page — which then showed "not yet converted"
+since nothing had actually run yet, looking exactly like conversion had silently failed. Both
+endpoints now persist the real status (+ a `DocumentStatusHistory` entry) before dispatching.
+`conversionStatus()` also now returns `queued_behind_other_job` (checks the `jobs` table for
+another `reserved_at`'d job that isn't this document's), so the UI can show "waiting in queue —
+another document is currently processing" instead of looking stuck.
+
 **Pass 0 — Docling structure detection, runs automatically before text extraction:**
 Every "Convert to Markdown" click also runs Docling (`storage/app/private/ocr-engines/docling/`
 venv) against the original PDF via its own CLI (`docling convert --to json`), before the
@@ -333,16 +346,23 @@ version exposed a "Structure OCR engine" dropdown next to the Convert button, bu
 established pattern of never surfacing an engine choice before there's a result to react to (the
 main OCR-engine dropdown in Compare & Verify only appears *after* conversion, once quality is
 known) — removed after review, see `config/docling.php` if the engine ever needs changing.
-Whatever text Docling's own OCR produces internally is discarded either way, only the detected
-region/table structure (with bounding boxes) is kept. Docling's
-huge raw export (confirmed 100MB+ per document during evaluation) is trimmed down to headings +
-table cells and written as a compact sibling file, `{slug}.structure.json`, on the same `public`
-disk as the PDF/Markdown — never in the database. This is additive and non-fatal: any Docling
-failure is logged and the rest of the pipeline proceeds unaffected. This round, the structure
-map is **informational only** (shown as a small "Structure: N headings, M tables" strip on
-`documents/show`, viewable as raw JSON via `GET /documents/{id}/structure`) — it is not yet
-merged into the rendered Markdown; see `STRUCTURE_RESEARCH.md` for the two-phase plan and why
-the merge step is deferred. `discardMarkdown()` deletes the `.structure.json` sibling alongside
+Docling's own OCR text for headings/body text is discarded — only the detected region/table
+*shape* (with bounding boxes) is kept there; table *cell* text is the exception, see below.
+Docling's huge raw export (confirmed 100MB+ per document during evaluation) is trimmed down to
+headings + table cells and written as a compact sibling file, `{slug}.structure.json`, on the
+same `public` disk as the PDF/Markdown — never in the database. This is additive and non-fatal:
+any Docling failure is logged and the rest of the pipeline proceeds unaffected.
+
+The structure map is shown to reviewers inside the Compare & Verify modal (a collapsible
+"Structure detected: N headings, M tables" panel, headings as a list and tables rendered via
+Grid.js — see `STRUCTURE_RESEARCH.md`'s "Review UI changes" section) and is **also spliced into
+the rendered Markdown itself** for tables: `pdf_structure_extractor.py`'s `classify_and_render()`
+takes an optional Docling table list and, on any page where its own geometric heuristic found no
+table, inserts Docling's already-recognized table text there instead of leaving that page's
+table flattened into a paragraph. This is a partial Phase 2 (M33) — see `STRUCTURE_RESEARCH.md`
+for the known limitation (duplicate garbled table text can still appear on some OCR-derived
+documents; full de-duplication needs bbox coordinate reconciliation between Docling and the OCR
+engine, not done this round). `discardMarkdown()` deletes the `.structure.json` sibling alongside
 the Markdown draft it was produced with, same lifecycle as the Markdown itself.
 
 **`ConvertDocumentToMarkdown` job — text-layer pass, always runs first:**
@@ -435,8 +455,17 @@ concrete problems, both confirmed by testing, not assumed:
   CLI; Tesseract remains the default. Surya is CPU-impractically slow for full pages on this
   hardware (see `OCR_RESEARCH.md`) but is left enabled for lighter documents.
 
-**Compare & Verify modal (`documents/show`)** — split-pane review UI: original PDF (left) vs.
+**Compare & Verify modal (`documents/show`)** — full-screen (fills the viewport; was a centered
+`min(1400px, 96vw)` box until 2026-07-16 — there's enough on screen now between the PDF, the
+Markdown, and the structure panel below to earn it) split-pane review UI: original PDF (left) vs.
 editable raw Markdown (right, `<textarea>`). Key behaviors:
+- **Structure panel** — a collapsible "Structure detected: N headings, M tables" strip at the
+  top of the modal (above the OCR-quality warning), shown whenever `metadata.structure_analyzed`
+  is true. Fetches the compact `.structure.json` via `GET /documents/{id}/structure` on first
+  expand and renders headings as a list, tables via Grid.js (CDN). This used to be a page-level
+  banner outside the modal with a raw-JSON link — moved inside the modal (2026-07-16) since
+  reviewers need it in the same place they decide Markdown-vs-OCR, not on a separate surface; see
+  `STRUCTURE_RESEARCH.md`.
 - PDF `<iframe>` uses a deferred `data-src` attribute, assigned to `src` only when the modal is
   actually opened — a hidden (`display:none`) iframe gets a 0×0 viewport at load time and the
   browser's built-in PDF viewer never re-applies the `#view=FitH` zoom parameter once shown

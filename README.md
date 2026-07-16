@@ -37,9 +37,9 @@ While built for government requirements, the architecture is fully open-source a
 | Database | MariaDB 12 |
 | Web Server | Apache (mod_php or php-fpm) — no Nginx |
 | Frontend / UI | Blade Templates, Tailwind CSS v4 (Play CDN + `typography` plugin), Parsedown, `marked.js` (CDN, client-side Markdown preview only), `Cleave.js` (CDN, masked date inputs on the Policy create/edit form) — no Node, no npm, no build step |
-| Text Extraction | Python `markitdown`, via the [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package |
+| Text Extraction | Python `markitdown` (Microsoft, MIT), via the [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package |
 | Structure Detection | [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0) — layout/table-structure model, own Python venv (`storage/app/private/ocr-engines/docling/`), runs automatically ahead of text extraction |
-| OCR Engines | Tesseract (`hin`+`eng`, default), EasyOCR, PaddleOCR, Surya — selectable per re-extraction, each in its own Python venv (`storage/app/private/ocr-engines/`, pyenv 3.12.8) |
+| OCR Engines | Tesseract (Google/HP, `hin`+`eng`, default), EasyOCR (JaidedAI), PaddleOCR (Baidu), Surya (VikParuchuri, open source) — selectable per re-extraction, each in its own Python venv (`storage/app/private/ocr-engines/`, pyenv 3.12.8) |
 | Queue | Laravel database queue driver (local single-box deployment, no Redis dependency) |
 
 **Dev tooling:** [`subhanraj/laravel-db-provisioner`](https://github.com/SubhanRaj/laravel-db-provisioner)
@@ -522,6 +522,13 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - Compact structure map stored as a `{slug}.structure.json` sibling file on the `public` disk (never in the database), viewable via `GET /documents/{id}/structure`; discarded alongside the Markdown draft by `discardMarkdown()`
 - Informational only this round — not yet merged into the rendered Markdown; see `STRUCTURE_RESEARCH.md` for the evaluation and the deferred merge phase
 - Legacy non-Unicode Devanagari font detection (Kruti Dev, Chanakya, DevLys, etc.) added to `pdf_structure_extractor.py` — flags `needs_ocr_review` even when a corrupted text layer would otherwise pass the existing char-count/cid-token quality check
+
+**Completed (2026-07-16 — Docling table splice, review UX, queue-status fix, bulk state-policy seeding):**
+- Partial Phase 2: Docling's own recognized table text is now spliced into the rendered Markdown wherever the existing geometric heuristic misses a table on a page — no LLM, reuses text Docling's Pass 0 already produced. Known limitation: on some OCR-derived documents a garbled duplicate of the same table can still appear alongside it; full de-duplication needs OCR/Docling bbox coordinate reconciliation, not done this round. See `STRUCTURE_RESEARCH.md`.
+- Structure panel moved from a page-level banner into the Compare & Verify modal itself (collapsible, headings as a list, tables via Grid.js); modal is now full-screen.
+- Fixed a real bug: `convert()`/`convertOcr()` never persisted `processing`/`ocr_pending` status before dispatch, so a document queued behind a slow job (e.g. a 14-minute PaddleOCR run) looked like conversion had silently stopped once the polling JS saw a stale status. Both endpoints now persist status + history before dispatch; `conversionStatus()` reports `queued_behind_other_job` so the UI shows "waiting in queue" instead.
+- New `php artisan policies:seed` command bulk-imports a folder of state excise/export policy PDFs into `RuleSet`(kind=policy)/`Document` rows, so bulk test documents don't need uploading one at a time through the form.
+- `OCR_RESEARCH.md` corrected: EasyOCR's entry was still describing it as "not integrated" despite being one of the four live selectable engines since 2026-07-14.
 
 ## 🚀 Future Roadmap
 

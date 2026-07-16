@@ -1841,3 +1841,83 @@ and increasing PaddleOCR's CPU/resource limits — both noted as open follow-ups
 `resources/views/documents/show.blade.php` · `resources/views/documents/pipeline.blade.php` ·
 `claude.md` · `README.md` · `ROADMAP.md` · `STRUCTURE_RESEARCH.md` (new) · `OCR_RESEARCH.md` ·
 `DEPLOY.md`.
+
+## M33 — Docling table splice (partial Phase 2), review UX, queue-status fix, bulk seeding (COMPLETED 2026-07-16)
+
+Follow-on from M32, driven by testing structure detection against real documents in the actual
+review UI (per M32's own deferral condition) rather than more CLI evaluation. Four independent
+threads: closing the exact gap M32 predicted, fixing how structure output is surfaced to
+reviewers, a real concurrency bug found while testing under queue backlog, and a bulk-import tool
+so test documents don't need uploading one at a time.
+
+### What shipped
+
+- **Bulk test-document seeding** — new `php artisan policies:seed` command
+  (`app/Console/Commands/SeedStatePolicies.php`) scans a directory of state excise/export policy
+  PDFs, matches each filename to an Indian state (`RuleSet::STATES`, with alias handling for
+  misspellings like "Chhatisgarh" and abbreviations like "J&K"), creates/reuses a
+  `RuleSet(kind=policy)` per state+policy-type, copies the PDF into the vault, and creates the
+  `Document` + `DocumentStatusHistory` row. Idempotent (skips already-imported files by
+  `original_filename`). Used to seed 14 real state policy PDFs for hands-on UI testing.
+- **Engine-maker attribution** — `claude.md`/`README.md`/`OCR_RESEARCH.md` tech-stack entries now
+  credit each engine's actual maintainer (Tesseract: Google/HP, EasyOCR: JaidedAI, PaddleOCR:
+  Baidu, Surya: VikParuchuri, Docling: IBM, markitdown: Microsoft).
+- **Structure panel moved into the Compare & Verify modal.** Previously a page-level banner
+  outside the modal (easy to miss — hidden behind the modal once opened, with a raw-JSON link on
+  a separate tab as the only way to inspect it). Now a collapsible panel inside the modal itself,
+  above the OCR-quality warning: headings as a list, tables rendered via
+  [Grid.js](https://gridjs.io/) (CDN, no build step) instead of a hand-rolled static `<table>`.
+  The Compare & Verify modal itself is now full-screen (was a centered `min(1400px, 96vw)` box) —
+  there's meaningfully more on screen now (PDF, Markdown, structure panel) than when the modal
+  was first built.
+- **Partial Phase 2 — Docling table text spliced into the Markdown.** Real testing against the
+  Odisha document (54-page scan, PaddleOCR) surfaced exactly the gap M32 predicted: Docling's
+  structure map correctly detected a table the existing geometric heuristic
+  (`detect_tables()`/`classify_and_render()` in `pdf_structure_extractor.py`) missed entirely on a
+  scanned page. Fix reuses data already captured rather than building the full geometric merge:
+  Docling's compact `structure.json` retains each table cell's own recognized text (not discarded
+  the way heading/body OCR text is) — `docling_table_blocks()` (new) turns that into per-page
+  `TableBlock`s, and `classify_and_render()` (extended with an optional `docling_tables` param)
+  splices one in wherever its own heuristic found no table on that page, at the correct point in
+  that page's content rather than only appended at the document's end. Wired via a new
+  `--structure-json PATH` CLI flag, passed by both `ConvertDocumentToMarkdown` and
+  `RunOcrExtraction` whenever a document's structure.json exists. No LLM/Ollama — pure reuse of a
+  model that already ran.
+- **Fragment de-dup, partial.** `detect_tables()` now tags a rejected sparse multi-cell row run
+  as `Line.table_fragment = true`; `classify_and_render()` strips those tagged lines when Docling
+  supplies a clean replacement for that page, to avoid showing both the garbled attempt and the
+  correct table. **Verified this only partially closes the gap**: on the real Odisha re-test,
+  Tesseract's hOCR line boxes for that specific table were fragmented enough that row-clustering
+  never reached the "candidate" stage at all (each line landing in its own single-cell row,
+  outside `ROW_Y_TOLERANCE`) — so nothing was tagged, and the garbled fragments still appear
+  alongside the correct spliced table. Documented as a known, unfixed limitation — true
+  suppression needs bbox coordinate reconciliation between Docling (PDF-point, bottom-left
+  origin) and each OCR engine (pixel space, top-left origin, DPI-dependent) — i.e. the full
+  geometric merge, still deferred.
+- **Fixed a real status-persistence bug**, found while testing conversion under real queue
+  backlog (Odisha's 14-minute PaddleOCR run blocking a second document's conversion behind it in
+  the single serial worker). `DocumentController::convert()`/`convertOcr()` only ever faked
+  `status: 'processing'`/`'ocr_pending'` in their JSON response — never saved it to the document.
+  Invisible when jobs ran within seconds, but with a real backlog the queued document's `status`
+  column stayed at its old value the whole wait; the polling JS treats anything other than
+  `processing`/`ocr_pending` as "done" and reloads, which then showed "not yet converted" —
+  looking exactly like conversion had silently stopped. Both endpoints now persist the real
+  status plus a `DocumentStatusHistory` entry before dispatch. `conversionStatus()` also now
+  returns `queued_behind_other_job` (checks the `jobs` table for another currently-`reserved_at`
+  job that isn't this document's), so the UI shows "waiting in queue" instead of looking stuck.
+- **`OCR_RESEARCH.md` corrected** — its EasyOCR section still read "not adopted yet" / "not
+  integrated into the app," contradicting the Surya section two paragraphs down which correctly
+  noted all four engines have been live since 2026-07-14. Fixed the stale section; also refreshed
+  the file's top-level status line, which still described OCR as unshipped research.
+
+### Known limitation carried forward
+
+Garbled table-text duplication on OCR-derived documents where the heuristic never attempts
+row-clustering (see above) — requires the full geometric merge (bbox coordinate reconciliation),
+not built this round. Tracked in `STRUCTURE_RESEARCH.md`'s "Open follow-ups" section.
+
+**Files changed:** `app/Console/Commands/SeedStatePolicies.php` (new) ·
+`app/Http/Controllers/DocumentController.php` · `app/Jobs/ConvertDocumentToMarkdown.php` ·
+`app/Jobs/RunOcrExtraction.php` · `resources/python/pdf_structure_extractor.py` ·
+`resources/views/documents/show.blade.php` · `claude.md` · `README.md` · `ROADMAP.md` ·
+`STRUCTURE_RESEARCH.md` · `OCR_RESEARCH.md`.

@@ -185,12 +185,12 @@ Mac. Options, in order of how much this project actually needs right now:
 **Simplest — `queue:work` with auto-restart via a loop** (fine for a single-user dev machine,
 not recommended long-term):
 ```bash
-while true; do php artisan queue:work --tries=3 --timeout=900; sleep 2; done
+while true; do php artisan queue:work --tries=3 --timeout=1900; sleep 2; done
 ```
 
 **macOS — `launchd` (recommended for the departmental Mac)**: create
 `~/Library/LaunchAgents/com.pdfpipeline.queue.plist` pointing at
-`php /path/to/artisan queue:work --tries=3 --timeout=900`, with `RunAtLoad` and `KeepAlive`
+`php /path/to/artisan queue:work --tries=3 --timeout=1900`, with `RunAtLoad` and `KeepAlive`
 both `true`, then `launchctl load` it. This survives reboots and restarts the worker if it
 crashes.
 
@@ -204,7 +204,7 @@ After=network.target mariadb.service
 [Service]
 User=www-data
 WorkingDirectory=/path/to/pdf-markdown-pipeline
-ExecStart=/usr/bin/php artisan queue:work --tries=3 --timeout=900
+ExecStart=/usr/bin/php artisan queue:work --tries=3 --timeout=1900
 Restart=always
 
 [Install]
@@ -214,10 +214,11 @@ WantedBy=multi-user.target
 sudo systemctl enable --now pdf-pipeline-queue
 ```
 
-`--timeout=900` matches both `ConvertDocumentToMarkdown::$timeout` and
-`RunOcrExtraction::$timeout` — OCR (`RunOcrExtraction`, the explicit-trigger job) on a
-multi-page scanned Gazette PDF can legitimately take several minutes; don't lower this without
-checking real conversion times first. After deploying code changes that touch a job class,
+`--timeout=1900` matches `RunOcrExtraction::$timeout` (1900s — the longer of the two job
+classes; `ConvertDocumentToMarkdown::$timeout` is 1200s). The worker-level `--timeout` must be
+at least as large as the largest job's own `$timeout`, or the worker kills a legitimately-running
+OCR job (multi-page scanned Gazette PDF, several minutes) before it finishes — don't lower this
+without checking both job classes' `$timeout` first. After deploying code changes that touch a job class,
 restart the worker (`queue:restart` signals workers to finish their current job and exit; the
 supervisor — launchd/systemd/the loop above — then starts a fresh one that picks up the new
 code — **this applies to any edit to an `App\Jobs\*` class**, PHP does not hot-reload a running
