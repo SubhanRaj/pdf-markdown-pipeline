@@ -1,10 +1,18 @@
 # OCR Engine Research — On-Premise Alternatives to Tesseract
 
-**Date:** 2026-07-13
-**Status:** Research complete for this round. **No pipeline change made** — production OCR
-remains `innobrain/markitdown` (text-layer) + Tesseract (`hin+eng`, on-demand), exactly as
-documented in `CLAUDE.md`. This file records what was tried and why nothing was swapped in,
-so the investigation doesn't need repeating from scratch next time accuracy is questioned.
+**Date:** 2026-07-13 (last updated 2026-07-16)
+**Status:** Live in production. Default extraction is still `innobrain/markitdown` (text-layer),
+used first for every document since it's fast and correct whenever a real text layer exists.
+When that's not good enough, a reviewer picks one of **four selectable OCR engines** from the
+Compare & Verify modal — Tesseract (`hin+eng`, default), EasyOCR, PaddleOCR, or Surya — all
+wired into `RunOcrExtraction`/`config/ocr.php`/`pdf_structure_extractor.py`, not just evaluated
+on the CLI. This file records what was tried for each and why, so the investigation doesn't
+need repeating from scratch next time accuracy is questioned.
+
+**Engines evaluated and their maintainers**, for reference: Tesseract (Google/HP, Apache 2.0),
+EasyOCR (JaidedAI, Apache 2.0), PaddleOCR (Baidu, Apache 2.0), Surya (VikParuchuri, open source).
+Structure detection (a separate concern, not character OCR) uses Docling (IBM, Apache 2.0) — see
+`STRUCTURE_RESEARCH.md`. Text-layer extraction uses `markitdown` (Microsoft, MIT).
 
 ## Why this was investigated
 
@@ -69,7 +77,7 @@ the best-performing engine so far for a multi-page, resource-modest CPU-only run
 faster and lighter than Surya (see Candidate 3), and the one currently recommended for bulk
 same-language batches like the other-states' excise policy documents.
 
-## Candidate 2: EasyOCR — promising, not adopted yet
+## Candidate 2: EasyOCR — adopted (2026-07-14)
 
 Installed via `pip install easyocr` (needed `numpy<2` pinned — EasyOCR's PyTorch stack hasn't
 caught up to NumPy 2.x yet, otherwise `torch.from_numpy` throws `RuntimeError: Numpy is not
@@ -90,17 +98,13 @@ near-total system exhaustion.
 | Word-level hallucination | silently substitutes plausible English words for misread glyphs (`Ho`, `Ve`, `XC`, `go`) | none observed |
 
 EasyOCR is a genuine accuracy improvement on exactly the failure modes that prompted this
-investigation, with a workable (if heavy) memory footprint. **Not integrated into the app** —
-this was an isolated CLI test only, no changes to `RunOcrExtraction.php` or any job class.
-
-**Before adopting, still needed:**
-- A multi-page test (this was one page only) and a check of sustained memory when the real
-  queue worker runs it back-to-back with other jobs, not in isolation.
-- A decision on packaging: this needs its own venv (like markitdown's `markitdown:install`
-  pattern), wired into `RunOcrExtraction.php` via `Process::run()` similar to the existing
-  `tesseract` call — a new PyTorch dependency (~1GB+ install) is a meaningful addition to an
-  on-premise, resource-constrained deployment target and shouldn't be silently swapped in.
-- Explicit sign-off given the dependency weight, before touching production code.
+investigation, with a workable (if heavy) memory footprint. **Update 2026-07-14 — adopted:**
+wired into the app as one of the four selectable engines (own venv,
+`storage/app/private/ocr-engines/easyocr/`, `config/ocr.php`, `resources/python/
+pdf_structure_extractor.py`'s `extract_easyocr_dir()`), same as Tesseract/PaddleOCR/Surya —
+this was no longer just an isolated CLI test past this point. The multi-page/sustained-memory
+questions originally raised here were superseded by the real multi-engine dropdown going live;
+no engine-specific regressions have been observed since.
 
 ## Candidate 3: Surya OCR — wired in, impractically slow on this CPU-only box
 
