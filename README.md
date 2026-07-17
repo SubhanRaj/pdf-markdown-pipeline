@@ -273,6 +273,11 @@ Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digi
 
 ## 🗺️ Route Map
 
+For a visual picture of how these routes fit together end to end — document status lifecycle,
+upload taxonomy resolution, maker-checker approval, authorization decisions, and the overall
+component map — see [APP_FLOW.md](./APP_FLOW.md). The conversion pipeline itself (Markdown/OCR/
+structure) has its own dedicated diagram in `OCR_RESEARCH.md`.
+
 All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appear in URLs.
 
 `{level}` = `dept` (department_level) | `sectt` (secretariat_level) — disambiguates departments sharing a slug across levels.
