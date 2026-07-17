@@ -64,6 +64,9 @@ Yes, and it's a cheap, real lever that isn't pulled yet. Two independent angles:
 
 ## How the pipeline works today
 
+**Legend:** 🟦 Indigo entry · 🟨 Amber decision · 🟥 Red flagged for OCR · 🟩 Green good/done ·
+🟪 Purple processing step (Docling, splice, save) · 🔷 Sky blue reviewer checkpoint
+
 ```mermaid
 flowchart TD
     classDef entry fill:#e0e7ff,stroke:#4338ca,color:#312e81

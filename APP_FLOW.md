@@ -7,6 +7,18 @@ its own file since `README.md` is already long; linked from there. For the Markd
 conversion pipeline specifically (Pass 1, Pass 0, splice, auto-OCR-trigger in full detail), see
 the diagram in `OCR_RESEARCH.md` — not duplicated here, only referenced.
 
+**Legend** (colors are consistent across every diagram below, though not every diagram uses
+every color):
+
+| Color | Meaning |
+|---|---|
+| 🟦 Indigo | Entry point / start of a flow |
+| 🟨 Amber | Pending, in-progress, or a decision node |
+| 🟩 Green | Good outcome, done, or a terminal success state |
+| 🟥 Red | Rejected, failed, or flagged for attention |
+| 🔷 Sky blue | Scoped/authorized step, controller, or review checkpoint |
+| 🟪 Purple/pink | Background job, processing step, or storage layer |
+
 ## 1. Document status lifecycle
 
 Split into two diagrams — upload/approval, then conversion/verification — since one combined
