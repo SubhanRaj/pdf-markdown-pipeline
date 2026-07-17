@@ -9,6 +9,76 @@ into `RunOcrExtraction`/`config/ocr.php`/`pdf_structure_extractor.py`. Structure
 (tables/headings, a separate concern from character OCR) uses Docling (IBM) — see
 `STRUCTURE_RESEARCH.md`.
 
+## Current status (2026-07-17) — what's solid, what isn't
+
+**Solid:**
+- Text-layer extraction (`markitdown`) + 4-engine OCR fallback, all producing Markdown through
+  the same heading/list/paragraph classifier — consistent output regardless of path.
+- Docling structure detection (headings + tables + bboxes) runs on every document, fast, no LLM.
+- Table splice (M33): when the heuristic misses a table the page actually has, Docling's own
+  recognized cell text fills the gap in the rendered Markdown.
+- Legacy-font (Kruti Dev) detection forces OCR review instead of silently shipping corrupted text.
+- Status-persistence bug fixed — a queued conversion no longer looks silently stalled.
+
+**Not fixed yet:**
+- **Headings are not spliced from Docling at all.** The rendered Markdown's heading levels still
+  come entirely from the original font-size/all-caps heuristic in `pdf_structure_extractor.py`
+  (`heading_level_from_size`/`heading_level_from_caps`). Docling detects headings correctly and
+  shows them in the review panel, but that detection is never merged into the actual output —
+  only tables got the splice treatment this round. A broken/missing heading in the Markdown today
+  means the heuristic misjudged it, not that Docling failed.
+- **Duplicate table text on some OCR-derived documents** — see `STRUCTURE_RESEARCH.md`'s "known
+  limitation." Confirmed still present on the real Odisha document: garbled OCR fragments of a
+  table sit next to the correctly spliced Docling version, because those fragments never even
+  reached the "candidate table" stage the de-dup check looks for.
+- **Docling's own structure-pass OCR engine is hardcoded to Tesseract** (`config('docling.
+  default_ocr_engine')`), regardless of which OCR engine the reviewer picks for the main text.
+  There's no UI control for it — only `structure_engine` on the job constructor, which nothing
+  currently sets to anything but the default.
+
+## Docling can't call Paddle/Surya — can Tesseract/EasyOCR still be improved?
+
+Yes, and it's a cheap, real lever that isn't pulled yet. Two independent angles:
+
+1. **Docling's structure pass (table-cell-text accuracy) is still pinned to Tesseract.** Per
+   `OCR_RESEARCH.md`'s own accuracy comparison, EasyOCR is measurably more accurate than Tesseract
+   on this document class (digit corruption, conjunct artifacts, word hallucination). Since M33's
+   table splice uses Docling's *own* recognized cell text, switching
+   `config('docling.default_ocr_engine')` from `tesseract` to `easyocr` would directly improve
+   spliced-table accuracy on scanned documents — one config line, no new code. Not done yet because
+   nobody had looked at Docling's engine pin specifically until this question; worth doing.
+2. **The main OCR pass (Tesseract/EasyOCR) itself has no further accuracy work identified beyond
+   what's in this file** — the engine comparison here is what it is; the remaining known gap is
+   PaddleOCR's Hindi-only recognition model (see "Open follow-ups" below), not Tesseract/EasyOCR
+   quality.
+
+## How the pipeline works today
+
+```mermaid
+flowchart TD
+    U[Upload PDF] --> P0["Pass 0 — Docling structure detection\n(headings + tables + bboxes)\nengine: tesseract, hardcoded"]
+    P0 -->|"writes {slug}.structure.json\n(non-fatal if it fails)"| P1
+    P0 --> P1["Pass 1 — markitdown / pdfminer\ntext-layer extraction"]
+    P1 --> QC{"Quality check\nisGoodQuality()\nlegacy-font check"}
+    QC -->|good| SPLICE1["classify_and_render()\nsplice Docling tables\ninto missed-table pages"]
+    SPLICE1 --> REVIEW["status: review\nCompare & Verify modal\n(structure panel + Markdown)"]
+    QC -->|"sparse text /\nKruti Dev font detected"| FLAG["needs_ocr_review = true"]
+    FLAG --> REVIEW
+    REVIEW -->|reviewer accepts Markdown| DONE1[Done]
+    REVIEW -->|"reviewer clicks Run OCR\n(picks 1 of 4 engines)"| P2["RunOcrExtraction\nrasterize pages (pdftoppm)\n+ chosen engine: Tesseract/EasyOCR/PaddleOCR/Surya"]
+    P2 --> SPLICE2["classify_and_render()\nsame table-splice logic,\nsame structure.json"]
+    SPLICE2 --> REVIEW2["status: review\nreviewer accepts or re-runs\nwith a different engine"]
+    REVIEW2 --> DONE2[Done]
+```
+
+Key points the diagram doesn't show directly:
+- Docling's Pass 0 is **additive and non-fatal** — if it errors or times out, the rest of the
+  pipeline proceeds exactly as if structure detection never ran (`structure_analyzed: false`).
+- The same `structure.json` (produced once, Pass 0) is reused by both the text-layer splice and
+  any later OCR-engine splice — Docling never re-runs per OCR attempt.
+- Only **tables** are spliced. Headings shown in the structure panel are informational only and
+  never touch the rendered Markdown (see "Not fixed yet" above).
+
 ## Why this was investigated
 
 Real gazette text (Devanagari) coming out via Tesseract showed digit corruption (`1904` →
