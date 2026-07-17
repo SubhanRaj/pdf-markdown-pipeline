@@ -1,83 +1,110 @@
 # Application Flow — Diagrams
 
 **Date:** 2026-07-17
-**Purpose:** Visual map of how a request moves through this app — upload → taxonomy resolution →
-approval → conversion → review → verify/archive — plus authorization and the document data model.
-Kept in its own file since `README.md` is already long; linked from there. For the
-Markdown/OCR/structure conversion pipeline specifically (Pass 1/Pass 0/splice/auto-OCR-trigger in
-full detail), see the diagram in `OCR_RESEARCH.md` — not duplicated here, only referenced.
+**Purpose:** Visual map of how a request moves through this app — upload, taxonomy resolution,
+approval, conversion, review, verify/archive — plus authorization and the component map. Kept in
+its own file since `README.md` is already long; linked from there. For the Markdown/OCR/structure
+conversion pipeline specifically (Pass 1, Pass 0, splice, auto-OCR-trigger in full detail), see
+the diagram in `OCR_RESEARCH.md` — not duplicated here, only referenced.
 
-## 1. Document lifecycle (status state machine)
+## 1. Document status lifecycle
+
+Split into two diagrams — upload/approval, then conversion/verification — since one combined
+diagram had too many crossing arrows to read cleanly.
+
+**Upload and approval:**
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending_approval: upload, context/user requires approval
-    [*] --> uploaded: upload, no approval required
-    pending_approval --> uploaded: ApprovalController::approve()
-    pending_approval --> rejected: ApprovalController::reject()
-    rejected --> pending_approval: ApprovalController::resubmit() (uploader only)
-    uploaded --> processing: DocumentController::convert()
-    processing --> review: ConvertDocumentToMarkdown — good text layer
-    processing --> ocr_pending: ConvertDocumentToMarkdown — text layer unreadable, auto-dispatches RunOcrExtraction (M34)
-    processing --> failed: ConvertDocumentToMarkdown throws
-    review --> ocr_pending: DocumentController::convertOcr() — reviewer manually re-runs OCR
-    ocr_pending --> review: RunOcrExtraction completes
-    ocr_pending --> failed: RunOcrExtraction throws
-    failed --> processing: retry (Pipeline monitor "Retry" button)
-    review --> verified: DocumentController::updateMarkdown(verify=true)
-    uploaded --> verified: skip conversion, verify text-layer-only doc directly
-    verified --> [*]
-    uploaded --> archived: soft-delete (any status can be archived)
-    review --> archived: soft-delete
-    verified --> archived: soft-delete
-    archived --> uploaded: DocumentController::restore() (status recalculated from what's on disk)
+    [*] --> pending_approval
+    [*] --> uploaded
+    pending_approval --> uploaded
+    pending_approval --> rejected
+    rejected --> pending_approval
+    uploaded --> [*]
 ```
 
-`visibility` (`public`/`authenticated`) is a separate, independent flag — not part of this state
-machine — see `Document::$fillable` and `SECURITY.md`.
+`[*] --> pending_approval` fires when the uploader or the upload context (section/division/rule
+set) requires approval; otherwise `[*] --> uploaded` fires directly. A checker moves
+`pending_approval` to `uploaded` (approve) or `rejected` (reject, reason required); only the
+original uploader can move `rejected` back to `pending_approval` (resubmit). See
+`ApprovalController`.
+
+**Conversion and verification** (picks up from `uploaded`):
+
+```mermaid
+stateDiagram-v2
+    uploaded --> processing
+    uploaded --> verified
+    processing --> review
+    processing --> ocr_pending
+    processing --> failed
+    review --> ocr_pending
+    ocr_pending --> review
+    ocr_pending --> failed
+    failed --> processing
+    review --> verified
+    verified --> [*]
+```
+
+- `uploaded --> processing`: reviewer clicks Convert to Markdown.
+- `processing --> review`: text layer was readable (`ConvertDocumentToMarkdown`).
+- `processing --> ocr_pending`: text layer was unreadable — OCR auto-dispatches, no click needed
+  (M34, see `STRUCTURE_RESEARCH.md`).
+- `review --> ocr_pending`: reviewer manually re-runs OCR with a different engine.
+- `ocr_pending --> review`: `RunOcrExtraction` completes.
+- either job throwing goes to `failed`; the Pipeline monitor's Retry button sends it back to
+  `processing`.
+- `review --> verified` and `uploaded --> verified` (skip conversion entirely, verify the
+  text-layer-only document as-is) both go through `DocumentController::updateMarkdown()`.
+
+Any status can be soft-deleted to `archived` and later restored back to its prior status —
+omitted from the diagrams above to avoid an arrow from every node. `visibility`
+(`public`/`authenticated`) is a separate, independent flag, not part of this state machine.
 
 ## 2. Upload — taxonomy resolution
 
 Every upload resolves to exactly one of five contexts, which decides the vault path and the
-document's foreign keys. `DocumentController::store()`:
+document's foreign keys (`DocumentController::store()`):
 
 ```mermaid
 flowchart TD
-    U[POST /documents] --> CTX{Which ID was submitted?}
-    CTX -->|rule_set_id| RS["Rule-set doc\nvault: rules/{rule_set_slug}/\n(Acts/Rules AND Policies — same branch)"]
-    CTX -->|folder_id, no division| FS["Section-folder doc\nvault: {section_slug}/folders/{folder_slug}/"]
-    CTX -->|folder_id + division| FD["Division-folder doc\nvault: {section_slug}/divisions/{division_slug}/folders/{folder_slug}/"]
-    CTX -->|division_id| DV["Division doc\nvault: {section_slug}/divisions/{division_slug}/"]
-    CTX -->|section_id only| SD["Direct section doc\nvault: {section_slug}/"]
+    U[POST to documents] --> CTX{Which ID was submitted}
+    CTX -->|rule_set_id| RS[Rule-set document]
+    CTX -->|folder_id, no division| FS[Section-folder document]
+    CTX -->|folder_id and division| FD[Division-folder document]
+    CTX -->|division_id| DV[Division document]
+    CTX -->|section_id only| SD[Direct section document]
 
-    RS --> APR{"user->shouldRequireApproval(context)?\n(uploads_require_approval flag OR context.requires_approval)"}
+    RS --> APR{Approval required}
     FS --> APR
     FD --> APR
     DV --> APR
     SD --> APR
 
-    APR -->|yes| PA["status = pending_approval\nhidden from all browse views\n(Document::publishable() scope)"]
-    APR -->|no| UP["status = uploaded\nimmediately visible per visibility flag"]
+    APR -->|yes| PA[status pending_approval, hidden from browse]
+    APR -->|no| UP[status uploaded, visible per visibility flag]
 ```
 
-Each branch also picks a distinct `Document::uniqueSlugFor*()` method (`ForRuleSet`/`ForFolder`/
-`ForDivision`/`ForSection`) so slug collisions are scoped to the right parent, not globally.
+Approval-required means either the uploader's `uploads_require_approval` flag or the context's
+own `requires_approval` flag. Vault paths: rule-set docs (Acts/Rules and Policies alike) go under
+`rules/RULE_SET_SLUG/`; the other four branches nest under the owning section's own directory —
+see the vault tree in `README.md`. Each branch also picks a distinct
+`Document::uniqueSlugForRuleSet()`/`ForFolder()`/`ForDivision()`/`ForSection()` method, so slug
+collisions are scoped to the right parent, not globally.
 
 ## 3. Maker-checker approval flow
 
 ```mermaid
 flowchart LR
-    subgraph Maker
-        M1[Bulk operator uploads] --> M2["status: pending_approval\n(hidden from public/browse)"]
-    end
-    subgraph Checker
-        C1["GET /approvals\n(Pending / Rejected / My Submissions tabs)"] --> C2{Decision}
-        C2 -->|approve| C3["status: uploaded\nDocumentStatusHistory logged"]
-        C2 -->|reject + reason| C4["status: rejected\nreason stored"]
-        C2 -->|reclassify| C5["move to correct section/division/rule_set\nwithout re-upload, stays pending_approval"]
-    end
-    M2 --> C1
-    C4 --> R1["Uploader: POST .../resubmit"] --> M2
+    M1[Bulk operator uploads] --> M2[status pending_approval, hidden from browse]
+    M2 --> C1[Checker opens approvals queue]
+    C1 --> C2{Decision}
+    C2 -->|approve| C3[status uploaded]
+    C2 -->|reject with reason| C4[status rejected]
+    C2 -->|reclassify| C5[moved to correct section or rule set, stays pending_approval]
+    C4 --> R1[Uploader resubmits]
+    R1 --> M2
 ```
 
 Approval scope follows the org hierarchy (section/department/global) — a checker only sees
@@ -88,34 +115,51 @@ the UI.
 
 ```mermaid
 flowchart TD
-    R[Any route] --> A{Guest or authenticated?}
-    A -->|guest| G["Public routes only\n(index/show/pdf where visibility=public)\n403 on visibility=authenticated docs"]
-    A -->|authenticated| B{Admin?}
-    B -->|yes| ALL[Full access — bypasses every privilege/scope check]
-    B -->|no| C{Which action?}
-    C -->|upload/delete| D["User::canUploadTo() / canDeleteFrom()\nchecked against department_id/section_id/division_id scope"]
-    C -->|create/edit/destroy dept-sections-divisions-folders| E["Per-controller authorizeManage() helper\n(SECURITY.md H-04/H-05 fix — was previously unchecked)"]
-    C -->|convert/OCR/structure/markdown edit on a document| F["canManageDocument():\nadmin, OR (ruleSet.kind===policy AND user.canManagePolicy())\n— non-policy documents: admin only"]
-    C -->|approve/reject/reclassify| Gp["documents.approve privilege or admin,\nscoped to approver's own org boundary"]
-    C -->|convert-status (poll)| H["Auth only — no scope check\n(SECURITY.md L-04, open low-severity gap)"]
+    R[Any route] --> A{Guest or authenticated}
+    A -->|guest| G[Public routes only, 403 on authenticated-only documents]
+    A -->|authenticated| B{Admin}
+    B -->|yes| ALL[Full access, bypasses every scope check]
+    B -->|no| C{Which action}
+    C -->|upload or delete| D[User scope check against department, section, division]
+    C -->|create edit destroy on dept, section, division, folder| E[Per-controller authorization helper]
+    C -->|convert, OCR, structure, markdown edit| F[Admin, or department head for policy documents only]
+    C -->|approve reject reclassify| Gp[documents.approve privilege, scoped to approver own org boundary]
+    C -->|convert-status poll| H[Auth only, no scope check, documented low-severity gap]
 ```
+
+`E` closes a real gap found in `SECURITY.md` H-04/H-05 (these routes had no authorization check
+beyond the blanket `auth` middleware before that fix). `H` is the still-open `SECURITY.md` L-04
+gap: any logged-in user can poll any document's conversion status by ID.
 
 ## 5. Component map
 
 ```mermaid
 flowchart TD
-    Blade["Blade views\n(documents/show, pipeline, bulk-upload,\napprovals/index, admin/*)"] --> Ctrl
-    Ctrl["Controllers\nDocumentController · RuleSetController · ApprovalController\nDepartmentController/SectionController/DivisionController/FolderController"] --> DB[(MariaDB\ndepartments/sections/divisions/\nfolders/rule_sets/documents/\ndocument_status_histories/users)]
-    Ctrl --> Jobs["Queue jobs (ShouldQueue, DB driver, single worker)"]
-    Jobs --> CDM["ConvertDocumentToMarkdown\n(Pass 1 text-layer, Pass 0 Docling, splice)"]
-    Jobs --> ROE["RunOcrExtraction\n(rasterize + chosen OCR engine + splice)"]
-    CDM --> Py["Python venvs\nmarkitdown/pdfminer · Docling · Tesseract/EasyOCR/PaddleOCR/Surya"]
+    Blade[Blade views] --> Ctrl[Controllers]
+    Ctrl --> DB[(MariaDB)]
+    Ctrl --> Jobs[Queue jobs, database driver, single worker]
+    Jobs --> CDM[ConvertDocumentToMarkdown]
+    Jobs --> ROE[RunOcrExtraction]
+    CDM --> Py[Python venvs]
     ROE --> Py
-    Py --> Disk["public disk\ndocument_vault/.../{slug}.pdf + .md + .pre-ocr.md + .structure.json"]
-    CDM -.auto-dispatch when text unreadable (M34).-> ROE
-    Ctrl --> ActivityLog["LogMutation middleware -> activity_logs table\n(every authenticated mutation, non-fatal)"]
+    Py --> Disk[Public disk, document vault]
+    CDM -.->|auto dispatch| ROE
+    Ctrl --> ActivityLog[LogMutation middleware, activity_logs table]
 ```
 
-See `OCR_RESEARCH.md` for the conversion pipeline's own detailed flowchart (Pass ordering,
-quality checks, splice logic, auto-OCR-trigger) — this file stops at the component-boundary
-level to avoid duplicating that diagram.
+- **Blade** — `documents/show`, `documents/pipeline`, `documents/bulk-upload`, `approvals/index`,
+  `admin/*`, etc.
+- **Controllers** — `DocumentController`, `RuleSetController`, `ApprovalController`,
+  `DepartmentController`/`SectionController`/`DivisionController`/`FolderController`.
+- **MariaDB** — `departments`, `sections`, `divisions`, `folders`, `rule_sets`, `documents`,
+  `document_status_histories`, `users`.
+- **Python venvs** — `markitdown`/pdfminer (text layer), Docling (structure), Tesseract/EasyOCR/
+  PaddleOCR/Surya (OCR), each in its own venv under `storage/app/private/ocr-engines/`.
+- **Public disk** — `document_vault/.../SLUG.pdf` plus sibling `.md`, `.pre-ocr.md`, and
+  `.structure.json` files once converted.
+- The dotted edge is M34's auto-dispatch: `ConvertDocumentToMarkdown` queues `RunOcrExtraction`
+  itself when the text layer is unreadable, instead of waiting for a reviewer to trigger it.
+
+See `OCR_RESEARCH.md` for the conversion pipeline's own detailed flowchart (pass ordering, quality
+checks, splice logic, auto-OCR-trigger) — this file stops at the component-boundary level to
+avoid duplicating that diagram.
