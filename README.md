@@ -15,16 +15,16 @@ While built for government requirements, the architecture is fully open-source a
 
 ## ✨ Core Features
 
-- **Multi-Engine Processing** — button-triggered, never automatic on upload:
-  - Every document first runs a Docling structure-detection pass (layout/table model, own venv) that detects headings and table cells with bounding boxes — informational this round (viewable in the review UI), not yet merged into the rendered Markdown. See `STRUCTURE_RESEARCH.md`.
-  - Every document then tries native-text extraction (`markitdown` Python package, invoked through a Laravel queue job) — fast, and correct whenever a real text layer exists, including a geometric table-detection pass so tabular data renders as real Markdown tables instead of one flattened paragraph. A legacy non-Unicode font check (Kruti Dev, Chanakya, DevLys, etc.) flags documents whose text layer decodes to readable-looking garbage, which char-count alone wouldn't catch.
-  - OCR is available as an explicit, human-triggered re-extraction from the review screen — not an automatic fallback — with a choice of four local engines (Tesseract `hin`+`eng`, EasyOCR, PaddleOCR, Surya) selectable from a dropdown, so a reviewer can compare results on a hard document. Testing confirmed OCR can silently corrupt an already-good text layer (e.g. digit misreads), so it only ever runs when a reviewer asks for it, never unconditionally. A one-click "Revert to Text Extraction" restores the pre-OCR result if a given engine's OCR output turns out worse. See `OCR_RESEARCH.md` for on-prem OCR engine comparisons and tradeoffs (Tesseract remains the default; Surya is CPU-impractically slow for full pages on hardware without a GPU).
+- **Multi-Engine Processing** — conversion itself is button-triggered, never automatic on upload; OCR within a conversion can now trigger itself:
+  - Every conversion first runs native-text extraction (`markitdown`/pdfminer, invoked through a Laravel queue job) — fast, and correct whenever a real text layer exists, including a geometric table-detection pass so tabular data renders as real Markdown tables instead of one flattened paragraph. A legacy non-Unicode font check (Kruti Dev, Chanakya, DevLys, etc.) flags documents whose text layer decodes to readable-looking garbage, which char-count alone wouldn't catch.
+  - A Docling structure-detection pass (layout/table model, own venv) then runs, detecting headings and table cells with bounding boxes; wherever the text extraction's own heuristic missed a table or heading on a page, Docling's own recognized text is spliced into the rendered Markdown to fill the gap — not just shown as a side panel. See `STRUCTURE_RESEARCH.md`.
+  - If the text layer looks unreadable, OCR now runs **automatically** (no reviewer click needed) with a choice of four local engines (Tesseract `hin`+`eng` default, EasyOCR, PaddleOCR, Surya) — a reviewer can still re-run manually with a different engine to compare results on a hard document. A one-click "Revert to Text Extraction" restores the pre-OCR result if a given engine's OCR output turns out worse. See `OCR_RESEARCH.md` for on-prem OCR engine comparisons and tradeoffs (Tesseract remains the default; Surya is CPU-impractically slow for full pages on hardware without a GPU).
 - **Human-in-the-Loop Validation UI** — A "Compare & Verify" split-pane modal on the document page where clerks and administrators visually check the original PDF against the extracted Markdown, edit the raw text if needed, toggle a rendered Preview (GitHub/VS Code-style formatting via `marked.js`, not raw asterisks) to sanity-check the result, then verify or discard the draft. The already-verified document view renders the same way, server-side via Parsedown.
 - **Bulk Upload & Conversion Pipeline Monitor** — a dedicated bulk-upload page (any scoped department/section/division/folder/rule-set, sequential multi-file upload, optional auto-convert) and a pipeline monitor page listing every document still mid-conversion with live status.
 - **Strict Siloed Architecture** — A hierarchical directory structure (Level → Body → Section/RuleSet) maps directly to database records, preventing context leakage between administrative units.
 - **Dual Document Taxonomy** — Documents belong to either a **Section** (for GOs, notices, policy circulars) or a **Rule Set** (for Acts, Rules, and their amendments), each with dedicated vault paths and URL structures.
 - **Policy Taxonomy** — Department-level-only policy containers (`RuleSet` with `kind=policy`) for the state/government's actual named policies — UP Excise Policy, UP Cane Policy, UP Sugar Policy, UP Import/Export Policy — distinct from the subject-specific Rules (Bar, Beer, Bottling, Distillery, Vending) that already live under the Rule Set taxonomy. A new policy period automatically **supersedes** the previous one for the same department + state + policy type (marked historical, never deleted — old URLs keep resolving for pending case citations), while mid-season corrections use the existing amendment flow. `state` and `policy_type` are controlled dropdowns (with a sanitized "Other" free-text fallback) so search and filtering never fragment on casing. Upload defaults to Uttar Pradesh; a separate action adds another state's policy. Managed by admins or the owning department's `department.head` only — everyone else is view-only.
-- **Metadata Injection** — Processed Markdown files carry YAML frontmatter (department, section, GO reference, dates, etc.), enabling accurate context retrieval for downstream LLM/RAG pipelines.
+- **Structured Metadata** — Each document carries a `metadata` JSON column (extraction method, OCR engine used, GO number, subject, dates, structure-detection counts, etc.), enabling accurate context retrieval for downstream LLM/RAG pipelines without parsing the Markdown body itself.
 - **Maker-Checker Approval Workflow** — Bulk-onboarding operators can have all their uploads held in `pending_approval` until a designated approver reviews them. Approval scope follows the existing organisational hierarchy (section / department / global). Approvers can approve, reject (with mandatory reason), or reclassify (move document to the correct section/division/rule set without re-uploading). Rejected documents can be resubmitted by the uploader. The entire flow is audit-logged.
 - **Full Audit Trail** — Every document state transition (`Uploaded → Processing → Review → Verified`, including `pending_approval` and `rejected`) is logged with the acting user and timestamp.
 - **Full Rajbhasha / Unicode Support** — All document titles, section names, rule set names, and division names accept Devanagari text natively — including combining marks (matras, halant). Mixed Hindi-English titles like `FL Bottling Rules 2011 (शुद्धिपत्र)` are stored, displayed, and slugified correctly. Validation uses Unicode category classes (`\p{L}\p{M}\p{N}\p{P}\p{Z}`) in both PHP (PCRE) and browser JavaScript. URL slugs preserve Devanagari characters intact (e.g. `…/fl-bottling-rules-2011-16th-amendment-शुद्धिपत्र`) instead of transliterating them.
@@ -36,10 +36,10 @@ While built for government requirements, the architecture is fully open-source a
 | Core Framework | Laravel 13, PHP 8.4 |
 | Database | MariaDB 12 |
 | Web Server | Apache (mod_php or php-fpm) — no Nginx |
-| Frontend / UI | Blade Templates, Tailwind CSS v4 (Play CDN + `typography` plugin), Parsedown, `marked.js` (CDN, client-side Markdown preview only), `Cleave.js` (CDN, masked date inputs on the Policy create/edit form) — no Node, no npm, no build step |
-| Text Extraction | Python `markitdown` (Microsoft, MIT), via the [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package |
-| Structure Detection | [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0) — layout/table-structure model, own Python venv (`storage/app/private/ocr-engines/docling/`), runs automatically ahead of text extraction |
-| OCR Engines | Tesseract (Google/HP, `hin`+`eng`, default), EasyOCR (JaidedAI), PaddleOCR (Baidu), Surya (VikParuchuri, open source) — selectable per re-extraction, each in its own Python venv (`storage/app/private/ocr-engines/`, pyenv 3.12.8) |
+| Frontend / UI | Blade Templates, Tailwind CSS v4 (Play CDN + `typography` plugin), Parsedown, `marked.js` (CDN, client-side Markdown preview), `Grid.js` (CDN, sortable/searchable tables in the structure panel), `Cleave.js` (CDN, masked date inputs on the Policy create/edit form) — no Node, no npm, no build step |
+| Text Extraction | Python `markitdown`/pdfminer (Microsoft, MIT), via the [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package — runs first in every conversion (the fast pass) |
+| Structure Detection | [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0) — layout/table-structure model, own Python venv (`storage/app/private/ocr-engines/docling/`), runs after text extraction; headings/tables it detects are spliced into the rendered Markdown wherever the text-extraction heuristic missed them |
+| OCR Engines | Tesseract (Google/HP, `hin`+`eng`, default), EasyOCR (JaidedAI), PaddleOCR (Baidu), Surya (VikParuchuri, open source) — auto-triggered when the text layer looks unreadable, or manually re-run with a different engine from the review screen; each in its own Python venv (`storage/app/private/ocr-engines/`, pyenv 3.12.8) |
 | Queue | Laravel database queue driver (local single-box deployment, no Redis dependency) |
 
 **Dev tooling:** [`subhanraj/laravel-db-provisioner`](https://github.com/SubhanRaj/laravel-db-provisioner)
@@ -108,7 +108,7 @@ Restart after editing:
 Scope for this phase is **Secretariat and Head Quarter level only** — policies, GOs, and rules are uniform across field offices (DEO/DEC/JEC), so no district/jurisdiction-level breakdown is needed. Field office tiers can be added later if a use case requires it.
 
 ```text
-storage/app/document_vault/
+storage/app/public/document_vault/
 ├── secretariat_level/
 │   └── excise/
 │       ├── joint_secretary_wing/
@@ -131,19 +131,28 @@ storage/app/document_vault/
     │       ├── legal_section/
     │       ├── task_force/
     │       └── rules/
-    │           ├── {rule-set-slug}/       ← Acts, Rules, and their amendments
+    │           ├── {rule-set-slug}/       ← Acts, Rules, and amendments (kind=rules)
+    │           ├── {policy-slug}/         ← state excise/cane/sugar/import/export policies (kind=policy)
     │           └── ...
     │
     └── sugarcane_sugar/
         └── (structure to be added once scoped)
 ```
 
+Policy rule sets (`RuleSet.kind = 'policy'`) share the same `rules/{slug}/` layout as Acts/Rules —
+they're both just `RuleSet` records with a different `kind`, not a separate vault branch.
+
+Once a document is uploaded, converting it to Markdown adds sibling files next to the PDF in the
+same directory: `{slug}_{YmdHis}.md` (rendered Markdown), `{slug}_{YmdHis}.pre-ocr.md` (backup of
+the pre-OCR result, if OCR ran), and `{slug}_{YmdHis}.structure.json` (Docling's compact
+headings/tables map) — see "Text Extraction & Markdown Conversion Pipeline" in `claude.md`.
+
 **Section-based document path:**
 ```
 document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.pdf
 ```
 
-**Rule-set-based document path:**
+**Rule-set-based document path** (Acts/Rules and Policies alike):
 ```
 document_vault/{level}/{dept_slug}/rules/{rule_set_slug}/{slug}_{YmdHis}.pdf
 ```
@@ -314,6 +323,23 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 
 *Public routes 403 on `visibility = authenticated` documents for guests.
 
+### Conversion Pipeline (Markdown / OCR / Structure)
+
+| Route | Method | Name | Auth |
+|---|---|---|---|
+| `/documents/bulk-upload` | GET | `documents.bulk-upload` | Auth — scoped to the user's own upload permissions within the form itself |
+| `/documents/pipeline` | GET | `documents.pipeline` | Auth — shows every document across all departments, not scope-filtered |
+| `/documents/{id}/convert` | POST | `documents.convert` | Admin, or `department.head`/policy-manager for policy documents (`canManageDocument()`) |
+| `/documents/{id}/convert-ocr` | POST | `documents.convert-ocr` | Same as above |
+| `/documents/{id}/revert-ocr` | POST | `documents.revert-ocr` | Same as above |
+| `/documents/{id}/structure` | GET | `documents.structure` | Same as above |
+| `/documents/{id}/markdown` | PATCH | `documents.markdown.update` | Same as above |
+| `/documents/{id}/markdown` | DELETE | `documents.markdown.discard` | Same as above |
+| `/documents/{id}/convert-status` | GET | `documents.convert-status` | Auth only — **no** `canManageDocument()` scope check; any logged-in user can poll any document's conversion status by ID (documented, low-severity, open gap — `SECURITY.md` L-04) |
+
+These use numeric `{id}`, not slugs — conversion is an internal pipeline action on a document
+that already resolved through one of the slug-based routes above, not a public-facing URL.
+
 ### Departments, Sections, Divisions, Rule Sets, Folders
 
 | Route | Method | Name | Auth |
@@ -363,6 +389,7 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | `/admin/users/{user}` | PATCH | `admin.users.update` | Admin |
 | `/admin/users/{user}` | DELETE | `admin.users.destroy` | Admin |
 | `/admin/users/{user}/edit` | GET | `admin.users.edit` | Admin |
+| `/admin/activity-logs` | GET | `admin.activity.index` | Admin |
 | `/profile/edit` | GET | `profile.edit` | Auth |
 | `/profile` | PATCH | `profile.update` | Auth |
 
@@ -387,6 +414,8 @@ Approval routes use numeric `{id}` — reclassification changes context mid-flow
 | `GET /search?q=` | `search.index` | Public full-text search |
 | `GET /login`, `POST /login` | `login`, `login.store` | Fortify auth |
 | `POST /logout` | `logout` | Fortify auth |
+| `GET/POST /user/confirm-password` | `password.confirm`, `password.confirm.store` | Fortify — re-confirms password before a sensitive action |
+| `GET /user/confirmed-password-status` | `password.confirmation` | Fortify |
 
 ## 🚧 Status
 
