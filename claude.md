@@ -29,8 +29,8 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Web server | Apache (mod_php or php-fpm via mod_proxy_fcgi) — **no Nginx** |
 | Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Parsedown (markdown render) — **no Node, no npm, no build step** |
 | Text extraction | Python `markitdown` (Microsoft, MIT), via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
-| Structure detection | [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0), own venv (`storage/app/private/ocr-engines/docling/`) — layout/table-structure model, runs automatically as Pass 0 of every "Convert to Markdown" click, before markitdown's text-layer pass. Detects headings and table cells with bounding boxes; stored as a compact sibling `.structure.json`, informational only so far (not yet merged into the rendered Markdown — see `STRUCTURE_RESEARCH.md`). |
-| OCR | Selectable engine — Tesseract (Google/HP, `hin`+`eng`, default), EasyOCR (JaidedAI), PaddleOCR (Baidu), or Surya (VikParuchuri, open source) — invoked via `symfony/process`. **Never automatic** — triggered only by an explicit "Run OCR-Based Extraction" action (with an engine dropdown) from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below and `config/ocr.php`. |
+| Structure detection | [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0), own venv (`storage/app/private/ocr-engines/docling/`) — layout/table-structure model, runs automatically as Pass 0 of every "Convert to Markdown" click, after the quick text-layer pass (reordered M34). Detects headings and table cells with bounding boxes; stored as a compact sibling `.structure.json` and spliced into the rendered Markdown wherever the geometric heuristic missed a table (M33) or heading (M34) — see `STRUCTURE_RESEARCH.md`. |
+| OCR | Selectable engine — Tesseract (Google/HP, `hin`+`eng`, default), EasyOCR (JaidedAI), PaddleOCR (Baidu), or Surya (VikParuchuri, open source) — invoked via `symfony/process`. Triggered either automatically (M34: when the text-layer pass looks unreadable, `RunOcrExtraction` is auto-dispatched with no click needed) or manually via "Run OCR-Based Extraction" (with an engine dropdown) from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below and `config/ocr.php`. |
 | Queue | Laravel **database** queue driver — deliberately no Redis, single-box local deployment |
 | Disk | Single local filesystem disk (`public`); logical separation enforced by path convention, not multiple disks |
 | Dev-only DB setup | [`subhanraj/laravel-db-provisioner`](https://github.com/SubhanRaj/laravel-db-provisioner) (`require-dev`) — `php artisan db:provision` generates a random per-project DB name/user/password rather than reusing a shared MariaDB admin account. Never used in production; see [DEPLOY.md](./DEPLOY.md#3-project-setup). |
@@ -308,13 +308,15 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 
 ### Text Extraction & Markdown Conversion Pipeline
 
-**Implemented 2026-07-13.** Converts a document's original PDF into Markdown, with OCR available
-as an explicit, human-triggered fallback — never automatic. This is a deliberate "man in the
-middle" design: every upload defaults to the fast text-layer pass, a human decides whether the
-result is good enough or needs OCR, nothing burns minutes of queue time until someone asks for it.
+**Implemented 2026-07-13, pass order + OCR auto-trigger changed 2026-07-17 (M34).** Converts a
+document's original PDF into Markdown. Conversion itself is still human-triggered (a button
+click, never automatic on upload); OCR *within* a conversion is no longer purely a manual
+fallback — since M34, the text-layer pass runs first and, if it flags the result unreadable, OCR
+is auto-dispatched right there without waiting for a reviewer to click anything. A reviewer can
+still trigger OCR manually too (e.g. to retry with a different engine).
 
-**Trigger — button, not automatic.** Conversion never auto-dispatches from `store()` or from
-approval. A **Convert to Markdown** button on `documents/show` (and a per-row **Convert**/**Retry**
+**Trigger — button, not automatic on upload.** Conversion never auto-dispatches from `store()` or
+from approval. A **Convert to Markdown** button on `documents/show` (and a per-row **Convert**/**Retry**
 button on the Pipeline monitor, and an **auto-convert** checkbox on the Bulk Upload page) calls
 `POST /documents/{id}/convert`, which dispatches `App\Jobs\ConvertDocumentToMarkdown`
 (`ShouldQueue`, `$timeout = 1200` — bumped from 900 to give the Docling structure pass below
@@ -356,16 +358,27 @@ any Docling failure is logged and the rest of the pipeline proceeds unaffected.
 The structure map is shown to reviewers inside the Compare & Verify modal (a collapsible
 "Structure detected: N headings, M tables" panel, headings as a list and tables rendered via
 Grid.js — see `STRUCTURE_RESEARCH.md`'s "Review UI changes" section) and is **also spliced into
-the rendered Markdown itself** for tables: `pdf_structure_extractor.py`'s `classify_and_render()`
-takes an optional Docling table list and, on any page where its own geometric heuristic found no
-table, inserts Docling's already-recognized table text there instead of leaving that page's
-table flattened into a paragraph. This is a partial Phase 2 (M33) — see `STRUCTURE_RESEARCH.md`
+the rendered Markdown itself** for both tables and headings: `pdf_structure_extractor.py`'s
+`classify_and_render()` takes an optional Docling table list and heading list and, on any page
+where its own geometric heuristic found none of its own, inserts Docling's already-recognized
+text there instead of leaving that page's table flattened into a paragraph or its heading
+demoted to plain text. Table splice is M33, heading splice is M34 — see `STRUCTURE_RESEARCH.md`
 for the known limitation (duplicate garbled table text can still appear on some OCR-derived
 documents; full de-duplication needs bbox coordinate reconciliation between Docling and the OCR
 engine, not done this round). `discardMarkdown()` deletes the `.structure.json` sibling alongside
 the Markdown draft it was produced with, same lifecycle as the Markdown itself.
 
-**`ConvertDocumentToMarkdown` job — text-layer pass, always runs first:**
+**Fixed 2026-07-17 (M34) — pass order + auto-OCR-trigger.** The text-layer pass (Pass 1) now runs
+*before* Docling's structure pass (Pass 0), not after — it's the fast half of the job, so the
+quality/legacy-font check result is known before spending Docling's per-page time. Docling still
+always runs afterward (structure detection is useful either way), and the text is re-rendered
+once `structure.json` exists so table/heading splicing applies. The practical payoff: if the
+quality check says OCR is needed, `RunOcrExtraction` is now dispatched automatically at the end
+of the job (`config('ocr.default')` engine), and status goes straight to `ocr_pending` instead of
+parking at `review` waiting for a reviewer to notice `needs_ocr_review` and click "Run OCR"
+themselves. A reviewer can still manually re-run OCR with a different engine afterward.
+
+**`ConvertDocumentToMarkdown` job — text-layer pass, now runs first (see M34 above):**
 1. Runs `resources/python/pdf_structure_extractor.py --mode pdf` through the same venv Python
    `innobrain/markitdown:install` provisions (`vendor/innobrain/markitdown/python/venv/bin/python3`)
    — this script uses `pdfminer.six`'s low-level API (`extract_pages`, `LTChar`, `LTTextLine`)
@@ -400,10 +413,10 @@ the Markdown draft it was produced with, same lifecycle as the Markdown itself.
      deliberately not a character-remapping table, which risks silently producing
      subtly-wrong text in a legal document; flagging for human review matches this
      pipeline's existing quality philosophy.
-3. Writes the Markdown regardless of quality (`status → review` either way) and sets
-   `metadata.needs_ocr_review = true/false` — a bad text-layer result is still shown to the
-   reviewer with a warning, not silently discarded, so nothing is stuck waiting on a human who
-   doesn't know a document needs attention.
+3. Writes the Markdown regardless of quality and sets `metadata.needs_ocr_review = true/false`.
+   Status goes to `review` if quality is good, or straight to `ocr_pending` (with
+   `RunOcrExtraction` auto-dispatched, see M34 above) if not — either way the bad text-layer
+   result is still saved and visible with a warning, never silently discarded.
 
 **`RunOcrExtraction` job — explicit, human-triggered only, never auto-dispatched, engine-selectable:**
 1. `pdftoppm -png -r 300` rasterizes every page to PNG in a per-job temp dir under

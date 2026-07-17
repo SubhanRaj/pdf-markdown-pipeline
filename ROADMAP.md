@@ -222,9 +222,9 @@ existing JSON column; `status` reuses values already named in `CLAUDE.md`'s enum
 
 ---
 
-### 2.5 Structure Detection (Docling) ✅ Phase 1 (2026-07-15) + partial Phase 2 (2026-07-16)
+### 2.5 Structure Detection (Docling) ✅ Phase 1 (2026-07-15) + partial Phase 2 (2026-07-16/17)
 
-**Status:** Structure detection shipped, plus a partial table-text splice. The full geometric merge below is the remaining increment, not yet built.
+**Status:** Structure detection shipped, plus table splice (M33) and heading splice (M34). The full geometric merge below (de-duplicating garbled OCR fragments) is the remaining increment, not yet built.
 
 **Rationale:** Section 2.4's pipeline extracts characters correctly but loses page *structure* — tables collapse into run-on paragraphs, headings disappear into body text — even when the underlying character recognition (Tesseract/EasyOCR/PaddleOCR) is accurate. Evaluated hands-on against real other-state excise policy PDFs (both a text-layer document and a 54-page scan): [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0) already implements the layout-detection → table-structure → structured-Markdown pattern this problem calls for, using a purpose-built vision model rather than a general LLM — confirmed fast (~3s/page) and no Ollama/LLM needed anywhere in this pipeline. Full write-up, including the RapidOCR-defaults-to-Chinese bug found and the `--force-ocr` impracticality finding: `STRUCTURE_RESEARCH.md`.
 
@@ -234,7 +234,9 @@ existing JSON column; `status` reuses values already named in `CLAUDE.md`'s enum
 - Shown to reviewers inside the Compare & Verify modal (collapsible panel, headings as a list, tables via Grid.js), fetched via `GET /documents/{id}/structure`, discarded by `discardMarkdown()` alongside the Markdown draft.
 - A real, pre-existing gap found independently during this evaluation: legacy non-Unicode Devanagari fonts (Kruti Dev, Chanakya, DevLys) produce readable-looking-but-wrong text that neither the `(cid:\d+)` nor char-count quality check catches — fixed by detecting the font *name* directly and forcing `needs_ocr_review`.
 
-**What shipped (Phase 2, partial — 2026-07-16):** Docling's own recognized table cell text (already retained, not discarded like heading/body OCR text) is spliced into the rendered Markdown wherever `pdf_structure_extractor.py`'s own row/column-clustering heuristic finds no table on a page — no LLM, reuses a result Docling's Pass 0 already produced. **Known limitation:** on OCR-derived documents where the heuristic's bounding boxes are too fragmented to even attempt row-clustering, a garbled duplicate of the same table can still appear as ordinary paragraph text next to the correct spliced table. Closing that gap is the remaining work below.
+**What shipped (Phase 2, partial — 2026-07-16, M33):** Docling's own recognized table cell text (already retained, not discarded like heading/body OCR text) is spliced into the rendered Markdown wherever `pdf_structure_extractor.py`'s own row/column-clustering heuristic finds no table on a page — no LLM, reuses a result Docling's Pass 0 already produced. **Known limitation:** on OCR-derived documents where the heuristic's bounding boxes are too fragmented to even attempt row-clustering, a garbled duplicate of the same table can still appear as ordinary paragraph text next to the correct spliced table. Closing that gap is the remaining work below.
+
+**What shipped (2026-07-17, M34):** Same splice treatment extended to headings (Docling headings inserted on any page the heuristic missed entirely). Also reordered the job to run the fast text-layer pass before Docling, and auto-dispatch `RunOcrExtraction` the moment a bad text layer is detected — no reviewer click needed anymore for the common "this is a scan" case. See `STRUCTURE_RESEARCH.md`'s M34 section.
 
 **Phase 2 remainder (not yet built) — full geometric merge:** reconcile Docling's PDF-point/bottom-left bounding boxes against each OCR engine's pixel/top-left boxes (Tesseract hOCR, EasyOCR/PaddleOCR), so garbled table fragments can be identified and dropped by spatial overlap rather than only when the row-clustering heuristic happens to attempt and then reject them. See `STRUCTURE_RESEARCH.md`'s "Known limitation" note.
 
@@ -256,4 +258,4 @@ The current Parsedown post-processor uses a targeted `preg_replace` to strip `ja
 
 ---
 
-*Roadmap authored: 2026-06-25. Last updated: 2026-07-16 (2.5 Structure Detection/Docling: partial Phase 2 table splice marked implemented; see `summary.md` and `STRUCTURE_RESEARCH.md`). All items subject to prioritisation based on NIC audit outcomes and departmental SOP review.*
+*Roadmap authored: 2026-06-25. Last updated: 2026-07-17 (2.5 Structure Detection/Docling: heading splice + pipeline reorder + auto-OCR-trigger, M34, marked implemented; see `summary.md` and `STRUCTURE_RESEARCH.md`). All items subject to prioritisation based on NIC audit outcomes and departmental SOP review.*
