@@ -66,6 +66,14 @@ Yes, and it's a cheap, real lever that isn't pulled yet. Two independent angles:
 
 ```mermaid
 flowchart TD
+    classDef entry fill:#e0e7ff,stroke:#4338ca,color:#312e81
+    classDef decision fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef good fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef process fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
+    classDef review fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d
+
     U[Upload PDF] --> P1["Pass 1 — markitdown / pdfminer\ntext-layer extraction (quick)"]
     P1 --> QC{"Quality check\nisGoodQuality()\nlegacy-font check"}
     QC -->|"sparse text /\nKruti Dev font detected"| FLAG["needs_ocr_review = true"]
@@ -81,6 +89,16 @@ flowchart TD
     P2 --> SPLICE2["classify_and_render()\nsame table+heading splice,\nsame structure.json"]
     SPLICE2 --> REVIEW2["status: review\nreviewer accepts or re-runs\nwith a different engine"]
     REVIEW2 --> DONE2[Done]
+
+    class U entry
+    class QC decision
+    class FLAG bad
+    class OK good
+    class P0,SPLICE,SPLICE2 process
+    class REVIEW,REVIEW2 review
+    class P2 process
+    class SAVE process
+    class DONE1,DONE2 done
 ```
 
 Key points the diagram doesn't show directly:

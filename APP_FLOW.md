@@ -16,12 +16,20 @@ diagram had too many crossing arrows to read cleanly.
 
 ```mermaid
 stateDiagram-v2
+    classDef pending fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef good fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+
     [*] --> pending_approval
     [*] --> uploaded
     pending_approval --> uploaded
     pending_approval --> rejected
     rejected --> pending_approval
     uploaded --> [*]
+
+    class pending_approval pending
+    class uploaded good
+    class rejected bad
 ```
 
 `[*] --> pending_approval` fires when the uploader or the upload context (section/division/rule
@@ -34,6 +42,11 @@ original uploader can move `rejected` back to `pending_approval` (resubmit). See
 
 ```mermaid
 stateDiagram-v2
+    classDef start fill:#e0e7ff,stroke:#4338ca,color:#312e81
+    classDef working fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef good fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+
     uploaded --> processing
     uploaded --> verified
     processing --> review
@@ -45,6 +58,12 @@ stateDiagram-v2
     failed --> processing
     review --> verified
     verified --> [*]
+
+    class uploaded start
+    class processing,ocr_pending working
+    class review working
+    class verified good
+    class failed bad
 ```
 
 - `uploaded --> processing`: reviewer clicks Convert to Markdown.
@@ -69,6 +88,12 @@ document's foreign keys (`DocumentController::store()`):
 
 ```mermaid
 flowchart TD
+    classDef entry fill:#e0e7ff,stroke:#4338ca,color:#312e81
+    classDef decision fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef branch fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef good fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef pending fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+
     U[POST to documents] --> CTX{Which ID was submitted}
     CTX -->|rule_set_id| RS[Rule-set document]
     CTX -->|folder_id, no division| FS[Section-folder document]
@@ -84,6 +109,12 @@ flowchart TD
 
     APR -->|yes| PA[status pending_approval, hidden from browse]
     APR -->|no| UP[status uploaded, visible per visibility flag]
+
+    class U entry
+    class CTX,APR decision
+    class RS,FS,FD,DV,SD branch
+    class UP good
+    class PA pending
 ```
 
 Approval-required means either the uploader's `uploads_require_approval` flag or the context's
@@ -97,6 +128,12 @@ collisions are scoped to the right parent, not globally.
 
 ```mermaid
 flowchart LR
+    classDef entry fill:#e0e7ff,stroke:#4338ca,color:#312e81
+    classDef pending fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef decision fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef good fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+
     M1[Bulk operator uploads] --> M2[status pending_approval, hidden from browse]
     M2 --> C1[Checker opens approvals queue]
     C1 --> C2{Decision}
@@ -105,6 +142,12 @@ flowchart LR
     C2 -->|reclassify| C5[moved to correct section or rule set, stays pending_approval]
     C4 --> R1[Uploader resubmits]
     R1 --> M2
+
+    class M1 entry
+    class M2,C1,C5 pending
+    class C2 decision
+    class C3 good
+    class C4,R1 bad
 ```
 
 Approval scope follows the org hierarchy (section/department/global) — a checker only sees
@@ -115,6 +158,12 @@ the UI.
 
 ```mermaid
 flowchart TD
+    classDef entry fill:#e0e7ff,stroke:#4338ca,color:#312e81
+    classDef decision fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef good fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef scoped fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef warn fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+
     R[Any route] --> A{Guest or authenticated}
     A -->|guest| G[Public routes only, 403 on authenticated-only documents]
     A -->|authenticated| B{Admin}
@@ -125,6 +174,12 @@ flowchart TD
     C -->|convert, OCR, structure, markdown edit| F[Admin, or department head for policy documents only]
     C -->|approve reject reclassify| Gp[documents.approve privilege, scoped to approver own org boundary]
     C -->|convert-status poll| H[Auth only, no scope check, documented low-severity gap]
+
+    class R entry
+    class A,B,C decision
+    class ALL good
+    class G,D,E,F,Gp scoped
+    class H warn
 ```
 
 `E` closes a real gap found in `SECURITY.md` H-04/H-05 (these routes had no authorization check
@@ -135,6 +190,13 @@ gap: any logged-in user can poll any document's conversion status by ID.
 
 ```mermaid
 flowchart TD
+    classDef view fill:#e0e7ff,stroke:#4338ca,color:#312e81
+    classDef ctrl fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef store fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef job fill:#fce7f3,stroke:#db2777,color:#831843
+    classDef py fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef disk fill:#ede9fe,stroke:#7c3aed,color:#4c1d95
+
     Blade[Blade views] --> Ctrl[Controllers]
     Ctrl --> DB[(MariaDB)]
     Ctrl --> Jobs[Queue jobs, database driver, single worker]
@@ -145,6 +207,13 @@ flowchart TD
     Py --> Disk[Public disk, document vault]
     CDM -.->|auto dispatch| ROE
     Ctrl --> ActivityLog[LogMutation middleware, activity_logs table]
+
+    class Blade view
+    class Ctrl,ActivityLog ctrl
+    class DB store
+    class Jobs,CDM,ROE job
+    class Py py
+    class Disk disk
 ```
 
 - **Blade** — `documents/show`, `documents/pipeline`, `documents/bulk-upload`, `approvals/index`,
