@@ -66,6 +66,13 @@ class TableBlock:
     page: int = 0
 
 
+@dataclass
+class HeadingBlock:
+    text: str
+    page: int = 0
+    level: int = 2
+
+
 NUMBERED_PREFIX_RE = re.compile(r'^(\d+(?:\.\d+)*)[\.\)]?\s+')
 
 # Legacy non-Unicode Devanagari fonts (Kruti Dev, Chanakya, DevLys, Shusha, Walkman, etc.) map
@@ -217,6 +224,33 @@ def heading_level_from_caps(text: str) -> int:
     return 1
 
 
+def _own_heading_level(text: str, size: float, median: float) -> int:
+    """Shared with classify_and_render's render loop, so the pre-pass that decides which pages
+    are missing a heading uses exactly the same judgment as the render itself."""
+    ratio = size / median if median else 1
+    return heading_level_from_size(ratio) or heading_level_from_caps(text)
+
+
+def _insert_index(blocks: list, page: int, at_start: bool) -> int:
+    """Where to insert a Docling-supplied block (table or heading) for `page` into `blocks`.
+    at_start=True lands it right before this page's first existing block (headings read best
+    at the top of their section); at_start=False lands it right after this page's last block
+    (tables read fine appended). Falls back to right after the previous page's last block when
+    this page has no existing blocks at all (e.g. an image-only page)."""
+    if at_start:
+        for idx, b in enumerate(blocks):
+            if b.page == page:
+                return idx
+    else:
+        for idx in range(len(blocks) - 1, -1, -1):
+            if blocks[idx].page == page:
+                return idx + 1
+    for idx in range(len(blocks) - 1, -1, -1):
+        if blocks[idx].page < page:
+            return idx + 1
+    return len(blocks)
+
+
 def docling_table_blocks(structure_json_path: str) -> list[TableBlock]:
     """
     Loads the compact structure.json Docling's Pass 0 already wrote (see
@@ -247,7 +281,34 @@ def docling_table_blocks(structure_json_path: str) -> list[TableBlock]:
     return blocks
 
 
-def classify_and_render(lines: list[Line], docling_tables: list[TableBlock] | None = None) -> str:
+def docling_heading_blocks(structure_json_path: str) -> list[HeadingBlock]:
+    """
+    Same idea as docling_table_blocks(), for headings: Docling's structure.json records each
+    detected heading's text and page but not a nesting level, so the level is inferred the same
+    way heading_level_from_caps() infers it for the geometric heuristic — from a numbered prefix
+    (`1.2.1` -> deeper level), defaulting to level 2 for an unnumbered heading (level 1 is left
+    for the heuristic's own font-size signal, since Docling gives us no way to tell a document
+    title from a section header).
+    """
+    with open(structure_json_path, encoding='utf-8') as f:
+        data = json.load(f)
+
+    blocks = []
+    for heading in data.get('headings', []):
+        text = (heading.get('text') or '').strip()
+        if not text:
+            continue
+        m = NUMBERED_PREFIX_RE.match(text)
+        level = min(m.group(1).count('.') + 2, 6) if m else 2
+        blocks.append(HeadingBlock(text=text, page=(heading.get('page') or 1) - 1, level=level))
+    return blocks
+
+
+def classify_and_render(
+    lines: list[Line],
+    docling_tables: list[TableBlock] | None = None,
+    docling_headings: list[HeadingBlock] | None = None,
+) -> str:
     sizes = [l.size for l in lines if isinstance(l, Line) and l.text.strip()]
     if not sizes:
         return ""
@@ -268,17 +329,28 @@ def classify_and_render(lines: list[Line], docling_tables: list[TableBlock] | No
             # show the garbled version right next to the correct one.
             blocks = [b for b in blocks if not (isinstance(b, Line) and b.page == table.page and b.table_fragment)]
 
-            # Insert right after this page's last block so it lands in the right section
-            # instead of only ever at the very end of the document.
-            insert_at = len(blocks)
-            for idx in range(len(blocks) - 1, -1, -1):
-                if blocks[idx].page == table.page:
-                    insert_at = idx + 1
-                    break
-                if blocks[idx].page < table.page:
-                    insert_at = idx + 1
-                    break
-            blocks.insert(insert_at, table)
+            blocks.insert(_insert_index(blocks, table.page, at_start=False), table)
+
+    if docling_headings:
+        # A page "has" a heading if our own heuristic would classify at least one of its lines
+        # as one — only pages where the heuristic found zero get Docling's headings spliced in,
+        # same page-level granularity as the table splice above (not a per-heading text match).
+        covered_heading_pages = {
+            b.page for b in blocks
+            if isinstance(b, Line) and not b.raw and b.text.strip()
+            and _own_heading_level(b.text.strip(), b.size, median) > 0
+        }
+        last_inserted_at: dict[int, int] = {}
+        for heading in docling_headings:
+            if heading.page in covered_heading_pages:
+                continue
+            # Once one heading for this page has been placed, later headings for the same page
+            # go right after it — otherwise at_start=True would keep inserting each new one
+            # before the previous, reversing their original order.
+            idx = last_inserted_at[heading.page] + 1 if heading.page in last_inserted_at \
+                else _insert_index(blocks, heading.page, at_start=True)
+            blocks.insert(idx, heading)
+            last_inserted_at[heading.page] = idx
 
     out: list[str] = []
     paragraph: list[str] = []
@@ -300,6 +372,11 @@ def classify_and_render(lines: list[Line], docling_tables: list[TableBlock] | No
             out.append(render_table(block))
             continue
 
+        if isinstance(block, HeadingBlock):
+            flush_paragraph()
+            out.append('#' * block.level + ' ' + block.text)
+            continue
+
         text = block.text.strip()
         if not text:
             flush_paragraph()
@@ -310,8 +387,7 @@ def classify_and_render(lines: list[Line], docling_tables: list[TableBlock] | No
             out.append(text)
             continue
 
-        ratio = block.size / median if median else 1
-        level = heading_level_from_size(ratio) or heading_level_from_caps(text)
+        level = _own_heading_level(text, block.size, median)
 
         if level:
             flush_paragraph()
@@ -502,7 +578,7 @@ def extract_surya_dir(dir_path: str) -> list[Line]:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', choices=['pdf', 'hocr', 'easyocr', 'paddleocr', 'surya'], required=True)
-    parser.add_argument('--structure-json', default=None, help='Path to Docling\'s compact structure.json (Pass 0), used to fill in tables the geometric heuristic below misses')
+    parser.add_argument('--structure-json', default=None, help='Path to Docling\'s compact structure.json (Pass 0), used to fill in tables/headings the geometric heuristic below misses')
     parser.add_argument('input', help='PDF file path (--mode pdf) or directory of page images/.hocr files (all other modes)')
     args = parser.parse_args()
 
@@ -516,13 +592,16 @@ def main():
     lines = extractors[args.mode](args.input)
 
     docling_tables = None
+    docling_headings = None
     if args.structure_json:
         try:
             docling_tables = docling_table_blocks(args.structure_json)
+            docling_headings = docling_heading_blocks(args.structure_json)
         except (OSError, json.JSONDecodeError):
             docling_tables = None
+            docling_headings = None
 
-    output = classify_and_render(lines, docling_tables)
+    output = classify_and_render(lines, docling_tables, docling_headings)
     if args.mode == 'pdf' and detected_legacy_font:
         # Reuses the existing stdout-string contract with ConvertDocumentToMarkdown rather
         # than adding a new IPC channel — isGoodQuality() strips this marker before saving.
