@@ -1,9 +1,9 @@
 # Structure Detection Research — Docling Evaluation
 
-**Date:** 2026-07-15 (last updated 2026-07-16)
-**Status:** Live in production. Phase 1 (structure detection, M32) plus a partial Phase 2
-(Docling table text spliced into the final Markdown, M33) are both shipped — see `summary.md`.
-This file records what was tried and found, so the reasoning trail isn't lost — same purpose
+**Date:** 2026-07-15 (last updated 2026-07-17)
+**Status:** Live in production. Phase 1 (structure detection, M32), partial Phase 2 (table splice,
+M33), and heading splice + pipeline reorder (M34) are all shipped — see `summary.md`. This file
+records what was tried and found, so the reasoning trail isn't lost — same purpose
 `OCR_RESEARCH.md` serves for character accuracy. Supersedes `STRUCTURE_HANDOFF.md`'s original
 three-pass proposal (structural map → raw extraction → structured reconstruction); see git
 history for that original text.
@@ -86,6 +86,34 @@ suppressing this needs comparing each OCR line's bbox against Docling's table bb
 i.e. the full geometric merge below, since Docling reports bboxes in PDF-point/bottom-left space
 while every OCR engine here reports pixel/top-left space tied to `pdftoppm`'s rasterization DPI.
 
+**M34 (2026-07-17) — heading splice + pipeline reorder + auto-OCR-trigger.**
+
+- **Heading splice**, symmetric to M33's table splice: `docling_heading_blocks()` (new) loads each
+  detected heading (text + page) from `structure.json`. Docling doesn't report a nesting depth, so
+  level is inferred from a numbered prefix (`1.2.1` → deeper) the same way the existing
+  `heading_level_from_caps()` heuristic already does, defaulting to level 2 when unnumbered.
+  `classify_and_render()` now also takes `docling_headings` and, page by page, inserts Docling's
+  headings at the top of any page where the geometric heuristic found zero headings of its own —
+  same page-level granularity as the table splice, not a per-heading text match. A shared
+  `_insert_index()` helper replaces the table splice's inline position-finding logic (used by both,
+  parameterized by whether the new block goes at the start or end of the page's other content).
+- **Pipeline reorder.** `ConvertDocumentToMarkdown` now runs Pass 1 (pdfminer text-layer
+  extraction — the fast half of the job) *before* Pass 0 (Docling), instead of after. This means
+  the quality/legacy-font check result is known before Docling's per-page structure-detection time
+  is spent, not after. Docling still always runs afterward (needed for the splice either way); the
+  text is then re-rendered once structure.json exists so the splice can apply.
+- **Auto-OCR-trigger.** Previously, a low-quality result just sat at `status: review` with
+  `needs_ocr_review: true` until a reviewer noticed the flag and clicked "Run OCR" themselves.
+  Now, since the reorder means this is already known by the end of the job, `RunOcrExtraction` is
+  dispatched automatically (`config('ocr.default')` engine) and status goes straight to
+  `ocr_pending` — no manual click needed for the common "this is clearly a scan" case. A reviewer
+  can still manually re-run OCR with a different engine afterward, same as before.
+- Verified end-to-end against two real documents: a scanned/empty-text-layer document (correctly
+  auto-queued `RunOcrExtraction`), and a genuine text-layer document with 66 headings/88 tables
+  detected by Docling (correctly stayed at `status: review`, headings/tables spliced into the
+  278KB rendered Markdown).
+- No LLM anywhere in this path — same as M32/M33, pure reuse of what Docling already detected.
+
 ## Open follow-ups, not implemented
 
 - **Full geometric merge** — reconcile Docling's PDF-point/bottom-left bboxes against each OCR
@@ -94,6 +122,11 @@ while every OCR engine here reports pixel/top-left space tied to `pdftoppm`'s ra
   limitation above.
 - **PaddleOCR's Hindi-only recognition model** — see `OCR_RESEARCH.md`'s open follow-ups; same
   item, tracked there since it's a character-accuracy concern, not structure.
+- **Docling's structure-pass OCR engine is hardcoded to Tesseract** — see `OCR_RESEARCH.md`'s
+  current-status section; switching the default to EasyOCR would directly improve spliced
+  table/heading text accuracy on scanned documents, one config line, not yet done.
+- **Docling heading levels are inferred, not exact** — no real outline depth in `structure.json`,
+  only text + page. Good enough for review; not a guaranteed-correct document outline.
 
 ## Review UI changes (2026-07-16)
 

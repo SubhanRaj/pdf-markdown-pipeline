@@ -1921,3 +1921,37 @@ not built this round. Tracked in `STRUCTURE_RESEARCH.md`'s "Open follow-ups" sec
 `app/Jobs/RunOcrExtraction.php` · `resources/python/pdf_structure_extractor.py` ·
 `resources/views/documents/show.blade.php` · `claude.md` · `README.md` · `ROADMAP.md` ·
 `STRUCTURE_RESEARCH.md` · `OCR_RESEARCH.md`.
+
+## M34 — Heading splice, pipeline reorder, auto-OCR-trigger (COMPLETED 2026-07-17)
+
+Follow-on from M33. Three changes, all in service of "fix headings too, and stop making a
+reviewer manually click Run OCR when we already know it's needed":
+
+- **Heading splice**, symmetric to M33's table splice: `docling_heading_blocks()` (new) loads
+  each Docling-detected heading (text + page) from `structure.json`; level is inferred from a
+  numbered prefix the same way the existing all-caps heuristic already does, defaulting to level
+  2 when unnumbered. `classify_and_render()` inserts Docling's headings at the top of any page
+  where the geometric heuristic found none of its own. A shared `_insert_index()` helper replaces
+  the table splice's inline position logic, used by both.
+- **Pipeline reorder**: `ConvertDocumentToMarkdown` now runs the text-layer pass (Pass 1, fast)
+  *before* Docling's structure pass (Pass 0), not after — the quality/legacy-font check is known
+  before spending Docling's per-page time, not after. Docling still always runs afterward (needed
+  for the splice either way); text is re-rendered once `structure.json` exists.
+- **Auto-OCR-trigger**: since the reorder means quality is known by the end of the job,
+  `RunOcrExtraction` is now dispatched automatically (`config('ocr.default')` engine) when the
+  text layer looks unreadable, with status going straight to `ocr_pending` — no reviewer click
+  needed for the common "this is clearly a scan" case. Manual OCR (e.g. to retry with a different
+  engine) still works exactly as before.
+
+Verified end-to-end against two real documents via `dispatchSync`: a scanned/empty-text-layer
+document (correctly auto-queued `RunOcrExtraction`, confirmed via the `jobs` table), and a
+genuine text-layer document with 66 headings/88 tables detected (correctly stayed at
+`status: review`, headings and tables spliced into 278KB of rendered Markdown).
+
+Also documented, not fixed this round: Docling's own structure-pass OCR engine is still
+hardcoded to Tesseract (`config('docling.default_ocr_engine')`) even though EasyOCR is more
+accurate per `OCR_RESEARCH.md` — a one-line config change, flagged as the next easy win.
+
+**Files changed:** `app/Jobs/ConvertDocumentToMarkdown.php` · `app/Jobs/RunOcrExtraction.php` ·
+`resources/python/pdf_structure_extractor.py` · `claude.md` · `OCR_RESEARCH.md` ·
+`STRUCTURE_RESEARCH.md`.

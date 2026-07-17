@@ -1,6 +1,6 @@
 # OCR Engine Research — On-Premise Alternatives to Tesseract
 
-**Date:** 2026-07-13 (last updated 2026-07-16)
+**Date:** 2026-07-13 (last updated 2026-07-17)
 **Status:** Live in production. Default extraction is `markitdown` (Microsoft, MIT, text-layer)
 — fast and correct whenever a real text layer exists. When it's not good enough, a reviewer
 picks one of **four selectable OCR engines** in the Compare & Verify modal: Tesseract
@@ -12,29 +12,39 @@ into `RunOcrExtraction`/`config/ocr.php`/`pdf_structure_extractor.py`. Structure
 ## Current status (2026-07-17) — what's solid, what isn't
 
 **Solid:**
-- Text-layer extraction (`markitdown`) + 4-engine OCR fallback, all producing Markdown through
-  the same heading/list/paragraph classifier — consistent output regardless of path.
+- Text-layer extraction (`markitdown`/pdfminer) + 4-engine OCR fallback, all producing Markdown
+  through the same heading/list/paragraph classifier — consistent output regardless of path.
 - Docling structure detection (headings + tables + bboxes) runs on every document, fast, no LLM.
-- Table splice (M33): when the heuristic misses a table the page actually has, Docling's own
-  recognized cell text fills the gap in the rendered Markdown.
+- Table splice (M33) and heading splice (M34): whenever the geometric heuristic finds zero tables
+  or zero headings on a page that Docling detected some on, Docling's own recognized text fills
+  the gap in the rendered Markdown — for both text-layer and OCR-derived documents.
 - Legacy-font (Kruti Dev) detection forces OCR review instead of silently shipping corrupted text.
 - Status-persistence bug fixed — a queued conversion no longer looks silently stalled.
+- **Pipeline reorder + auto-OCR-trigger (M34):** the text-layer pass now runs *first* (it's the
+  quick half of the job), so the quality/legacy-font check knows upfront whether OCR will be
+  needed — no reviewer click required to find out. If it is needed, `RunOcrExtraction` is
+  dispatched automatically at the end of `ConvertDocumentToMarkdown`, status goes straight to
+  `ocr_pending` instead of stopping at `review` first. Docling's structure pass still runs either
+  way, so both the text-layer and (if triggered) the OCR render get table+heading splicing.
 
 **Not fixed yet:**
-- **Headings are not spliced from Docling at all.** The rendered Markdown's heading levels still
-  come entirely from the original font-size/all-caps heuristic in `pdf_structure_extractor.py`
-  (`heading_level_from_size`/`heading_level_from_caps`). Docling detects headings correctly and
-  shows them in the review panel, but that detection is never merged into the actual output —
-  only tables got the splice treatment this round. A broken/missing heading in the Markdown today
-  means the heuristic misjudged it, not that Docling failed.
 - **Duplicate table text on some OCR-derived documents** — see `STRUCTURE_RESEARCH.md`'s "known
   limitation." Confirmed still present on the real Odisha document: garbled OCR fragments of a
   table sit next to the correctly spliced Docling version, because those fragments never even
-  reached the "candidate table" stage the de-dup check looks for.
+  reached the "candidate table" stage the de-dup check looks for. The same class of issue could in
+  principle affect headings too (a garbled OCR fragment sitting next to a correctly spliced
+  heading), but hasn't been observed yet — headings are single short lines, much less likely to
+  fragment across a row-clustering boundary than a multi-column table is.
 - **Docling's own structure-pass OCR engine is hardcoded to Tesseract** (`config('docling.
-  default_ocr_engine')`), regardless of which OCR engine the reviewer picks for the main text.
-  There's no UI control for it — only `structure_engine` on the job constructor, which nothing
-  currently sets to anything but the default.
+  default_ocr_engine')`), regardless of which OCR engine the reviewer picks for the main text, or
+  which engine `RunOcrExtraction` ends up auto-triggered with. There's no UI control for it — only
+  `structure_engine` on the job constructor, which nothing currently sets to anything but the
+  default. See the recommendation right below — this is the one concrete, low-effort accuracy win
+  not yet taken.
+- **Heading level nesting from Docling is a guess, not exact.** Docling's structure.json gives a
+  heading's text and page, not a real outline depth — `docling_heading_blocks()` infers depth from
+  a numbered prefix (`1.2.1` → deeper) and otherwise defaults every unnumbered Docling heading to
+  level 2. Good enough for review, not a guaranteed-correct outline.
 
 ## Docling can't call Paddle/Surya — can Tesseract/EasyOCR still be improved?
 
@@ -56,28 +66,33 @@ Yes, and it's a cheap, real lever that isn't pulled yet. Two independent angles:
 
 ```mermaid
 flowchart TD
-    U[Upload PDF] --> P0["Pass 0 — Docling structure detection\n(headings + tables + bboxes)\nengine: tesseract, hardcoded"]
-    P0 -->|"writes {slug}.structure.json\n(non-fatal if it fails)"| P1
-    P0 --> P1["Pass 1 — markitdown / pdfminer\ntext-layer extraction"]
+    U[Upload PDF] --> P1["Pass 1 — markitdown / pdfminer\ntext-layer extraction (quick)"]
     P1 --> QC{"Quality check\nisGoodQuality()\nlegacy-font check"}
-    QC -->|good| SPLICE1["classify_and_render()\nsplice Docling tables\ninto missed-table pages"]
-    SPLICE1 --> REVIEW["status: review\nCompare & Verify modal\n(structure panel + Markdown)"]
     QC -->|"sparse text /\nKruti Dev font detected"| FLAG["needs_ocr_review = true"]
-    FLAG --> REVIEW
-    REVIEW -->|reviewer accepts Markdown| DONE1[Done]
-    REVIEW -->|"reviewer clicks Run OCR\n(picks 1 of 4 engines)"| P2["RunOcrExtraction\nrasterize pages (pdftoppm)\n+ chosen engine: Tesseract/EasyOCR/PaddleOCR/Surya"]
-    P2 --> SPLICE2["classify_and_render()\nsame table-splice logic,\nsame structure.json"]
+    QC -->|good| OK["needs_ocr_review = false"]
+    FLAG --> P0
+    OK --> P0["Pass 0 — Docling structure detection\n(headings + tables + bboxes)\nengine: tesseract, hardcoded\nnon-fatal if it fails"]
+    P0 -->|writes structure.json| SPLICE["classify_and_render()\nsplice Docling tables + headings\ninto pages the heuristic missed"]
+    SPLICE --> SAVE["save Markdown + metadata"]
+    SAVE -->|needs_ocr_review=false| REVIEW["status: review\nCompare & Verify modal\n(structure panel + Markdown)"]
+    SAVE -->|"needs_ocr_review=true\n(auto-dispatched, no click needed)"| P2["RunOcrExtraction\nrasterize pages (pdftoppm)\n+ config('ocr.default') engine"]
+    REVIEW -->|reviewer accepts| DONE1[Done]
+    REVIEW -->|"reviewer clicks Run OCR\n(picks 1 of 4 engines)"| P2
+    P2 --> SPLICE2["classify_and_render()\nsame table+heading splice,\nsame structure.json"]
     SPLICE2 --> REVIEW2["status: review\nreviewer accepts or re-runs\nwith a different engine"]
     REVIEW2 --> DONE2[Done]
 ```
 
 Key points the diagram doesn't show directly:
+- Pass 1 (text-layer) now runs **before** Pass 0 (Docling) — it's the quick half of the job, so
+  the quality/legacy-font check is known before spending Docling's per-page time, and — if OCR
+  turns out to be needed — it can be auto-dispatched immediately rather than waiting on a
+  reviewer to notice the flag and click a button.
 - Docling's Pass 0 is **additive and non-fatal** — if it errors or times out, the rest of the
   pipeline proceeds exactly as if structure detection never ran (`structure_analyzed: false`).
 - The same `structure.json` (produced once, Pass 0) is reused by both the text-layer splice and
   any later OCR-engine splice — Docling never re-runs per OCR attempt.
-- Only **tables** are spliced. Headings shown in the structure panel are informational only and
-  never touch the rendered Markdown (see "Not fixed yet" above).
+- Both **tables and headings** are spliced (M33 + M34).
 
 ## Why this was investigated
 

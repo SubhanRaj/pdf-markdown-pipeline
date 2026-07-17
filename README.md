@@ -530,6 +530,11 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - New `php artisan policies:seed` command bulk-imports a folder of state excise/export policy PDFs into `RuleSet`(kind=policy)/`Document` rows, so bulk test documents don't need uploading one at a time through the form.
 - `OCR_RESEARCH.md` corrected: EasyOCR's entry was still describing it as "not integrated" despite being one of the four live selectable engines since 2026-07-14.
 
+**Completed (2026-07-17 — heading splice, pipeline reorder, auto-OCR-trigger):**
+- Heading splice, symmetric to the table splice above: Docling's detected headings are inserted wherever the geometric heuristic found none of its own on a page.
+- `ConvertDocumentToMarkdown` now runs the fast text-layer pass before Docling's structure pass (previously the reverse), so the quality/legacy-font check is known before Docling's per-page time is spent, not after.
+- If that check flags the text layer unreadable, `RunOcrExtraction` is now dispatched automatically — no reviewer click needed for the common "this is a scan" case. Manual OCR re-runs (e.g. a different engine) still work as before.
+
 ## 🚀 Future Roadmap
 
 Advanced enterprise features and security enhancements planned for SDC/NIC compliance and high-value bureaucratic workflows are documented in [ROADMAP.md](ROADMAP.md).
