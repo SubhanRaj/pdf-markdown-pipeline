@@ -15,9 +15,10 @@ use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * OCR-based re-extraction, run only when a human explicitly requests it from the review
- * screen (the text-layer pass in ConvertDocumentToMarkdown flagged the result as low-quality,
- * or the officer just wants to try OCR regardless). Never auto-dispatched.
+ * OCR-based re-extraction. Auto-dispatched by ConvertDocumentToMarkdown itself when its
+ * text-layer pass looks unreadable (sparse text or a detected legacy font) — no reviewer click
+ * needed for that case. Also dispatchable manually from the review screen, e.g. to retry with a
+ * different engine, or if a reviewer wants to try OCR on a document that passed quality checks.
  */
 class RunOcrExtraction implements ShouldQueue
 {

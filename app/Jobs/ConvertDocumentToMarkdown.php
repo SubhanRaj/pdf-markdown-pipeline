@@ -42,25 +42,11 @@ class ConvertDocumentToMarkdown implements ShouldQueue
         $absolutePdfPath = Storage::disk('public')->path($document->original_pdf_path);
 
         try {
-            // Pass 0 — Docling structure detection (headings/tables/layout). Runs for every
-            // document, additive only: its failure never blocks the text-layer pass below, and
-            // this round it only produces a reviewable sibling artifact, not merged into the
-            // rendered Markdown yet (see STRUCTURE_RESEARCH.md for the two-phase plan).
-            $structureMeta = $this->runDoclingStructureAnalysis($absolutePdfPath, $document);
-
-            // Default path is text-layer extraction only — fast (seconds, not minutes) and
-            // correct for the vast majority of uploads, which have a real, selectable text
-            // layer. OCR is no longer auto-triggered: it's slow, and running it unconditionally
-            // on every upload was both wasteful and backed up the single queue worker behind
-            // documents that didn't need it. If this pass looks low-quality (near-empty text —
-            // i.e. actually a scanned/photographed page), we flag it for a human to decide,
-            // via RunOcrExtraction triggered explicitly from the review screen.
-            $structurePath = preg_replace('/\.pdf$/i', '.structure.json', $document->original_pdf_path);
-            $structureAbsolutePath = ($structureMeta !== [] && Storage::disk('public')->exists($structurePath))
-                ? Storage::disk('public')->path($structurePath)
-                : null;
-
-            $markdown = $this->tryStructuredExtract($absolutePdfPath, $structureAbsolutePath);
+            // Pass 1 first — pdfminer text-layer extraction, seconds even on 100+ pages, run
+            // without Docling's structure yet (nothing to splice in until Pass 0 below runs).
+            // This tells us upfront whether the document has usable selectable text, without
+            // waiting on Docling's per-page structure-detection time to find out.
+            $markdown = $this->tryStructuredExtract($absolutePdfPath);
 
             $legacyFont = null;
             if (preg_match('/^<!-- LEGACY_FONT_DETECTED:(.+?) -->\n/', $markdown, $m)) {
@@ -70,14 +56,37 @@ class ConvertDocumentToMarkdown implements ShouldQueue
 
             $needsOcrReview = $legacyFont !== null || ! $this->isGoodQuality($markdown, $absolutePdfPath);
 
+            // Pass 0 — Docling structure detection (headings/tables/layout). Runs regardless of
+            // the quality check above: structure/heading/table splicing is useful for the
+            // text-layer render either way, and still needed when OCR ends up running next.
+            $structureMeta = $this->runDoclingStructureAnalysis($absolutePdfPath, $document);
+
+            $structurePath = preg_replace('/\.pdf$/i', '.structure.json', $document->original_pdf_path);
+            $structureAbsolutePath = ($structureMeta !== [] && Storage::disk('public')->exists($structurePath))
+                ? Storage::disk('public')->path($structurePath)
+                : null;
+
+            // Re-render with Docling's structure spliced in now that it exists — cheap, since
+            // pdfminer's own extraction (the part repeated here) is the fast half of this job;
+            // Docling's pass above is what actually took the time.
+            if ($structureAbsolutePath !== null) {
+                $markdown = $this->tryStructuredExtract($absolutePdfPath, $structureAbsolutePath);
+                $markdown = preg_replace('/^<!-- LEGACY_FONT_DETECTED:.+? -->\n/', '', $markdown);
+            }
+
             $markdownPath = preg_replace('/\.pdf$/i', '.md', $document->original_pdf_path);
             Storage::disk('public')->put($markdownPath, $markdown);
 
             DB::transaction(function () use ($document, $markdownPath, $needsOcrReview, $legacyFont, $structureMeta) {
                 $oldStatus = $document->status;
+                // If the text layer isn't trustworthy, queue OCR immediately rather than making
+                // a reviewer click "Run OCR" after seeing the same "needs review" flag we
+                // already know about right now.
+                $nextStatus = $needsOcrReview ? 'ocr_pending' : 'review';
+
                 $document->update([
                     'markdown_path' => $markdownPath,
-                    'status'        => 'review',
+                    'status'        => $nextStatus,
                     'metadata'      => array_merge($document->metadata ?? [], [
                         'extraction_method' => 'pdf-text',
                         'needs_ocr_review'  => $needsOcrReview,
@@ -86,19 +95,23 @@ class ConvertDocumentToMarkdown implements ShouldQueue
 
                 $note = 'Converted to Markdown via pdf-text.';
                 if ($legacyFont !== null) {
-                    $note .= " Detected legacy non-Unicode font ({$legacyFont}) — text layer is unreliable, OCR review recommended.";
+                    $note .= " Detected legacy non-Unicode font ({$legacyFont}) — text layer is unreliable; OCR queued automatically.";
                 } elseif ($needsOcrReview) {
-                    $note .= ' Text layer looks sparse or unreadable (possible font-encoding issue) — OCR review recommended.';
+                    $note .= ' Text layer looks sparse or unreadable (possible font-encoding issue) — OCR queued automatically.';
                 }
 
                 DocumentStatusHistory::create([
                     'document_id' => $document->id,
                     'actor_id'    => null,
                     'from_status' => $oldStatus,
-                    'to_status'   => 'review',
+                    'to_status'   => $nextStatus,
                     'note'        => $note,
                 ]);
             });
+
+            if ($needsOcrReview) {
+                RunOcrExtraction::dispatch($document->id, config('ocr.default'));
+            }
         } catch (\Throwable $e) {
             Log::error('ConvertDocumentToMarkdown failed', ['document_id' => $document->id, 'error' => $e->getMessage()]);
 
