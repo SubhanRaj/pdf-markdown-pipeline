@@ -40,7 +40,13 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            // Laravel's stock default (90s) is shorter than a real ConvertDocumentToMarkdown/
+            // RunOcrExtraction run (Docling + OCR routinely take minutes on real policy PDFs).
+            // Below this, a job still legitimately running looks "abandoned" to the queue after
+            // 90s, so a second worker grabs and re-runs the same job — worse the more workers run
+            // concurrently. Set above both jobs' $timeout (1200s/1900s) so a job is never
+            // re-picked while still genuinely in flight.
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 2000),
             'after_commit' => false,
         ],
 

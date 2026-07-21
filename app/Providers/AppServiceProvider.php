@@ -138,6 +138,18 @@ class AppServiceProvider extends ServiceProvider
                 ->by($request->user()?->id ?: $request->ip());
         });
 
+        // ── Read-only / status-polling GETs ─────────────────────────────────────
+        // Pipeline monitor and its convert-status polling hit one row every 5s per
+        // in-flight document — a page with a dozen conversions running can exceed the
+        // 60/min mutation cap on its own, for a single viewer, before anyone mutates
+        // anything. Separate, generous cap so viewers watching a bulk run (or a busy
+        // department during rollout) don't get 429'd, and so heavy polling can't starve
+        // the mutation limiter for everyone else either.
+        RateLimiter::for('reads', function (Request $request) {
+            return Limit::perMinute(600)
+                ->by($request->user()?->id ?: $request->ip());
+        });
+
         // ── File uploads ──────────────────────────────────────────────────────
         // 20/min per user. Sufficient for bulk initial data-entry batches while
         // capping worst-case disk throughput to 20 × 50 MB = 1 GB/min.

@@ -1955,3 +1955,49 @@ accurate per `OCR_RESEARCH.md` — a one-line config change, flagged as the next
 **Files changed:** `app/Jobs/ConvertDocumentToMarkdown.php` · `app/Jobs/RunOcrExtraction.php` ·
 `resources/python/pdf_structure_extractor.py` · `claude.md` · `OCR_RESEARCH.md` ·
 `STRUCTURE_RESEARCH.md`.
+
+## M35 — Split read-only GETs off the mutation rate limiter (COMPLETED 2026-07-21)
+
+Found while bulk-converting all 14 state policy PDFs at once: the pipeline monitor polls
+`GET /documents/{id}/convert-status` every 5s per in-flight row, and that route — along with
+`pipeline`, `trash`, `bulk-upload` (form), `trashed.pdf`, and `structure` — shared the same
+`throttle:mutations` limiter (60/min/user) as actual state-changing requests. With a dozen
+documents converting at once, one viewer's browser tab alone blew past 60 requests/minute and
+got `429 Too Many Requests` on `/documents/pipeline`, with no mutation involved at all. This
+would have hit real users hard once the portal is live for the whole state — plain viewers
+watching a bulk upload/conversion in progress, not just the uploader.
+
+Fix: new `reads` named rate limiter (`Limit::perMinute(600)/user`, `AppServiceProvider`), and the
+six read-only document GET routes moved out of the `throttle:mutations` group into their own
+`['auth', 'throttle:reads']` group in `routes/web.php`. Route names, controllers, and behavior
+are unchanged — only the throttle bucket moved. Mutating routes (`convert`, `convert-ocr`,
+`revert-ocr`, `markdown.update`, `markdown.discard`, `restore`, `force-destroy`, etc.) stay on
+`throttle:mutations` exactly as before.
+
+**Files changed:** `app/Providers/AppServiceProvider.php` · `routes/web.php` · `README.md`.
+
+## M36 — Fix queue `retry_after` shorter than job runtime (COMPLETED 2026-07-21)
+
+Found immediately after M35, still mid-bulk-backfill: 12 jobs landed in `failed_jobs` with
+`MaxAttemptsExceededException`, despite the underlying OCR/Docling work having actually
+succeeded in most cases. Root cause — `config/queue.php`'s database connection used Laravel's
+stock `retry_after` default (90s), far shorter than a real `RunOcrExtraction`/
+`ConvertDocumentToMarkdown` run (multi-minute on real policy PDFs). The database queue driver
+treats a job whose `retry_after` window has elapsed as abandoned and hands it to the next
+worker that polls — with only one `queue:work` process this rarely surfaced (the same worker
+just kept running past 90s with nobody else to steal the job), but running several concurrent
+workers for bulk-conversion throughput turned it into a real bug: multiple workers would grab
+and re-run the *same* slow job, and whichever copy finished second hit
+`MaxAttemptsExceededException` since `--tries=1` was already spent by its twin. One document
+(Uttar Pradesh Excise Policy, id 16) ended up with no live job left to finish it at all after
+two duplicate failures, and needed a manual redispatch.
+
+Fix: `retry_after` default raised to 2000s in `config/queue.php` (committed, not `.env` —
+an initial `.env`-only fix was a dead end since `.env` is gitignored and would never have
+shipped to a fresh deploy), comfortably above the worker `--timeout` (1900s) which is itself
+above both job classes' own `$timeout` (1200s/1900s). Documented the three-way ordering
+constraint (`retry_after` > worker `--timeout` > job `$timeout`) and confirmed running multiple
+concurrent `queue:work` processes is otherwise safe (the database driver row-locks on pop) in
+`DEPLOY.md`, next to the existing `--timeout` explainer.
+
+**Files changed:** `config/queue.php` · `DEPLOY.md`.
