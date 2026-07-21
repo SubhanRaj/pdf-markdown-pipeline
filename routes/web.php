@@ -101,6 +101,20 @@ Route::prefix('departments')->name('departments.')->group(function () {
     });
 });
 
+// ── Auth-protected reads (status polling / listing pages) ──────────────────────
+// throttle:reads = 600/min/user (defined in AppServiceProvider) — separate from
+// throttle:mutations so the pipeline monitor's 5s-interval convert-status polling,
+// and viewers just watching a bulk run, never compete with the mutation cap.
+
+Route::middleware(['auth', 'throttle:reads'])->prefix('documents')->name('documents.')->group(function () {
+    Route::get('/bulk-upload',         [DocumentController::class, 'bulkUploadForm'])->name('bulk-upload');
+    Route::get('/pipeline',            [DocumentController::class, 'pipeline'])->name('pipeline');
+    Route::get('/trash',               [DocumentController::class, 'trash'])->name('trash');
+    Route::get('/trash/{id}/pdf',      [DocumentController::class, 'trashedPdf'])->name('trashed.pdf');
+    Route::get('/{id}/convert-status', [DocumentController::class, 'conversionStatus'])->where('id', '[0-9]+')->name('convert-status');
+    Route::get('/{id}/structure',      [DocumentController::class, 'structureJson'])->where('id', '[0-9]+')->name('structure');
+});
+
 // ── Auth-protected mutations ──────────────────────────────────────────────────
 // throttle:mutations = 60 state-changing requests/minute/user (defined in AppServiceProvider)
 
@@ -108,21 +122,15 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
 
     // Documents — mutations
     Route::prefix('documents')->name('documents.')->group(function () {
-        Route::get('/bulk-upload',                 [DocumentController::class, 'bulkUploadForm'])->name('bulk-upload');
-        Route::get('/pipeline',                    [DocumentController::class, 'pipeline'])->name('pipeline');
-        Route::get('/trash',                       [DocumentController::class, 'trash'])->name('trash');
         Route::post('/bulk-destroy',               [DocumentController::class, 'bulkDestroy'])->name('bulk-destroy');
         Route::post('/trash/bulk-restore',         [DocumentController::class, 'bulkRestore'])->name('trash.bulk-restore');
         Route::delete('/trash/bulk-force-destroy', [DocumentController::class, 'bulkForceDestroy'])->name('trash.bulk-force-destroy');
-        Route::get('/trash/{id}/pdf',              [DocumentController::class, 'trashedPdf'])->name('trashed.pdf');
         Route::post('/trash/{id}/restore',         [DocumentController::class, 'restore'])->name('restore');
         Route::delete('/trash/{id}',               [DocumentController::class, 'forceDestroy'])->name('force-destroy');
         // Markdown conversion — numeric ID, applies across all five document contexts
         Route::post('/{id}/convert',               [DocumentController::class, 'convert'])->where('id', '[0-9]+')->name('convert');
         Route::post('/{id}/convert-ocr',           [DocumentController::class, 'convertOcr'])->where('id', '[0-9]+')->name('convert-ocr');
         Route::post('/{id}/revert-ocr',            [DocumentController::class, 'revertOcr'])->where('id', '[0-9]+')->name('revert-ocr');
-        Route::get('/{id}/convert-status',         [DocumentController::class, 'conversionStatus'])->where('id', '[0-9]+')->name('convert-status');
-        Route::get('/{id}/structure',              [DocumentController::class, 'structureJson'])->where('id', '[0-9]+')->name('structure');
         Route::patch('/{id}/markdown',             [DocumentController::class, 'updateMarkdown'])->where('id', '[0-9]+')->name('markdown.update');
         Route::delete('/{id}/markdown',            [DocumentController::class, 'discardMarkdown'])->where('id', '[0-9]+')->name('markdown.discard');
         Route::post('/', [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads');

@@ -431,7 +431,7 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - Full CRUD for Documents, Departments, Sections, Rule Sets, and admin User Management — all with DB transactions, try/catch, and `$request->validated()` throughout
 - Dual document taxonomy: section-based (GOs, notices, circulars) and rule-set-based (Acts, Rules, amendments) with separate vault paths and URL structures
 - File upload: accepts PDF, Word, Excel, PowerPoint, ODT, JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC, RTF, TXT, CSV — validated against actual magic bytes (no extension spoofing); SVG explicitly excluded; stored directly in the vault directory as `{slug}_{YmdHis}.pdf`
-- Rate limiting: login brute-force (5/min per email+IP), general mutation cap (60/min/user), upload cap (20/min/user) — all named limiters
+- Rate limiting: login brute-force (5/min per email+IP), general mutation cap (60/min/user), read/status-poll cap (600/min/user — pipeline monitor, convert-status, structure, trash listing), upload cap (20/min/user) — all named limiters
 - Sidebar fully dynamic: driven by DB records; no hardcoded department links
 - Level-aware department routing: `{level}` URL segment disambiguates departments sharing slugs across levels
 - Browse Vault sidebar and dashboard department cards are fully dynamic

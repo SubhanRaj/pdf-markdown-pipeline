@@ -227,6 +227,23 @@ worker's in-memory bytecode):
 php artisan queue:restart
 ```
 
+**`retry_after` must exceed the worker `--timeout` too** — `config('queue.connections.database.retry_after')`
+is set to 2000s (`config/queue.php`), just above the 1900s worker timeout above. This isn't
+optional headroom: the database queue driver considers a job "abandoned" and hands it to another
+worker once `retry_after` seconds pass, even if the original worker is still legitimately running
+it. Found this the hard way running a bulk 14-document backfill with several concurrent
+`queue:work` processes against Laravel's stock 90s default — every OCR pass past 90s got picked
+up a second time by another worker, and the loser of the race failed with
+`MaxAttemptsExceededException`, wasting a full duplicate OCR/Docling run for nothing. Keep
+`retry_after` > worker `--timeout` > the largest job's own `$timeout` whenever any of the three
+changes.
+
+**Running more than one `queue:work` process concurrently** (for throughput on a bulk
+backfill, or a multi-core departmental server) is safe with the database queue driver — it
+row-locks each job on pop, so two workers never process the same *available* job — as long as
+`retry_after` is correctly set above; that's the only thing that made concurrent workers unsafe
+here.
+
 ## Verifying a deployment
 
 ```bash

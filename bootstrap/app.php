@@ -12,6 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Cloudflare terminates TLS at its edge and cloudflared forwards to this app over plain
+        // HTTP on loopback — trust only that hop's X-Forwarded-* headers so url()/redirect()
+        // correctly know the original request was HTTPS, instead of generating http:// links.
+        $middleware->trustProxies(at: ['127.0.0.1']);
+
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
         $middleware->append(\App\Http\Middleware\LogMutation::class);
 
