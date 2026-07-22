@@ -139,41 +139,67 @@ in the vhost's `<Directory>` block. If serving via `php-fpm` instead, use `publi
 (Option B) — see CLAUDE.md for both. Do not skip this: PHP's stock 2MB upload limit rejects
 real government PDFs immediately.
 
-## Apache production vhost (not yet configured on this Mac)
+## Production deployment (Ubuntu server, `docsrepo.exciseup.in`)
 
-No vhost currently exists for this project — `httpd` is installed but not running, and
-`/usr/local/etc/httpd/extra/httpd-vhosts.conf` still has Homebrew's dummy example entries.
-When this moves off `php artisan serve` onto real Apache (departmental PC / local server):
+The live deployment does **not** use `php artisan serve` — that's dev-only. Production is
+Apache (`mod_php`) + Cloudflare Tunnel, both supervised by systemd user services alongside the
+queue worker:
 
-```apache
-<VirtualHost *:80>
-    ServerName pdf-pipeline.local
-    DocumentRoot "/path/to/pdf-markdown-pipeline/public"
+- **Apache vhost** — `/etc/apache2/sites-available/pdf-markdown-pipeline.conf`, listening on
+  `127.0.0.1:8080` (not `:80` — that port stays on the box's default site so this vhost can't
+  collide with anything else already using it):
+  ```apache
+  <VirtualHost *:8080>
+      ServerName docsrepo.exciseup.in
+      DocumentRoot /home/subhan/Sites/pdf-markdown-pipeline/public
 
-    <Directory "/path/to/pdf-markdown-pipeline/public">
-        AllowOverride All
-        Require all granted
-    </Directory>
+      <Directory /home/subhan/Sites/pdf-markdown-pipeline/public>
+          Options -Indexes +FollowSymLinks
+          AllowOverride All
+          Require all granted
+      </Directory>
 
-    ErrorLog "/usr/local/var/log/httpd/pdf-pipeline-error_log"
-    CustomLog "/usr/local/var/log/httpd/pdf-pipeline-access_log" common
-</VirtualHost>
-```
+      ErrorLog ${APACHE_LOG_DIR}/pdf-markdown-pipeline-error.log
+      CustomLog ${APACHE_LOG_DIR}/pdf-markdown-pipeline-access.log combined
+  </VirtualHost>
+  ```
+  `Listen 8080` added to `/etc/apache2/ports.conf`, enabled via `a2ensite`. `mod_rewrite` and
+  `mod_php` were already enabled on this box.
+- **Permissions gotcha** — Apache runs as `www-data`, which by default can't even traverse into
+  a user's home directory (`/home/subhan` ships `750`). Two fixes were required, both one-time:
+  `chmod o+x /home/subhan` (traverse-only, doesn't expose file listings) and
+  `chown -R subhan:www-data storage bootstrap/cache && chmod -R 775 storage bootstrap/cache` so
+  Apache can write logs/cache/sessions without changing ownership away from `subhan`.
+- **Cloudflare Tunnel** (`~/.cloudflared/config.yml`) points at the vhost, not at `artisan
+  serve`'s old `:8000`:
+  ```yaml
+  ingress:
+    - hostname: docsrepo.exciseup.in
+      service: http://127.0.0.1:8080
+    - service: http_status:404
+  ```
+- **`pdf-pipeline-app.service`** (the old `artisan serve` systemd unit) is stopped and disabled
+  — Apache replaces it entirely. `pdf-pipeline-queue.service` (queue worker) and
+  `pdf-pipeline-tunnel.service` (cloudflared) are unaffected and still required.
+- **`ProtectHome` gotcha** — Ubuntu's `apache2.service` systemd unit ships with
+  `ProtectHome=read-only`, which makes all of `/home` (including this app) read-only to Apache
+  regardless of Unix file permissions. Since the app lives under `/home/subhan`, this blocked
+  every write (logs, Blade view cache, sessions) with confusing `tempnam()`/"Read-only file
+  system" errors even though `storage/`/`bootstrap/cache` were correctly `775`. Fixed with a
+  drop-in at `/etc/systemd/system/apache2.service.d/override.conf`:
+  ```ini
+  [Service]
+  ReadWritePaths=/home/subhan/Sites/pdf-markdown-pipeline/storage /home/subhan/Sites/pdf-markdown-pipeline/bootstrap/cache
+  ```
+  then `sudo systemctl daemon-reload && sudo systemctl restart apache2`. Only needed because the
+  app sits under `/home`; deploying under `/var/www` instead avoids this entirely.
 
-Then uncomment the `Include /usr/local/etc/httpd/extra/httpd-vhosts.conf` line in
-`/usr/local/etc/httpd/httpd.conf` (currently commented out, line ~507) if not already active,
-and:
-```bash
-apachectl configtest        # must print "Syntax OK" before restarting
-brew services restart httpd
-```
+After changing the vhost or tunnel config: `sudo systemctl reload apache2` and
+`systemctl --user restart pdf-pipeline-tunnel.service` respectively.
 
-Update `.env`: `APP_URL=http://pdf-pipeline.local` (or the real LAN hostname/IP for a
-departmental deployment), then `php artisan optimize:clear` — stale cached config referencing
-the old `APP_URL` is a common source of broken asset/route URLs after this switch.
-
-For Linux (`systemctl restart apache2`) the same `<VirtualHost>` block goes in
-`/etc/apache2/sites-available/`, enabled via `a2ensite` + `a2enmod rewrite`.
+For a from-scratch setup on a new box, the general pattern (any Linux, any paths) is the same
+`<VirtualHost>` block above with your own paths, dropped in `/etc/apache2/sites-available/`,
+enabled via `a2ensite` + `a2enmod rewrite`, plus `apachectl configtest` before reloading.
 
 ## Keeping the queue worker running persistently
 
