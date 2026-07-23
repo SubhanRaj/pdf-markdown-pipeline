@@ -25,8 +25,8 @@
     {{-- Tailwind CSS Play CDN (typography plugin powers the `prose` classes used to render Markdown) --}}
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
 
-    {{-- Tabler Icons webfont via jsDelivr --}}
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.30.0/dist/tabler-icons.min.css">
+    {{-- Tabler Icons webfont, self-hosted (public/vendor/tabler-icons) — CDN was flaky on some users' networks --}}
+    <link rel="stylesheet" href="{{ asset('vendor/tabler-icons/tabler-icons.min.css') }}">
 
     {{-- Chart.js via jsDelivr --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
