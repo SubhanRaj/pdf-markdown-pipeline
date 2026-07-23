@@ -75,7 +75,9 @@ class ConvertDocumentToMarkdown implements ShouldQueue
             }
 
             $markdownPath = preg_replace('/\.pdf$/i', '.md', $document->original_pdf_path);
-            Storage::disk('public')->put($markdownPath, $markdown);
+            if (! Storage::disk('public')->put($markdownPath, $markdown)) {
+                throw new \RuntimeException("Failed to write markdown file: {$markdownPath}");
+            }
 
             DB::transaction(function () use ($document, $markdownPath, $needsOcrReview, $legacyFont, $structureMeta) {
                 $oldStatus = $document->status;
