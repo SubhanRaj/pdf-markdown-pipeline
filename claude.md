@@ -291,9 +291,9 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 |---|---|---|
 | Dashboard | `FrontendController` | Public landing page with document stats; auth-aware recent feed; `pending_approval` count shown to admins/approvers |
 | Documents | `DocumentController` | Full CRUD; AJAX-only store (handles section, division, rule-set, and folder uploads); PDF stream; hierarchical URLs; slug generation; soft-delete with reason; trash/restore/force-delete; `shouldRequireApproval()` check on every upload |
-| Departments | `DepartmentController` | Full CRUD; slug-based route model binding; loads rule sets for show page |
-| Sections | `SectionController` | Nested under departments; wing-aware; show page is the file browser + multi-file upload modal + folder cards; `requires_approval` toggle on edit page |
-| Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; multi-file upload modal on show page pre-selects `rule_amendment` type; `requires_approval` toggle on edit page |
+| Departments | `DepartmentController` | Full CRUD; slug-based route model binding; show page is 3 summary cards (Sections/Rules & Regulations/Policies, each with a count) linking out to each category's own index page — no longer renders the full lists inline |
+| Sections | `SectionController` | Nested under departments; wing-aware; `index()` is the full sections list page (linked from the department show cards); show page is the file browser + multi-file upload modal + folder cards; `requires_approval` toggle on edit page |
+| Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; `index()` (shared by `kind=rules`/`kind=policy`, one Blade view branching on `$isPolicy`) is the full list page (linked from the department show cards); multi-file upload modal on show page pre-selects `rule_amendment` type; `requires_approval` toggle on edit page |
 | **Policy** | **`RuleSetController` (same class, `kind='policy'`)** | **Department-level-only policy containers (UP Excise/Cane/Sugar/Import/Export Policy, one per state+type+period) with year-over-year supersession (`policy_status`, `previous_policy_id`) instead of a single flat container; mutations gated to admin or the owning department's `department.head` via `User::canManagePolicy()`; see "Policy Taxonomy" below** |
 | Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal, amendment hierarchy, and folder cards; `requires_approval` toggle on edit page |
 | **Folders** | **`FolderController`** | **Full CRUD under sections (and optionally divisions); show page is a hub with upload modal + document list (amendment chain supported via `parent_id`); `requires_approval` toggle; archive cascades to all contained docs; visibility gate on folder page** |
@@ -642,10 +642,12 @@ Controller method signatures **must** declare `string $level` as their first par
 | GET | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.show` | Public* |
 | PATCH | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.update` | Auth |
 | DELETE | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.destroy` | Auth |
+| GET | `/departments/{level}/{dept}/rules` | `departments.rules.index` | Public |
 | POST | `/departments/{level}/{dept}/rules` | `departments.rules.store` | Auth |
 | GET | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.show` | Public |
 | PATCH | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.update` | Auth |
 | DELETE | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.destroy` | Auth |
+| GET | `/departments/{level}/{dept}/policy` | `departments.policy.index` | Public |
 | GET | `/departments/{level}/{dept}/policy/create` | `departments.policy.create` | Auth |
 | POST | `/departments/{level}/{dept}/policy` | `departments.policy.store` | Admin or department.head |
 | GET | `/departments/{level}/{dept}/policy/{rule_set}` | `departments.policy.show` | Public |

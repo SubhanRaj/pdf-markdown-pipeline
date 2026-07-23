@@ -30,187 +30,47 @@
     @endif @endauth
 </div>
 
-{{-- Sections list --}}
-<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+{{-- Category cards — Sections / Rules & Regulations / Policies --}}
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
-    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-        <div>
-            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Sections</h3>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ $sections->count() }} {{ Str::plural('section', $sections->count()) }} in this department</p>
-        </div>
-        @auth @if(auth()->user()->isAdmin() || (auth()->user()->hasPrivilege('department.head') && auth()->user()->department_id === $department->id))
-        <a href="{{ route('departments.sections.create', [$department->levelAlias(), $department]) }}"
-           class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
-            <i class="ti ti-plus text-base"></i> Add Section
-        </a>
-        @endif @endauth
-    </div>
-
-    @if($sections->isEmpty())
-    <div class="flex flex-col items-center justify-center py-14 text-center">
-        <i class="ti ti-layout-list text-3xl text-slate-200 dark:text-slate-600 mb-3"></i>
-        <p class="text-sm text-slate-500 dark:text-slate-400">No sections yet</p>
-        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Sections group documents within a department.</p>
-    </div>
-    @else
-    <div class="divide-y divide-slate-100 dark:divide-slate-700">
-        @foreach($sections as $section)
-        <div class="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-            <div class="flex items-center gap-3 min-w-0">
-                <i class="ti ti-layout-list text-slate-400 dark:text-slate-500 flex-shrink-0"></i>
-                <div class="min-w-0">
-                    <p class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{{ $section->name }}</p>
-                    <p class="text-xs text-slate-400 dark:text-slate-500 font-mono">{{ $section->slug }}</p>
-                </div>
+    <a href="{{ route('departments.sections.index', [$department->levelAlias(), $department]) }}"
+       class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
+        <div class="flex items-center gap-3">
+            <div class="stat-icon bg-indigo-50 dark:bg-indigo-900/30 flex-shrink-0">
+                <i class="ti ti-layout-list text-indigo-500 dark:text-indigo-400"></i>
             </div>
-            <div class="flex items-center gap-4 flex-shrink-0">
-                <span class="text-xs text-slate-400 dark:text-slate-500">
-                    {{ $section->documents_count }} {{ Str::plural('doc', $section->documents_count) }}
-                </span>
-                <a href="{{ route('departments.sections.show', [$department->levelAlias(), $department, $section]) }}"
-                   class="text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
-                    <i class="ti ti-arrow-right text-base"></i>
-                </a>
-            </div>
+            <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ $department->sections_count }}</p>
         </div>
-        @endforeach
-    </div>
-    @endif
+        <p class="text-sm font-medium text-slate-600 dark:text-slate-300">Sections</p>
+        <p class="text-xs text-slate-400 dark:text-slate-500">{{ Str::plural('section', $department->sections_count) }} in this department</p>
+    </a>
 
-</div>
-
-{{-- Rule Sets panel --}}
-<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 mt-6">
-
-    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-        <div>
-            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Rules &amp; Regulations</h3>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ $ruleSets->count() }} {{ Str::plural('rule set', $ruleSets->count()) }} in this department</p>
-        </div>
-        @auth @if(auth()->user()->isAdmin() || (auth()->user()->hasPrivilege('department.head') && auth()->user()->department_id === $department->id))
-        <a href="{{ route('departments.rules.create', [$department->levelAlias(), $department]) }}"
-           class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
-            <i class="ti ti-plus text-base"></i> Add Rule Set
-        </a>
-        @endif @endauth
-    </div>
-
-    @if($ruleSets->isEmpty())
-    <div class="flex flex-col items-center justify-center py-14 text-center">
-        <i class="ti ti-book text-3xl text-slate-200 dark:text-slate-600 mb-3"></i>
-        <p class="text-sm text-slate-500 dark:text-slate-400">No rule sets yet</p>
-        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Rule sets group Acts, Rules, and their amendments.</p>
-    </div>
-    @else
-    <div class="divide-y divide-slate-100 dark:divide-slate-700">
-        @foreach($ruleSets as $ruleSet)
-        <div class="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-            <div class="flex items-center gap-3 min-w-0">
-                <i class="ti ti-book text-slate-400 dark:text-slate-500 flex-shrink-0"></i>
-                <div class="min-w-0">
-                    <p class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{{ $ruleSet->name }}</p>
-                    @if($ruleSet->description)
-                    <p class="text-xs text-slate-400 dark:text-slate-500 truncate">{{ $ruleSet->description }}</p>
-                    @else
-                    <p class="text-xs text-slate-400 dark:text-slate-500 font-mono">{{ $ruleSet->slug }}</p>
-                    @endif
-                </div>
+    <a href="{{ route('departments.rules.index', [$department->levelAlias(), $department]) }}"
+       class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
+        <div class="flex items-center gap-3">
+            <div class="stat-icon bg-blue-50 dark:bg-blue-900/30 flex-shrink-0">
+                <i class="ti ti-book text-blue-500 dark:text-blue-400"></i>
             </div>
-            <div class="flex items-center gap-4 flex-shrink-0">
-                <span class="text-xs text-slate-400 dark:text-slate-500">
-                    {{ $ruleSet->documents_count }} {{ Str::plural('doc', $ruleSet->documents_count) }}
-                </span>
-                <a href="{{ route('departments.rules.show', [$department->levelAlias(), $department, $ruleSet]) }}"
-                   class="text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
-                    <i class="ti ti-arrow-right text-base"></i>
-                </a>
-            </div>
+            <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ $rulesCount }}</p>
         </div>
-        @endforeach
-    </div>
-    @endif
+        <p class="text-sm font-medium text-slate-600 dark:text-slate-300">Rules &amp; Regulations</p>
+        <p class="text-xs text-slate-400 dark:text-slate-500">{{ Str::plural('rule set', $rulesCount) }} in this department</p>
+    </a>
 
-</div>
-
-{{-- Policies panel --}}
-<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 mt-6">
-
-    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-        <div>
-            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Policies</h3>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ $policies->count() }} current {{ Str::plural('policy', $policies->count()) }} in this department</p>
-        </div>
-        @auth @if(auth()->user()->canManagePolicyForDepartment($department))
-        <a href="{{ route('departments.policy.create', [$department->levelAlias(), $department]) }}"
-           class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
-            <i class="ti ti-plus text-base"></i> Add Policy
-        </a>
-        @endif @endauth
-    </div>
-
-    @if($policies->isEmpty())
-    <div class="flex flex-col items-center justify-center py-14 text-center">
-        <i class="ti ti-file-certificate text-3xl text-slate-200 dark:text-slate-600 mb-3"></i>
-        <p class="text-sm text-slate-500 dark:text-slate-400">No policies yet</p>
-        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Policies are the state/government's named policy documents (Excise, Cane, Sugar, ...) for a period.</p>
-    </div>
-    @else
-    <div class="divide-y divide-slate-100 dark:divide-slate-700">
-        @foreach($policies as $policy)
-        <div class="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-            <div class="flex items-center gap-3 min-w-0">
-                <i class="ti ti-file-certificate text-slate-400 dark:text-slate-500 flex-shrink-0"></i>
-                <div class="min-w-0">
-                    <div class="flex items-center gap-2 flex-wrap">
-                        <p class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{{ $policy->name }}</p>
-                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex-shrink-0">{{ $policy->state }}</span>
-                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex-shrink-0">
-                            {{ \App\Models\RuleSet::POLICY_TYPES[$policy->policy_type] ?? $policy->policy_type }}
-                        </span>
-                    </div>
-                    @if($policy->description)
-                    <p class="text-xs text-slate-400 dark:text-slate-500 truncate">{{ $policy->description }}</p>
-                    @endif
-                </div>
+    <a href="{{ route('departments.policy.index', [$department->levelAlias(), $department]) }}"
+       class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
+        <div class="flex items-center gap-3">
+            <div class="stat-icon bg-emerald-50 dark:bg-emerald-900/30 flex-shrink-0">
+                <i class="ti ti-file-certificate text-emerald-500 dark:text-emerald-400"></i>
             </div>
-            <div class="flex items-center gap-4 flex-shrink-0">
-                <span class="text-xs text-slate-400 dark:text-slate-500">
-                    {{ $policy->documents_count }} {{ Str::plural('doc', $policy->documents_count) }}
-                </span>
-                <a href="{{ route('departments.policy.show', [$department->levelAlias(), $department, $policy]) }}"
-                   class="text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
-                    <i class="ti ti-arrow-right text-base"></i>
-                </a>
-            </div>
+            <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ $policiesCount }}</p>
         </div>
-        @endforeach
-    </div>
-    @endif
-
-    @if($historicalPolicies->isNotEmpty())
-    <details class="border-t border-slate-100 dark:border-slate-700">
-        <summary class="px-5 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-            {{ $historicalPolicies->count() }} historical {{ Str::plural('policy', $historicalPolicies->count()) }} (superseded)
-        </summary>
-        <div class="divide-y divide-slate-100 dark:divide-slate-700">
-            @foreach($historicalPolicies as $policy)
-            <div class="px-5 py-3 flex items-center justify-between opacity-70">
-                <div class="flex items-center gap-3 min-w-0">
-                    <i class="ti ti-clock-pause text-slate-400 dark:text-slate-500 flex-shrink-0"></i>
-                    <div class="min-w-0">
-                        <p class="text-sm font-medium text-slate-600 dark:text-slate-300 truncate">{{ $policy->name }}</p>
-                        <p class="text-xs text-slate-400 dark:text-slate-500">{{ $policy->state }} · {{ \App\Models\RuleSet::POLICY_TYPES[$policy->policy_type] ?? $policy->policy_type }}</p>
-                    </div>
-                </div>
-                <a href="{{ route('departments.policy.show', [$department->levelAlias(), $department, $policy]) }}"
-                   class="text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors flex-shrink-0">
-                    <i class="ti ti-arrow-right text-base"></i>
-                </a>
-            </div>
-            @endforeach
-        </div>
-    </details>
-    @endif
+        <p class="text-sm font-medium text-slate-600 dark:text-slate-300">Policies</p>
+        <p class="text-xs text-slate-400 dark:text-slate-500">
+            current {{ Str::plural('policy', $policiesCount) }}
+            @if($historicalPoliciesCount > 0) · {{ $historicalPoliciesCount }} historical @endif
+        </p>
+    </a>
 
 </div>
 
