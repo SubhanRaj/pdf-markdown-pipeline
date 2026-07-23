@@ -36,6 +36,26 @@ class RuleSetController extends Controller
         abort_unless($allowed, 403);
     }
 
+    public function index(string $level, Department $department, string $kind = 'rules'): View
+    {
+        $isGuest = ! auth()->check();
+        $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
+
+        if ($kind === 'policy') {
+            $ruleSets = $department->ruleSets()->currentPolicy()
+                ->withCount(['documents' => $visibilityScope])->orderBy('name')->get();
+            $historicalPolicies = $department->ruleSets()->policy()
+                ->where('policy_status', 'superseded')
+                ->withCount(['documents' => $visibilityScope])->orderBy('name')->get();
+        } else {
+            $ruleSets = $department->ruleSets()->rules()
+                ->withCount(['documents' => $visibilityScope])->orderBy('name')->get();
+            $historicalPolicies = collect();
+        }
+
+        return view('rule_sets.index', compact('department', 'kind', 'ruleSets', 'historicalPolicies'));
+    }
+
     public function create(string $level, Department $department, string $kind = 'rules'): View
     {
         $this->authorizeManage($department, $kind);

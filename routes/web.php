@@ -91,11 +91,13 @@ Route::prefix('departments')->name('departments.')->group(function () {
     });
 
     Route::prefix('/{level}/{department}/rules')->name('rules.')->group(function () {
+        Route::get('/',            [RuleSetController::class, 'index'])->name('index')->defaults('kind', 'rules');
         Route::get('/create',     [RuleSetController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations'])->defaults('kind', 'rules');
         Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show')->defaults('kind', 'rules');
     });
     // Policy — department-level only, available to every department (existing or future)
     Route::prefix('/{level}/{department}/policy')->name('policy.')->group(function () {
+        Route::get('/',            [RuleSetController::class, 'index'])->name('index')->defaults('kind', 'policy');
         Route::get('/create',     [RuleSetController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations'])->defaults('kind', 'policy');
         Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show')->defaults('kind', 'policy');
     });
