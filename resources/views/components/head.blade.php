@@ -25,8 +25,31 @@
     {{-- Tailwind CSS Play CDN (typography plugin powers the `prose` classes used to render Markdown) --}}
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
 
-    {{-- Tabler Icons webfont, self-hosted (public/vendor/tabler-icons) — CDN was flaky on some users' networks --}}
-    <link rel="stylesheet" href="{{ asset('vendor/tabler-icons/tabler-icons.min.css') }}">
+    {{-- Tabler Icons webfont: jsDelivr CDN as primary, self-hosted copy (public/vendor/tabler-icons)
+         as fallback if the CDN errors out or hasn't loaded within TIMEOUT_MS — the CDN was flaky
+         on some users' networks (blocked/slow), but still worth keeping as the default. --}}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.30.0/dist/tabler-icons.min.css" id="tabler-icons-cdn">
+    <script>
+        (function () {
+            var link = document.getElementById('tabler-icons-cdn');
+            var TIMEOUT_MS = 1500; // generous — a real CDN fetch is commonly 50-300ms+ even when healthy
+            var settled = false;
+
+            function useFallback() {
+                if (settled) return;
+                settled = true;
+                var fallback = document.createElement('link');
+                fallback.rel = 'stylesheet';
+                fallback.href = '{{ asset("vendor/tabler-icons/tabler-icons.min.css") }}';
+                document.head.appendChild(fallback);
+            }
+
+            link.addEventListener('load', function () { settled = true; });
+            link.addEventListener('error', useFallback);
+            // Covers CDN requests that stall/hang rather than erroring outright.
+            setTimeout(function () { if (!link.sheet) useFallback(); }, TIMEOUT_MS);
+        })();
+    </script>
 
     {{-- Chart.js via jsDelivr --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
