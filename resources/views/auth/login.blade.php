@@ -101,7 +101,7 @@
 
     {{-- Footer note --}}
     <p class="text-center text-xs text-slate-400 dark:text-slate-600 mt-6">
-        SIBIN Tech Solutions &middot; Internal use only &middot; Unauthorized access is prohibited
+        Internal use only &middot; Unauthorized access is prohibited
     </p>
 
 </div>
