@@ -8,6 +8,7 @@ use App\Http\Controllers\DivisionController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\FolderController;
 use App\Http\Controllers\FrontendController;
+use App\Http\Controllers\PolicyPeriodController;
 use App\Http\Controllers\RuleSetController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SectionController;
@@ -100,6 +101,11 @@ Route::prefix('departments')->name('departments.')->group(function () {
         Route::get('/',            [RuleSetController::class, 'index'])->name('index')->defaults('kind', 'policy');
         Route::get('/create',     [RuleSetController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations'])->defaults('kind', 'policy');
         Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show')->defaults('kind', 'policy');
+    });
+    // Policy periods (e.g. 2024-25, 2025-26) — yearly documents under a policy container
+    Route::prefix('/{level}/{department}/policy/{policy}/periods')->name('policy.periods.')->group(function () {
+        Route::get('/create',    [PolicyPeriodController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
+        Route::get('/{period}',  [PolicyPeriodController::class, 'show'])->name('show');
     });
 });
 
@@ -224,6 +230,12 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
             Route::get('/{rule_set}/edit', [RuleSetController::class, 'edit'])->name('edit')->defaults('kind', 'policy');
             Route::patch('/{rule_set}',    [RuleSetController::class, 'update'])->name('update')->defaults('kind', 'policy');
             Route::delete('/{rule_set}',   [RuleSetController::class, 'destroy'])->name('destroy')->defaults('kind', 'policy');
+        });
+        Route::prefix('/{level}/{department}/policy/{policy}/periods')->name('policy.periods.')->group(function () {
+            Route::post('/',              [PolicyPeriodController::class, 'store'])->name('store');
+            Route::get('/{period}/edit',  [PolicyPeriodController::class, 'edit'])->name('edit');
+            Route::patch('/{period}',     [PolicyPeriodController::class, 'update'])->name('update');
+            Route::delete('/{period}',    [PolicyPeriodController::class, 'destroy'])->name('destroy');
         });
     });
 });

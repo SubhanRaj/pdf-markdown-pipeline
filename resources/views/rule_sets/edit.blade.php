@@ -40,12 +40,6 @@ $canManage  = auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canMana
             </div>
 
             @if($isPolicy)
-            <div class="mb-4 px-3 py-2.5 rounded-lg flex items-center gap-2 text-sm
-                {{ $ruleSet->policy_status === 'current' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300' }}">
-                <i class="ti {{ $ruleSet->policy_status === 'current' ? 'ti-circle-check' : 'ti-clock-pause' }}"></i>
-                {{ $ruleSet->policy_status === 'current' ? 'Current policy' : 'Superseded — historical reference only' }}
-            </div>
-
             <div class="space-y-4 mb-4">
                 <div>
                     <label for="state" class="field-label">State <span class="text-red-500">*</span></label>
@@ -83,25 +77,6 @@ $canManage  = auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canMana
                                placeholder="Enter policy type"
                                class="field-input @error('policy_type_other') field-error @enderror">
                         @error('policy_type_other') <p class="field-err-msg">{{ $message }}</p> @enderror
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label for="effective_start_date_display" class="field-label">Effective From</label>
-                        <input id="effective_start_date_display" type="text" inputmode="numeric" placeholder="DD-MM-YYYY"
-                               class="field-input" autocomplete="off">
-                        <input type="hidden" id="effective_start_date" name="effective_start_date"
-                               value="{{ old('effective_start_date', $ruleSet->effective_start_date?->format('Y-m-d')) }}">
-                        @error('effective_start_date') <p class="field-err-msg">{{ $message }}</p> @enderror
-                    </div>
-                    <div>
-                        <label for="effective_end_date_display" class="field-label">Effective Till</label>
-                        <input id="effective_end_date_display" type="text" inputmode="numeric" placeholder="DD-MM-YYYY"
-                               class="field-input" autocomplete="off">
-                        <input type="hidden" id="effective_end_date" name="effective_end_date"
-                               value="{{ old('effective_end_date', $ruleSet->effective_end_date?->format('Y-m-d')) }}">
-                        @error('effective_end_date') <p class="field-err-msg">{{ $message }}</p> @enderror
                     </div>
                 </div>
             </div>
@@ -179,10 +154,21 @@ $canManage  = auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canMana
     <div class="px-6 py-5 flex items-start justify-between gap-6">
         <div>
             <p class="text-sm font-medium text-slate-700 dark:text-slate-200">Delete this {{ $isPolicy ? 'policy' : 'rule set' }}</p>
+            @if($isPolicy && $ruleSet->container_id === null)
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                {{ $periodsCount = $ruleSet->periods()->count() }}
+                @if($periodsCount > 0)
+                    Cannot be deleted while it still has {{ $periodsCount }} {{ Str::plural('period', $periodsCount) }}. Delete those first.
+                @else
+                    Permanently removes this policy. This action cannot be easily undone.
+                @endif
+            </p>
+            @else
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Permanently removes this container and soft-deletes all {{ $ruleSet->documents()->count() }} associated document(s) to trash.
                 This action cannot be easily undone.
             </p>
+            @endif
         </div>
         <button type="button" id="delete-ruleset-btn"
                 class="flex-shrink-0 inline-flex items-center gap-1.5 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
@@ -229,32 +215,9 @@ try {
 
 @if($isPolicy)
 @push('scripts')
-<script src="https://cdn.jsdelivr.net/npm/cleave.js@1.6.0/dist/cleave.min.js"></script>
 <script>
 (function () {
     try {
-        function bindDateMask(displayId, hiddenId) {
-            const display = document.getElementById(displayId);
-            const hidden  = document.getElementById(hiddenId);
-            new Cleave(display, {
-                date: true,
-                datePattern: ['d', 'm', 'Y'],
-                delimiter: '-',
-                onValueChanged: function (e) {
-                    const parts = e.target.value.split('-');
-                    hidden.value = (parts.length === 3 && parts[2].length === 4)
-                        ? `${parts[2]}-${parts[1]}-${parts[0]}`
-                        : '';
-                },
-            });
-            if (hidden.value) {
-                const [y, m, d] = hidden.value.split('-');
-                if (y && m && d) display.value = `${d}-${m}-${y}`;
-            }
-        }
-        bindDateMask('effective_start_date_display', 'effective_start_date');
-        bindDateMask('effective_end_date_display', 'effective_end_date');
-
         const stateSelect = document.getElementById('state');
         stateSelect.addEventListener('change', function () {
             document.getElementById('state-other-wrap').classList.toggle('hidden', this.value !== 'other');

@@ -31,6 +31,11 @@ class Document extends Model
         'authenticated' => 'Authenticated Only',
     ];
 
+    public const LANGUAGES = [
+        'english' => 'English',
+        'hindi'   => 'Hindi',
+    ];
+
     public const STATUSES = [
         'pending_approval' => ['label' => 'Pending Approval', 'color' => 'amber'],
         'uploaded'         => ['label' => 'Uploaded',         'color' => 'slate'],
@@ -148,6 +153,8 @@ class Document extends Model
         'title',
         'slug',
         'document_type',
+        'language',
+        'sibling_document_id',
         'original_filename',
         'original_pdf_path',
         'markdown_path',
@@ -204,5 +211,11 @@ class Document extends Model
     public function amendments(): HasMany
     {
         return $this->hasMany(Document::class, 'parent_id')->orderBy('created_at', 'asc');
+    }
+
+    /** The other-language version of this same document, if one was uploaded alongside it. */
+    public function siblingDocument(): BelongsTo
+    {
+        return $this->belongsTo(Document::class, 'sibling_document_id');
     }
 }

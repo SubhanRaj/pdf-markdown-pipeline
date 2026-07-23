@@ -95,6 +95,7 @@ class StoreDocumentRequest extends FormRequest
         $this->merge([
             'title'            => strip_tags(trim($this->title ?? '')),
             'document_type'    => strtolower(trim($this->document_type ?? '')),
+            'language'         => strtolower(trim($this->language ?? 'english')),
             'visibility'       => strtolower(trim($this->visibility ?? 'public')),
             'parent_id'        => $this->parent_id        ? (int) $this->parent_id        : null,
             'division_id'      => $this->division_id      ? (int) $this->division_id      : null,
@@ -124,6 +125,7 @@ class StoreDocumentRequest extends FormRequest
             'parent_id'     => ['nullable', 'integer', 'exists:documents,id'],
             'title'         => ['required', 'string', 'max:255', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
             'document_type' => ['required', 'string', "in:{$validTypes}"],
+            'language'      => ['nullable', 'string', 'in:english,hindi,both'],
             'visibility'    => ['nullable', 'string', 'in:public,authenticated'],
             'file'             => ['required', 'file', "mimetypes:{$acceptedMimes}", 'max:51200'], // 50 MB
             'amendment_number' => ['nullable', 'integer', 'min:1', 'max:999'],

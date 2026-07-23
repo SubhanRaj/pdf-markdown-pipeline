@@ -1,11 +1,17 @@
 <?php
 $isPolicy  = $ruleSet->kind === 'policy';
 $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canManagePolicy($ruleSet)));
+// $isPolicy is only ever true here for a policy PERIOD (a container never reaches this
+// view — RuleSetController::show() renders rule_sets.policy_container for those), and
+// $policy (the container) is passed alongside it by PolicyPeriodController.
+$showRoute    = $isPolicy ? route('departments.policy.periods.show',    [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.show',    [$department->levelAlias(), $department, $ruleSet]);
+$editRoute    = $isPolicy ? route('departments.policy.periods.edit',    [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.edit',    [$department->levelAlias(), $department, $ruleSet]);
+$destroyRoute = $isPolicy ? route('departments.policy.periods.destroy', [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.destroy', [$department->levelAlias(), $department, $ruleSet]);
 ?>
 <x-layout
     title="{{ $ruleSet->name }}"
     page-title="{{ $ruleSet->name }}"
-    page-subtitle="{{ $department->name }} · {{ $isPolicy ? 'Policy' : 'Rules & Regulations' }}"
+    page-subtitle="{{ $department->name }} · {{ $isPolicy ? 'Policy Period' : 'Rules & Regulations' }}"
 >
 
 <x-breadcrumb :items="[
@@ -13,6 +19,7 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
     ['name' => 'Departments',             'url' => route('departments.index')],
     ['name' => $department->levelLabel(), 'url' => null],
     ['name' => $department->name,         'url' => route('departments.show', [$department->levelAlias(), $department])],
+    ...($isPolicy ? [['name' => $policy->name, 'url' => route('departments.policy.show', [$department->levelAlias(), $department, $policy])]] : []),
     ['name' => $ruleSet->name,            'url' => null],
 ]" />
 
@@ -22,8 +29,8 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
     <span>
         Superseded — kept for historical reference only.
         @if($supersededBy)
-        Current policy:
-        <a href="{{ route('departments.policy.show', [$department->levelAlias(), $department, $supersededBy]) }}" class="font-medium underline hover:no-underline">{{ $supersededBy->name }}</a>
+        Current period:
+        <a href="{{ route('departments.policy.periods.show', [$department->levelAlias(), $department, $policy, $supersededBy]) }}" class="font-medium underline hover:no-underline">{{ $supersededBy->name }}</a>
         @endif
     </span>
 </div>
@@ -87,7 +94,7 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
         @endif
         @endauth
         @auth @if($canManage)
-        <a href="{{ route("departments.{$ruleSet->kind}.edit", [$department->levelAlias(), $department, $ruleSet]) }}"
+        <a href="{{ $editRoute }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
         </a>
@@ -96,7 +103,7 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
             <i class="ti ti-trash text-base"></i>
         </button>
         <form id="delete-ruleset-form" method="POST"
-              action="{{ route("departments.{$ruleSet->kind}.destroy", [$department->levelAlias(), $department, $ruleSet]) }}"
+              action="{{ $destroyRoute }}"
               style="display:none">
             @csrf @method('DELETE')
         </form>
@@ -161,6 +168,26 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
                         </select>
                         <p id="rule-err-type" class="field-err-msg" style="display:none"></p>
                     </div>
+                    @if($isPolicy)
+                    <div>
+                        <label class="field-label">Language</label>
+                        <div class="flex gap-3 mt-1">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="language" value="english" checked class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200">English only</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="language" value="hindi" class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200">Hindi only</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="language" value="both" class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200">Both</span>
+                            </label>
+                        </div>
+                        <p class="field-hint">"Both" uploads this file under an English and a Hindi copy, each independently manageable.</p>
+                    </div>
+                    @endif
                     <div>
                         <label class="field-label">Visibility</label>
                         <div class="flex gap-3 mt-1">
@@ -283,6 +310,25 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
                                    placeholder="1–31" class="field-input">
                         </div>
                     </div>
+                    @if($isPolicy)
+                    <div>
+                        <label class="field-label">Language</label>
+                        <div class="flex gap-3 mt-1">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="language" value="english" checked class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200">English only</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="language" value="hindi" class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200">Hindi only</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="language" value="both" class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200">Both</span>
+                            </label>
+                        </div>
+                    </div>
+                    @endif
                     <div>
                         <label class="field-label">Visibility</label>
                         <div class="flex gap-3 mt-1">
@@ -330,7 +376,7 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
         </div>
         {{-- Sort / filter controls --}}
         @if($totalCount > 1)
-        <form method="GET" action="{{ route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]) }}"
+        <form method="GET" action="{{ $showRoute }}"
               class="flex items-center gap-2 flex-wrap">
             <select name="sort" onchange="this.form.submit()"
                     class="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500">
@@ -351,7 +397,7 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
             </select>
             @endif
             @if($filterYear)
-            <a href="{{ route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]) }}"
+            <a href="{{ $showRoute }}"
                class="text-xs text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors" title="Clear filter">
                 <i class="ti ti-x"></i>
             </a>
@@ -522,6 +568,7 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
             const typeInput         = form.querySelector('[name="document_type"]');
             const parentInput       = form.querySelector('[name="parent_id"]');
             const visibility        = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+            const language          = form.querySelector('[name="language"]:checked')?.value || 'english';
             const amendmentNumber   = form.querySelector('[name="amendment_number"]')?.value?.trim() || '';
             const effectiveYear     = form.querySelector('[name="effective_year"]')?.value?.trim()   || '';
             const effectiveMonth    = form.querySelector('[name="effective_month"]')?.value          || '';
@@ -549,6 +596,7 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
                     fd.append('title', title);
                     fd.append('document_type', typeInput ? typeInput.value : '');
                     fd.append('visibility', visibility);
+                    fd.append('language', language);
                     if (parentInput && parentInput.value) fd.append('parent_id', parentInput.value);
                     if (amendmentNumber) fd.append('amendment_number', amendmentNumber);
                     if (effectiveYear)   fd.append('effective_year',   effectiveYear);

@@ -2,7 +2,7 @@
 <x-layout
     title="{{ $isPolicy ? 'Add Policy' : 'Add Rule Set' }}"
     page-title="{{ $isPolicy ? 'Add Policy' : 'Add Rule Set' }}"
-    page-subtitle="{{ $isPolicy ? 'Create a new policy period under' : 'Create a new rule set under' }} {{ $department->name }}"
+    page-subtitle="{{ $isPolicy ? 'Create a new policy under' : 'Create a new rule set under' }} {{ $department->name }}"
 >
 
 <x-breadcrumb :items="[
@@ -103,26 +103,9 @@
                         @error('policy_type_other') <p class="field-err-msg">{{ $message }}</p> @enderror
                     </div>
                 </div>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label for="effective_start_date_display" class="field-label">Effective From</label>
-                        <input id="effective_start_date_display" type="text" inputmode="numeric" placeholder="DD-MM-YYYY"
-                               class="field-input" autocomplete="off">
-                        <input type="hidden" id="effective_start_date" name="effective_start_date" value="{{ old('effective_start_date') }}">
-                        @error('effective_start_date') <p class="field-err-msg">{{ $message }}</p> @enderror
-                    </div>
-                    <div>
-                        <label for="effective_end_date_display" class="field-label">Effective Till</label>
-                        <input id="effective_end_date_display" type="text" inputmode="numeric" placeholder="DD-MM-YYYY"
-                               class="field-input" autocomplete="off">
-                        <input type="hidden" id="effective_end_date" name="effective_end_date" value="{{ old('effective_end_date') }}">
-                        @error('effective_end_date') <p class="field-err-msg">{{ $message }}</p> @enderror
-                    </div>
-                </div>
                 <p class="field-hint">
-                    Descriptive only — a policy stays the one cited until a new period for the same
-                    state + policy type is added, regardless of these dates.
+                    This is created once per state + policy type. Once saved, add each year's
+                    policy period (e.g. "2024-25", "2025-26") underneath it.
                 </p>
             </div>
             <div class="border-t border-slate-100 dark:border-slate-700 my-5"></div>
@@ -134,10 +117,10 @@
                     <label for="name" class="field-label">{{ $isPolicy ? 'Policy Name' : 'Rule Set Name' }} <span class="text-red-500">*</span></label>
                     <input id="name" name="name" type="text"
                         value="{{ old('name') }}"
-                        placeholder="{{ $isPolicy ? 'e.g. UP Excise Policy 2026-27' : 'e.g. U.P. Excise Act 1910' }}"
+                        placeholder="{{ $isPolicy ? 'e.g. UP Excise Policy' : 'e.g. U.P. Excise Act 1910' }}"
                         class="field-input @error('name') field-error @enderror"
                         required autofocus>
-                    <p class="field-hint">{{ $isPolicy ? 'Name of this policy period.' : 'Name of the Act, Rule, or Regulation.' }} Letters, numbers, spaces, hyphens, dots, brackets allowed.</p>
+                    <p class="field-hint">{{ $isPolicy ? 'Name of this policy (state + policy type) — no year, that comes from each period.' : 'Name of the Act, Rule, or Regulation.' }} Letters, numbers, spaces, hyphens, dots, brackets allowed.</p>
                     <p class="field-err-msg hidden" id="name-err"></p>
                     @error('name') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
@@ -171,33 +154,9 @@
 
 @if($isPolicy)
 @push('scripts')
-<script src="https://cdn.jsdelivr.net/npm/cleave.js@1.6.0/dist/cleave.min.js"></script>
 <script>
 (function () {
     try {
-        function bindDateMask(displayId, hiddenId) {
-            const display = document.getElementById(displayId);
-            const hidden  = document.getElementById(hiddenId);
-            new Cleave(display, {
-                date: true,
-                datePattern: ['d', 'm', 'Y'],
-                delimiter: '-',
-                onValueChanged: function (e) {
-                    const parts = e.target.value.split('-'); // DD-MM-YYYY
-                    hidden.value = (parts.length === 3 && parts[2].length === 4)
-                        ? `${parts[2]}-${parts[1]}-${parts[0]}`
-                        : '';
-                },
-            });
-            // Repopulate the masked display from an old()-repopulated hidden ISO value (validation bounce-back).
-            if (hidden.value) {
-                const [y, m, d] = hidden.value.split('-');
-                if (y && m && d) display.value = `${d}-${m}-${y}`;
-            }
-        }
-        bindDateMask('effective_start_date_display', 'effective_start_date');
-        bindDateMask('effective_end_date_display', 'effective_end_date');
-
         // UP vs other-state toggle
         const btnUp    = document.getElementById('btn-up-policy');
         const btnOther = document.getElementById('btn-other-state-policy');
@@ -261,7 +220,7 @@
             const form = this;
             Swal.fire({
                 title: 'Create this policy?',
-                html: 'If a current policy already exists for this department, state, and policy type, it will automatically be marked <strong>historical</strong> (not deleted) and this new one becomes the current citation.',
+                html: 'You\'ll add each year\'s policy period (2024-25, 2025-26, ...) underneath it afterwards.',
                 icon: 'question',
                 showCancelButton: true,
                 confirmButtonText: 'Create',
