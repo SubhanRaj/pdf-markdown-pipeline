@@ -45,6 +45,13 @@ return [
             'visibility' => 'public',
             'throw' => false,
             'report' => false,
+            // Flysystem's default dir permission (0755) locks out the queue worker
+            // (runs as a different user than the web server) from writing into any
+            // freshly auto-created folder. Group-writable so both can write.
+            'permissions' => [
+                'file' => ['public' => 0664, 'private' => 0600],
+                'dir' => ['public' => 0775, 'private' => 0700],
+            ],
         ],
 
         's3' => [
