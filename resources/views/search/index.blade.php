@@ -31,7 +31,29 @@
     </div>
 </form>
 
-@if(! $q)
+@php $hasFilter = $documentType || $state; @endphp
+
+@if($documentType || $state)
+{{-- ── Filtered-by banner — reached by clicking a pill on a document's show page ──── --}}
+<div class="mb-5 flex items-center gap-2 flex-wrap text-xs">
+    <span class="text-slate-400 dark:text-slate-500">Filtered by:</span>
+    @if($documentType)
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-medium">
+        {{ \App\Models\Document::DOCUMENT_TYPES[$documentType] ?? $documentType }}
+    </span>
+    @endif
+    @if($state)
+    <span class="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-medium">
+        {{ $state }}
+    </span>
+    @endif
+    <a href="{{ route('search.index', array_filter(['q' => $q])) }}" class="text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors">
+        <i class="ti ti-x"></i> clear
+    </a>
+</div>
+@endif
+
+@if(! $q && ! $hasFilter)
 {{-- ── Empty prompt state ───────────────────────────────────────────────────── --}}
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center py-20 text-center">
     <i class="ti ti-search text-4xl text-slate-200 dark:text-slate-600 mb-3"></i>
@@ -43,7 +65,7 @@
 {{-- ── No results ───────────────────────────────────────────────────────────── --}}
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center py-20 text-center">
     <i class="ti ti-mood-sad text-4xl text-slate-200 dark:text-slate-600 mb-3"></i>
-    <p class="text-sm font-medium text-slate-600 dark:text-slate-300">No results for <span class="font-semibold">"{{ $q }}"</span></p>
+    <p class="text-sm font-medium text-slate-600 dark:text-slate-300">No results {{ $q ? 'for "'.$q.'"' : '' }}</p>
     <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Try a shorter term or check the spelling</p>
 </div>
 
@@ -53,8 +75,8 @@
     $total = $documents->count() + $sections->count() + $ruleSets->count() + $divisions->count() + $folders->count();
 @endphp
 <p class="text-xs text-slate-400 dark:text-slate-500 mb-5">
-    {{ $total }} {{ Str::plural('result', $total) }} for
-    <span class="font-semibold text-slate-600 dark:text-slate-300">"{{ $q }}"</span>
+    {{ $total }} {{ Str::plural('result', $total) }}
+    @if($q) for <span class="font-semibold text-slate-600 dark:text-slate-300">"{{ $q }}"</span> @endif
     @guest · verified documents only @endguest
 </p>
 

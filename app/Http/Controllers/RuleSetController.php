@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ListsRuleSetDocuments;
 use App\Http\Controllers\Concerns\ManagesDocumentFiles;
 use App\Http\Requests\StoreRuleSetRequest;
 use Illuminate\Http\Request;
@@ -17,7 +18,7 @@ use Illuminate\View\View;
 
 class RuleSetController extends Controller
 {
-    use ManagesDocumentFiles;
+    use ManagesDocumentFiles, ListsRuleSetDocuments;
 
     /**
      * Same authorize() logic as Store/UpdateRuleSetRequest, duplicated here because create/edit/
@@ -42,11 +43,12 @@ class RuleSetController extends Controller
         $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
 
         if ($kind === 'policy') {
-            $ruleSets = $department->ruleSets()->currentPolicy()
-                ->withCount(['documents' => $visibilityScope])->orderBy('name')->get();
-            $historicalPolicies = $department->ruleSets()->policy()
-                ->where('policy_status', 'superseded')
-                ->withCount(['documents' => $visibilityScope])->orderBy('name')->get();
+            // Containers (one per state + policy_type, created once) grouped by state for display.
+            $ruleSets = $department->ruleSets()->policyContainers()
+                ->withCount(['periods'])
+                ->with(['periods' => fn ($q) => $q->where('policy_status', 'current')->withCount(['documents' => $visibilityScope])])
+                ->orderBy('state')->orderBy('name')->get();
+            $historicalPolicies = collect();
         } else {
             $ruleSets = $department->ruleSets()->rules()
                 ->withCount(['documents' => $visibilityScope])->orderBy('name')->get();
@@ -77,27 +79,14 @@ class RuleSetController extends Controller
                 $validated = $request->validated();
                 $slug = RuleSet::uniqueSlugForDepartment($validated['name'], $department->id);
 
-                $newRuleSet = $department->ruleSets()->create([
+                // For kind=policy this creates a container only (state + policy_type,
+                // container_id left null) — created once. Yearly/periodic policy
+                // documents are added underneath it via PolicyPeriodController.
+                $department->ruleSets()->create([
                     ...$validated,
                     'slug' => $slug,
                     'kind' => $kind,
                 ]);
-
-                if ($kind === 'policy') {
-                    // A new policy period supersedes the current one for the same
-                    // department + state + policy_type line, if one already exists.
-                    $previousCurrent = RuleSet::currentPolicy()
-                        ->where('department_id', $department->id)
-                        ->where('state', $validated['state'])
-                        ->where('policy_type', $validated['policy_type'])
-                        ->where('id', '!=', $newRuleSet->id)
-                        ->first();
-
-                    if ($previousCurrent) {
-                        $previousCurrent->update(['policy_status' => 'superseded']);
-                        $newRuleSet->update(['previous_policy_id' => $previousCurrent->id]);
-                    }
-                }
             });
 
             $label = $kind === 'policy' ? 'Policy' : 'Rule set';
@@ -116,74 +105,19 @@ class RuleSetController extends Controller
 
     public function show(Request $request, string $level, Department $department, RuleSet $ruleSet): View
     {
-        $sort       = $request->get('sort', 'amendment_number_desc');
-        $filterYear = (int) $request->get('year', 0);
+        // A kind=policy RuleSet reached here is always a container (state + policy_type,
+        // created once) — its yearly/periodic documents live on periods underneath it,
+        // handled by PolicyPeriodController. Containers never hold documents directly.
+        if ($ruleSet->kind === 'policy') {
+            $periods = $ruleSet->periods()->withCount('documents')->get();
 
-        // Root documents with amendments pre-loaded
-        $rootDocuments = $ruleSet->documents()
-            ->publishable()
-            ->with([
-                'user:id,name',
-                'amendments' => fn ($q) => $q
-                    ->publishable()
-                    ->with('user:id,name')
-                    ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
-                    ->orderBy('created_at'),
-            ])
-            ->whereNull('parent_id')
-            ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
-            ->orderBy('created_at')
-            ->get();
+            return view('rule_sets.policy_container', compact('department', 'ruleSet', 'periods'));
+        }
 
-        // Collect all years present in amendments for the filter dropdown
-        $availableYears = $rootDocuments
-            ->flatMap(fn ($root) => $root->amendments)
-            ->map(fn ($a) => ($a->metadata['effective_year'] ?? null))
-            ->filter()
-            ->unique()
-            ->sort()
-            ->values();
-
-        // Apply sort and optional year filter to each root's amendments collection
-        $rootDocuments->each(function ($root) use ($sort, $filterYear) {
-            $amendments = $root->amendments;
-
-            if ($filterYear) {
-                $amendments = $amendments->filter(
-                    fn ($a) => ($a->metadata['effective_year'] ?? null) == $filterYear
-                );
-            }
-
-            $amendments = match ($sort) {
-                'amendment_number_asc'  => $amendments->sortBy(fn ($a) => $a->metadata['amendment_number'] ?? PHP_INT_MAX),
-                'year_desc'             => $amendments->sortByDesc(fn ($a) => $a->metadata['effective_year'] ?? 0),
-                'year_asc'              => $amendments->sortBy(fn ($a) => $a->metadata['effective_year'] ?? PHP_INT_MAX),
-                'uploaded_asc'          => $amendments->sortBy('created_at'),
-                'uploaded_desc'         => $amendments->sortByDesc('created_at'),
-                default                 => $amendments->sortByDesc(fn ($a) => $a->metadata['amendment_number'] ?? -PHP_INT_MAX),
-            };
-
-            $root->setRelation('amendments', $amendments->values());
-        });
-
-        $totalCount = $ruleSet->documents()
-            ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
-            ->count();
-
-        // Parent dropdown in upload modal — only root documents are valid amendment targets
-        $parentOptions = auth()->check()
-            ? $ruleSet->documents()
-                ->select('id', 'title', 'created_at')
-                ->whereNull('parent_id')
-                ->orderBy('created_at')
-                ->get()
-                ->map(fn ($d) => ['id' => $d->id, 'title' => $d->title, 'date' => $d->created_at->format('d M Y')])
-                ->values()
-            : collect();
-
-        $supersededBy = $ruleSet->policy_status === 'superseded' ? $ruleSet->supersededBy : null;
-
-        return view('rule_sets.show', compact('department', 'ruleSet', 'rootDocuments', 'totalCount', 'parentOptions', 'sort', 'filterYear', 'availableYears', 'supersededBy'));
+        return view('rule_sets.show', array_merge(
+            compact('department', 'ruleSet'),
+            $this->loadRuleSetDocuments($ruleSet, $request)
+        ));
     }
 
     public function edit(string $level, Department $department, RuleSet $ruleSet): View

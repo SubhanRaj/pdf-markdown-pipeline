@@ -46,7 +46,7 @@ class RuleSet extends Model
     protected $fillable = [
         'department_id', 'name', 'slug', 'description', 'metadata', 'requires_approval',
         'kind', 'state', 'policy_type', 'effective_start_date', 'effective_end_date',
-        'policy_status', 'previous_policy_id',
+        'policy_status', 'previous_policy_id', 'container_id',
     ];
 
     protected $casts = [
@@ -82,6 +82,18 @@ class RuleSet extends Model
         return $this->belongsTo(RuleSet::class, 'previous_policy_id');
     }
 
+    /** The policy container (state + policy_type, created once) this period lives under. */
+    public function container(): BelongsTo
+    {
+        return $this->belongsTo(RuleSet::class, 'container_id');
+    }
+
+    /** All periods (e.g. one per year) created under this policy container. */
+    public function periods(): HasMany
+    {
+        return $this->hasMany(RuleSet::class, 'container_id')->orderByDesc('effective_start_date');
+    }
+
     public function scopeRules($query)
     {
         return $query->where('kind', 'rules');
@@ -92,9 +104,16 @@ class RuleSet extends Model
         return $query->where('kind', 'policy');
     }
 
+    /** Policy containers — state + policy_type "lines", created once, holding many periods. */
+    public function scopePolicyContainers($query)
+    {
+        return $query->where('kind', 'policy')->whereNull('container_id');
+    }
+
+    /** Current (non-superseded) policy periods — excludes containers themselves. */
     public function scopeCurrentPolicy($query)
     {
-        return $query->where('kind', 'policy')->where('policy_status', 'current');
+        return $query->where('kind', 'policy')->whereNotNull('container_id')->where('policy_status', 'current');
     }
 
     /** Generate a slug unique within the department, checking soft-deleted records. */

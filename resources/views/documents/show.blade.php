@@ -126,6 +126,16 @@
 </div>
 @endif
 
+@if($document->siblingDocument)
+<div class="mb-4 flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20">
+    <i class="ti ti-language text-emerald-500 dark:text-emerald-400 text-base flex-shrink-0"></i>
+    <p class="text-xs text-emerald-700 dark:text-emerald-300 flex-1">
+        {{ \App\Models\Document::LANGUAGES[$document->siblingDocument->language] ?? $document->siblingDocument->language }} version available —
+        <a href="{{ $linkForDoc($document->siblingDocument) }}" class="font-semibold hover:underline">{{ $document->siblingDocument->title }}</a>
+    </p>
+</div>
+@endif
+
 @if($document->parent_id && $document->parentDocument)
 <div class="mb-4 flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-blue-200 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/20">
     <i class="ti ti-git-merge text-blue-500 dark:text-blue-400 text-base flex-shrink-0"></i>
@@ -158,9 +168,18 @@
                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ $statusClass }}">
                     {{ $statusMeta['label'] }}
                 </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                <a href="{{ route('search.index', ['document_type' => $document->document_type]) }}"
+                   class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                   title="See all {{ \App\Models\Document::DOCUMENT_TYPES[$document->document_type] ?? $document->document_type }} documents">
                     {{ \App\Models\Document::DOCUMENT_TYPES[$document->document_type] ?? $document->document_type }}
-                </span>
+                </a>
+                @if($isPolicyDoc && $ruleSet->state)
+                <a href="{{ route('search.index', ['state' => $ruleSet->state]) }}"
+                   class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-800/40 transition-colors"
+                   title="See all {{ $ruleSet->state }} policy documents">
+                    {{ $ruleSet->state }}
+                </a>
+                @endif
                 @if($document->visibility === 'authenticated')
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
                     <i class="ti ti-lock text-[10px]"></i> Authenticated Only
