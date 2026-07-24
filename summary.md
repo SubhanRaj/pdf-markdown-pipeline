@@ -2001,3 +2001,47 @@ concurrent `queue:work` processes is otherwise safe (the database driver row-loc
 `DEPLOY.md`, next to the existing `--timeout` explainer.
 
 **Files changed:** `config/queue.php` · `DEPLOY.md`.
+
+## M37 — Fix legacy-font (Kruti Dev) tables still garbled after M32 (COMPLETED 2026-07-24)
+
+Found while handling an urgent real court-matter document upload: M32 (2026-07-15) already
+detects legacy non-Unicode Devanagari fonts (Kruti Dev, Chanakya, DevLys, etc.) and forces OCR
+review so body text never ships corrupted — but that fix only ever covered body text. Docling's
+own structure pass (`runDoclingStructureAnalysis()` in `ConvertDocumentToMarkdown.php`) trusts a
+PDF's native text layer for any region it doesn't detect as a scanned bitmap; a Kruti Dev PDF's
+text is technically "selectable" (not an image), so Docling never OCR'd those regions either —
+spliced table cells came out with the same garbled codepoints, and `RunOcrExtraction` then reused
+that same unfixed `structure.json`. Net effect: a reviewer saw correct Hindi paragraphs and
+garbage tables in the same document.
+
+Fix: `runDoclingStructureAnalysis()` now takes `bool $forceOcr`, passed `true` only when
+`$legacyFont !== null` (already detected before Docling runs, from Pass 1's output) — Docling
+gets `--force-ocr` in that one case, re-reading every region including tables from rendered pixels
+instead of the broken text layer. Never a blanket `--force-ocr` (confirmed impractical at real
+page counts — times out past 10 minutes on a 112-page document, per `STRUCTURE_RESEARCH.md`'s
+Finding 3); only reachable through the already-detected legacy-font path. Timeout for this path
+bumped to 900s (was 600s), still inside the job's 1200s ceiling. Also stamped `force_ocr`/
+`structure_force_ocr` into the structure JSON and document metadata, so which documents needed
+this path is visible later without re-deriving it.
+
+Verified against the real production document that originally surfaced the Kruti Dev gap (`Excise
+Policy Uttar Pradesh`, id 16, 112 pages, `verified` status — not re-converted, to avoid touching a
+live/possibly-cited document without asking first): extracted the affected page standalone
+(`pdfseparate`), ran Docling directly with and without `--force-ocr`. Before: `'Ø0la0'`,
+`"rhozrk ¼çfr'kr oh@oh½"`. After: `'क्र0सं0'`, `'तीव्रता (प्रतिशत वी / वी)'` — correct, readable
+Devanagari, same page, same table.
+
+Separately, same session: fixed a permission bug where Apache's systemd unit (`UMask=0022`)
+created new document-vault folders at `0755`, blocking the queue worker (different Unix user,
+shares only the `www-data` group) from writing conversion output into any folder's first-ever
+upload — root cause of one real document (`Document 504`) failing conversion with "Failed to
+write markdown file". Fixed via a `UMask=0002` systemd drop-in for `apache2.service` (matches the
+queue worker's own unit, which already had this), plus a retroactive `chmod -R g+w` on the one
+folder already affected. Also raised the document upload size limit from 50 MB to 300 MB
+(validation + `.htaccess`) after a real 145 MB scanned court document couldn't be uploaded — noted
+in `DEPLOY.md` that Cloudflare's own edge enforces a separate, lower cap on tunnel-proxied
+uploads (100 MB on Free/Pro) that this app-side change cannot override.
+
+**Files changed:** `app/Jobs/ConvertDocumentToMarkdown.php` · `app/Http/Requests/StoreDocumentRequest.php`
+· `public/.htaccess` · `STRUCTURE_RESEARCH.md` · `OCR_RESEARCH.md` · `claude.md` · `README.md` ·
+`DEPLOY.md`.

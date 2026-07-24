@@ -18,7 +18,9 @@ into `RunOcrExtraction`/`config/ocr.php`/`pdf_structure_extractor.py`. Structure
 - Table splice (M33) and heading splice (M34): whenever the geometric heuristic finds zero tables
   or zero headings on a page that Docling detected some on, Docling's own recognized text fills
   the gap in the rendered Markdown — for both text-layer and OCR-derived documents.
-- Legacy-font (Kruti Dev) detection forces OCR review instead of silently shipping corrupted text.
+- Legacy-font (Kruti Dev) detection forces OCR review instead of silently shipping corrupted text
+  — and (M37) also forces Docling's own structure pass into `--force-ocr` for that same document,
+  so spliced table cells get fixed the same way body text does, not just the paragraphs.
 - Status-persistence bug fixed — a queued conversion no longer looks silently stalled.
 - **Pipeline reorder + auto-OCR-trigger (M34):** the text-layer pass now runs *first* (it's the
   quick half of the job), so the quality/legacy-font check knows upfront whether OCR will be
@@ -79,10 +81,13 @@ flowchart TD
 
     U[Upload PDF] --> P1["Pass 1 — markitdown / pdfminer\ntext-layer extraction (quick)"]
     P1 --> QC{"Quality check\nisGoodQuality()\nlegacy-font check"}
-    QC -->|"sparse text /\nKruti Dev font detected"| FLAG["needs_ocr_review = true"]
+    QC -->|"sparse text"| FLAG["needs_ocr_review = true"]
+    QC -->|"Kruti Dev font detected"| FLAGFONT["needs_ocr_review = true\nforce_ocr = true (M37)"]
     QC -->|good| OK["needs_ocr_review = false"]
     FLAG --> P0
+    FLAGFONT --> P0F
     OK --> P0["Pass 0 — Docling structure detection\n(headings + tables + bboxes)\nengine: tesseract, hardcoded\nnon-fatal if it fails"]
+    P0F["Pass 0 — Docling structure detection\n--force-ocr: re-reads tables from\nrendered pixels, not the broken\ntext layer (M37)"] -->|writes structure.json| SPLICE
     P0 -->|writes structure.json| SPLICE["classify_and_render()\nsplice Docling tables + headings\ninto pages the heuristic missed"]
     SPLICE --> SAVE["save Markdown + metadata"]
     SAVE -->|needs_ocr_review=false| REVIEW["status: review\nCompare & Verify modal\n(structure panel + Markdown)"]
@@ -95,9 +100,9 @@ flowchart TD
 
     class U entry
     class QC decision
-    class FLAG bad
+    class FLAG,FLAGFONT bad
     class OK good
-    class P0,SPLICE,SPLICE2 process
+    class P0,P0F,SPLICE,SPLICE2 process
     class REVIEW,REVIEW2 review
     class P2 process
     class SAVE process
@@ -111,6 +116,10 @@ Key points the diagram doesn't show directly:
   reviewer to notice the flag and click a button.
 - Docling's Pass 0 is **additive and non-fatal** — if it errors or times out, the rest of the
   pipeline proceeds exactly as if structure detection never ran (`structure_analyzed: false`).
+- **(M37)** When Pass 1 detected a legacy font specifically (not just generically sparse text),
+  Pass 0 additionally gets `--force-ocr`, so table cells are re-read from rendered pixels instead
+  of the same broken text-layer cmap that made body text unreadable in the first place — see
+  `STRUCTURE_RESEARCH.md`'s M37 entry.
 - The same `structure.json` (produced once, Pass 0) is reused by both the text-layer splice and
   any later OCR-engine splice — Docling never re-runs per OCR attempt.
 - Both **tables and headings** are spliced (M33 + M34).

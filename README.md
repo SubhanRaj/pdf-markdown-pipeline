@@ -72,10 +72,10 @@ The repo ships with these directives inside `<IfModule mod_php.c>` in `public/.h
 Create `public/.user.ini`:
 
 ```ini
-upload_max_filesize = 64M
-post_max_size       = 64M
-max_execution_time  = 120
-max_input_time      = 120
+upload_max_filesize = 300M
+post_max_size       = 300M
+max_execution_time  = 300
+max_input_time      = 300
 ```
 
 PHP reads this file directly for both mod_php and php-fpm. No Apache directive required. Changes take effect within 5 minutes (`user_ini.cache_ttl = 300`) without a restart.
@@ -91,10 +91,10 @@ Edit the system php.ini — path varies by distro:
 | RHEL / CentOS | `/etc/php.ini` |
 
 ```ini
-upload_max_filesize = 64M   ; must be ≥ the 50 MB Laravel validation limit
-post_max_size       = 64M   ; must be ≥ upload_max_filesize
-max_execution_time  = 120   ; large uploads on slow hardware can exceed the 30s default
-max_input_time      = 120   ; time allowed to receive the upload data stream
+upload_max_filesize = 300M  ; must be ≥ the 300 MB Laravel validation limit
+post_max_size       = 300M  ; must be ≥ upload_max_filesize
+max_execution_time  = 300   ; large uploads on slow hardware can exceed the 30s default
+max_input_time      = 300   ; time allowed to receive the upload data stream
 ```
 
 Restart after editing:
