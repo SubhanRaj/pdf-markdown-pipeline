@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-15 (last updated 2026-07-24)
 **Status:** Live in production. Phase 1 (structure detection, M32), partial Phase 2 (table splice,
-M33), heading splice + pipeline reorder (M34), and the legacy-font force-ocr fix (M37) are all
-shipped — see `summary.md`. This file
+M33), heading splice + pipeline reorder (M34), the legacy-font force-ocr fix (M37), and the
+Docling-table-priority fix (M38) are all shipped — see `summary.md`. This file
 records what was tried and found, so the reasoning trail isn't lost — same purpose
 `OCR_RESEARCH.md` serves for character accuracy. Supersedes `STRUCTURE_HANDOFF.md`'s original
 three-pass proposal (structural map → raw extraction → structured reconstruction); see git
@@ -147,6 +147,27 @@ and without `--force-ocr`. Before: `'Ø0la0'`, `"rhozrk ¼çfr'kr oh@oh½"`. Aft
 `'तीव्रता (प्रतिशत वी / वी)'` — correct, readable Devanagari, same page, same table. Also stamped
 `force_ocr`/`structure_force_ocr` into the structure JSON and document metadata respectively, so
 which documents needed this path is visible later without re-deriving it.
+
+## M38 (2026-07-24) — Docling tables now win over a wrong geometric table, not just a missing one
+
+`classify_and_render()`'s table splice (`docling_table_blocks`) only filled pages where
+`detect_tables()`'s geometric heuristic found *no* table at all (`covered_pages` skip-if-present
+check). That was backwards for the actual failure mode: a page where the heuristic's x0-column-
+clustering misfires (columns merged, rows split wrong) still produces *some* `TableBlock` — just
+a wrong one — so Docling's genuinely more reliable TableFormer-derived table was silently
+discarded for exactly the pages that most needed it, and only ever used on pages the heuristic
+gave up on entirely.
+
+Fix: table splice no longer checks "does this page already have a table" — it removes any
+geometric `TableBlock` on a page Docling also detected a table for, then always inserts Docling's
+version. Headings keep the original "only fill if this page has zero heuristic-detected
+headings" behavior unchanged — Docling's structure JSON has no heading-level data, so a page
+where the font-size/caps heuristic already found a heading is presumed better classified by it,
+not a reliability gap the way tables are (see `docling_heading_blocks`' docstring).
+
+Verified with a standalone script (`Line`/`TableBlock` objects built directly, no PDF needed):
+a page with both a wrong 2-column geometric table and a correct Docling table for the same page —
+before the fix, output kept the wrong one; after, only Docling's survives.
 
 ## Open follow-ups, not implemented
 

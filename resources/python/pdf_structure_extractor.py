@@ -319,11 +319,16 @@ def classify_and_render(
     blocks = detect_tables(lines)
 
     if docling_tables:
-        covered_pages = {b.page for b in blocks if isinstance(b, TableBlock)}
-        for table in docling_tables:
-            if table.page in covered_pages:
-                continue
+        # Docling's TableFormer model reads table shape far more reliably than the geometric
+        # x0-clustering heuristic above (see docling_table_blocks' docstring) — when both detect
+        # a table on the same page, Docling's replaces ours instead of being skipped as "already
+        # covered". Previously this only filled pages the heuristic missed entirely, which meant
+        # a page where detect_tables() produced a *wrong* table (columns misaligned, rows
+        # merged) kept that wrong table forever since Docling's correct one was never considered.
+        docling_pages = {t.page for t in docling_tables}
+        blocks = [b for b in blocks if not (isinstance(b, TableBlock) and b.page in docling_pages)]
 
+        for table in docling_tables:
             # Drop this page's rejected-sparse fragments (see Line.table_fragment) — they're the
             # same table Docling is about to supply cleanly, just jumbled, so keeping both would
             # show the garbled version right next to the correct one.

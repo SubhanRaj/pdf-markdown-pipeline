@@ -2045,3 +2045,22 @@ uploads (100 MB on Free/Pro) that this app-side change cannot override.
 **Files changed:** `app/Jobs/ConvertDocumentToMarkdown.php` · `app/Http/Requests/StoreDocumentRequest.php`
 · `public/.htaccess` · `STRUCTURE_RESEARCH.md` · `OCR_RESEARCH.md` · `claude.md` · `README.md` ·
 `DEPLOY.md`.
+
+## M38 — Docling table splice now overrides a wrong geometric table, not just a missing one (COMPLETED 2026-07-24)
+
+`classify_and_render()`'s table splice only filled pages where the geometric heuristic
+(`detect_tables()`) found *no* table at all — a page where that heuristic misfired (columns
+merged, rows split wrong) still produced *some* `TableBlock`, so Docling's more reliable
+TableFormer-derived table was silently skipped for exactly the pages that needed it most, and
+only ever used when the heuristic gave up entirely.
+
+Fix: table splice in `resources/python/pdf_structure_extractor.py` now removes any geometric
+`TableBlock` on a page Docling also detected a table for, then always inserts Docling's version —
+Docling wins outright instead of only filling total gaps. Heading splice behavior is unchanged
+(Docling's structure JSON has no heading-level data, so a page where the font-size/caps heuristic
+already found a heading is presumed better classified by it — not the same reliability gap as
+tables). Verified with a standalone script building `Line`/`TableBlock` objects directly (no PDF
+needed): a page with both a wrong 2-column geometric table and a correct Docling table for the
+same page now keeps only Docling's.
+
+**Files changed:** `resources/python/pdf_structure_extractor.py` · `STRUCTURE_RESEARCH.md`.
