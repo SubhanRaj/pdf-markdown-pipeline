@@ -42,20 +42,20 @@ PHP's defaults (2 MB upload, 8 MB POST) block real document uploads. Four direct
 **Option A — `public/.htaccess`** (already in the repo, works immediately for Apache + mod_php, no restart needed)
 ```apache
 <IfModule mod_php.c>
-    php_value upload_max_filesize 64M
-    php_value post_max_size       64M
-    php_value max_execution_time  120
-    php_value max_input_time      120
+    php_value upload_max_filesize 300M
+    php_value post_max_size       300M
+    php_value max_execution_time  300
+    php_value max_input_time      300
 </IfModule>
 ```
 Requires `AllowOverride All` (or `AllowOverride Options FileInfo`) in the Apache vhost/Directory block — otherwise `.htaccess` is silently ignored.
 
 **Option B — `public/.user.ini`** (works for both mod_php and php-fpm, no Apache directive needed, ~5 min TTL)
 ```ini
-upload_max_filesize = 64M
-post_max_size       = 64M
-max_execution_time  = 120
-max_input_time      = 120
+upload_max_filesize = 300M
+post_max_size       = 300M
+max_execution_time  = 300
+max_input_time      = 300
 ```
 
 **Option C — system `php.ini`** (cleanest for a dedicated on-premise server; requires Apache/fpm restart to apply)
@@ -379,6 +379,21 @@ quality check says OCR is needed, `RunOcrExtraction` is now dispatched automatic
 of the job (`config('ocr.default')` engine), and status goes straight to `ocr_pending` instead of
 parking at `review` waiting for a reviewer to notice `needs_ocr_review` and click "Run OCR"
 themselves. A reviewer can still manually re-run OCR with a different engine afterward.
+
+**Fixed 2026-07-24 (M37) — legacy-font tables were still broken after M32.** M32's legacy-font
+detection (below) only ever protected body text. Docling's own structure pass
+(`runDoclingStructureAnalysis()`) trusts the PDF's native text layer for any region it doesn't
+detect as a scanned bitmap — a Kruti Dev PDF's text is technically "selectable" (not an image), so
+Docling never OCR'd those regions either, and spliced table cells came out with the same garbled
+codepoints the legacy-font check was supposed to catch. `RunOcrExtraction` then reused that same
+unfixed `structure.json`, so even after full OCR, tables in the final Markdown stayed garbage
+while paragraphs were correct. Fix: `runDoclingStructureAnalysis()` now takes `bool $forceOcr`,
+passed `true` whenever `$legacyFont !== null` (already known before Docling runs, from Pass 1's
+output) — Docling then gets `--force-ocr`, re-reading every region including tables from rendered
+pixels instead of the broken text layer, scoped to only this one case (never a blanket
+`--force-ocr`, which STRUCTURE_RESEARCH.md's Finding 3 confirms is impractical at real page
+counts). Timeout for this path bumped to 900s (was 600s). See `STRUCTURE_RESEARCH.md`'s M37 entry
+for the before/after verification against a real document.
 
 **`ConvertDocumentToMarkdown` job — text-layer pass, now runs first (see M34 above):**
 1. Runs `resources/python/pdf_structure_extractor.py --mode pdf` through the same venv Python
@@ -1128,7 +1143,7 @@ Named limiters defined in `AppServiceProvider::boot()`. Never use anonymous `thr
 
 Always use `mimetypes:` (not `mimes:`) — reads actual file bytes via PHP Fileinfo (magic-byte check); `mimes:` only checks extension. Accepted types defined as `StoreDocumentRequest::ACCEPTED_MIMETYPES` — reference this constant from tests or other Form Requests rather than duplicating the list.
 
-Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/pptx), ODT/ODS/ODP, RTF, TXT, CSV, JPEG, PNG, WebP, GIF, TIFF, BMP, HEIC/HEIF. **SVG is explicitly excluded** — it is XML with executable script content and has no valid use case in a government document vault. Max size: 50 MB.
+Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/pptx), ODT/ODS/ODP, RTF, TXT, CSV, JPEG, PNG, WebP, GIF, TIFF, BMP, HEIC/HEIF. **SVG is explicitly excluded** — it is XML with executable script content and has no valid use case in a government document vault. Max size: 300 MB (raised 2026-07-24 for large scanned court-matter documents).
 
 ## Architecture decisions already made (don't re-litigate without reason)
 
@@ -1378,7 +1393,7 @@ This keeps Unicode letters + combining marks intact and collapses everything els
 
 ### Rate limiting
 - All auth mutation route groups carry `throttle:mutations` middleware (60/min/user).
-- `POST /documents` additionally carries `throttle:uploads` (20/min/user); disk exhaustion is guarded by the 50 MB file size cap and the mutations limiter. Once the initial legacy-document bulk load is complete, reduce to 5–10/min.
+- `POST /documents` additionally carries `throttle:uploads` (20/min/user); disk exhaustion is guarded by the 300 MB file size cap and the mutations limiter. Once the initial legacy-document bulk load is complete, reduce to 5–10/min.
 - All named limiters live in `AppServiceProvider::configureRateLimiters()` — never add inline `throttle:N,M` to routes.
 - The `login` and `two-factor` limiters are named in `config/fortify.php` and defined in `AppServiceProvider` — both must remain in sync.
 

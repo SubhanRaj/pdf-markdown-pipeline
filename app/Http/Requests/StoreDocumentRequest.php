@@ -127,7 +127,7 @@ class StoreDocumentRequest extends FormRequest
             'document_type' => ['required', 'string', "in:{$validTypes}"],
             'language'      => ['nullable', 'string', 'in:english,hindi,both'],
             'visibility'    => ['nullable', 'string', 'in:public,authenticated'],
-            'file'             => ['required', 'file', "mimetypes:{$acceptedMimes}", 'max:51200'], // 50 MB
+            'file'             => ['required', 'file', "mimetypes:{$acceptedMimes}", 'max:307200'], // 300 MB
             'amendment_number' => ['nullable', 'integer', 'min:1', 'max:999'],
             'effective_year'   => ['nullable', 'integer', 'min:1900', 'max:2099'],
             'effective_month'  => ['nullable', 'integer', 'min:1', 'max:12'],
@@ -152,7 +152,7 @@ class StoreDocumentRequest extends FormRequest
             'title.regex'                  => 'Title contains invalid characters.',
             'document_type.in'             => 'Please select a valid document type.',
             'file.mimetypes'               => 'Unsupported file type. Accepted: PDF, Word, Excel, PowerPoint, ODT, images (JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC), RTF, TXT, CSV. SVG files are not permitted.',
-            'file.max'                     => 'File size must not exceed 50 MB.',
+            'file.max'                     => 'File size must not exceed 300 MB.',
         ];
     }
 }

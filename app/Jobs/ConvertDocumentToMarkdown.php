@@ -59,7 +59,7 @@ class ConvertDocumentToMarkdown implements ShouldQueue
             // Pass 0 — Docling structure detection (headings/tables/layout). Runs regardless of
             // the quality check above: structure/heading/table splicing is useful for the
             // text-layer render either way, and still needed when OCR ends up running next.
-            $structureMeta = $this->runDoclingStructureAnalysis($absolutePdfPath, $document);
+            $structureMeta = $this->runDoclingStructureAnalysis($absolutePdfPath, $document, $legacyFont !== null);
 
             $structurePath = preg_replace('/\.pdf$/i', '.structure.json', $document->original_pdf_path);
             $structureAbsolutePath = ($structureMeta !== [] && Storage::disk('public')->exists($structurePath))
@@ -135,15 +135,23 @@ class ConvertDocumentToMarkdown implements ShouldQueue
     /**
      * Pass 0 — Docling layout/table structure detection. Additive and non-fatal: any failure
      * here (bad venv, timeout, malformed output) is logged and swallowed, never blocks the
-     * text-layer/OCR pipeline below. Docling's own OCR text (used only to read scanned regions
-     * well enough to detect their structure) is discarded — only region/table shape + bbox is
-     * kept, trimmed from Docling's raw ~100MB+ export down to a small sibling JSON file. See
-     * STRUCTURE_RESEARCH.md for the schema this was built from and why the merge into the
-     * rendered Markdown is deferred to a later pass.
+     * text-layer/OCR pipeline below. Table/heading cell text Docling extracts is kept and
+     * spliced into the final Markdown (see the call site in handle() and RunOcrExtraction).
+     *
+     * Docling's default mode trusts the PDF's native text layer for any region it doesn't
+     * detect as a scanned bitmap — fine normally, but wrong for legacy non-Unicode Devanagari
+     * fonts (Kruti Dev etc.): that text is technically "selectable" so Docling never OCRs it,
+     * and table cells come out with the same garbled codepoints the main pipeline's OCR pass
+     * (which renders full pages to images, font-encoding-proof) was supposed to fix. $forceOcr
+     * makes Docling re-read every region — tables included — from rendered pixels instead of
+     * the broken text layer. Only passed true when the legacy-font sentinel was already
+     * detected by pdf_structure_extractor.py, since force-OCR is measurably slower (impractical
+     * across a whole large document otherwise — see STRUCTURE_RESEARCH.md) and this is the one
+     * case where the native text layer cannot be trusted at all.
      *
      * @return array Metadata fields to merge into the document's `metadata` column, or [] on failure.
      */
-    private function runDoclingStructureAnalysis(string $absolutePdfPath, Document $document): array
+    private function runDoclingStructureAnalysis(string $absolutePdfPath, Document $document, bool $forceOcr = false): array
     {
         try {
             $engines = config('docling.ocr_engines');
@@ -155,13 +163,20 @@ class ConvertDocumentToMarkdown implements ShouldQueue
             mkdir($tmpDir, 0755, true);
 
             try {
-                $result = Process::timeout(600)->run([
+                $command = [
                     $doclingBin, 'convert', '--to', 'json',
                     '--ocr-engine', $engineKey,
                     '--ocr-lang', $ocrLang,
                     '--output', $tmpDir,
-                    $absolutePdfPath,
-                ]);
+                ];
+                if ($forceOcr) {
+                    $command[] = '--force-ocr';
+                }
+                $command[] = $absolutePdfPath;
+
+                // force-ocr genuinely takes longer (whole-document OCR instead of bitmap-only) —
+                // give it more room than the default path, still inside the job's 1200s ceiling.
+                $result = Process::timeout($forceOcr ? 900 : 600)->run($command);
 
                 if (! $result->successful()) {
                     Log::warning('Docling structure analysis failed', ['document_id' => $document->id, 'error' => $result->errorOutput()]);
@@ -216,6 +231,7 @@ class ConvertDocumentToMarkdown implements ShouldQueue
                 Storage::disk('public')->put($structurePath, json_encode([
                     'engine'     => 'docling',
                     'ocr_engine' => $engineKey,
+                    'force_ocr'  => $forceOcr,
                     'headings'   => $headings,
                     'tables'     => $tables,
                 ], JSON_UNESCAPED_UNICODE));
@@ -225,6 +241,7 @@ class ConvertDocumentToMarkdown implements ShouldQueue
                     'structure_engine'         => $engineKey,
                     'structure_headings_count' => count($headings),
                     'structure_tables_count'   => count($tables),
+                    'structure_force_ocr'      => $forceOcr,
                 ];
             } finally {
                 foreach (glob("{$tmpDir}/*") ?: [] as $file) {

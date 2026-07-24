@@ -1,8 +1,9 @@
 # Structure Detection Research — Docling Evaluation
 
-**Date:** 2026-07-15 (last updated 2026-07-17)
+**Date:** 2026-07-15 (last updated 2026-07-24)
 **Status:** Live in production. Phase 1 (structure detection, M32), partial Phase 2 (table splice,
-M33), and heading splice + pipeline reorder (M34) are all shipped — see `summary.md`. This file
+M33), heading splice + pipeline reorder (M34), and the legacy-font force-ocr fix (M37) are all
+shipped — see `summary.md`. This file
 records what was tried and found, so the reasoning trail isn't lost — same purpose
 `OCR_RESEARCH.md` serves for character accuracy. Supersedes `STRUCTURE_HANDOFF.md`'s original
 three-pass proposal (structural map → raw extraction → structured reconstruction); see git
@@ -35,10 +36,12 @@ text layer) and **Odisha Excise Policy 2026-29** (54 pages, fully scanned, no te
    hallucinations. Fixed by always pinning `--ocr-engine tesseract --ocr-lang hin+eng` (or the
    equivalent per engine) — `config/docling.php` stores this explicitly, never relies on the
    default.
-3. **`--force-ocr` is impractical at real page counts.** Forcing full-page OCR on the 112-page UP
-   document timed out past 10 minutes with zero output (Docling only writes after full
-   completion, no partial results). Default mode (OCR only on detected bitmap regions) stayed
-   fast (~2 min). Never use `--force-ocr` in production.
+3. **`--force-ocr` is impractical at real page counts, as a blanket setting.** Forcing full-page
+   OCR on the 112-page UP document timed out past 10 minutes with zero output (Docling only
+   writes after full completion, no partial results). Default mode (OCR only on detected bitmap
+   regions) stayed fast (~2 min). Never force it for every document — but see M37 below: there is
+   exactly one case (legacy-font-encoded PDFs) where the default mode is not just slow to fix but
+   actively wrong, and forcing OCR is unavoidable there, scoped to only that case.
 4. **Docling can't call Paddle or Surya as an OCR backend** — only `tesseract`/`easyocr`/
    `rapidocr`/a few others. Matters little for body text (the reviewer's own OCR-engine choice
    handles that, unrelated to Docling), but does matter for **table cell text**: Docling's own
@@ -53,7 +56,8 @@ text layer) and **Odisha Excise Policy 2026-29** (54 pages, fully scanned, no te
    but wrong text, not cid-fallback or near-empty). OCR is naturally immune — it reads rendered
    pixels, never the corrupted cmap. Fixed in M32: detect the legacy font *name* from pdfminer's
    per-character metadata and force `needs_ocr_review = true`, rather than attempting a
-   character-remapping table (too risky for legal government text).
+   character-remapping table (too risky for legal government text). **This only fixed body text —
+   see M37 below for the table-splice half of the same bug, found 2026-07-24.**
 
 ## What shipped
 
@@ -114,6 +118,36 @@ while every OCR engine here reports pixel/top-left space tied to `pdftoppm`'s ra
   278KB rendered Markdown).
 - No LLM anywhere in this path — same as M32/M33, pure reuse of what Docling already detected.
 
+**M37 (2026-07-24) — force-ocr for legacy-font tables.** Found while reviewing a real court-matter
+document (a district scan, urgent): M32's legacy-font fix only ever protected *body text*. Table
+cell text is a completely separate extraction path — `runDoclingStructureAnalysis()` in
+`ConvertDocumentToMarkdown.php` calls Docling in its default mode, which trusts the PDF's native
+text layer for any region it doesn't detect as a scanned bitmap. A Kruti Dev PDF's text is
+technically "selectable" (not an image), so Docling never OCRs those regions either — table cells
+came out with the exact same garbled codepoints Finding 5 already described, and
+`RunOcrExtraction` then spliced that same (unfixed) `structure.json` into the otherwise-correctly-
+OCR'd body text. Net effect: a reviewer would see correct Hindi paragraphs and garbage tables in
+the same document.
+
+Fix: the legacy-font sentinel is already detected *before* Docling runs (`$legacyFont`, set from
+Pass 1's output at the top of `handle()`) — it just wasn't being passed through.
+`runDoclingStructureAnalysis()` now takes a `bool $forceOcr` parameter and adds `--force-ocr` to
+the Docling command only when `$legacyFont !== null`, so Docling re-reads every region — tables
+included — from rendered pixels instead of the broken text layer, for that one flagged case only.
+Finding 3's blanket "never force it" still holds for the general case; this is the one documented
+exception, and only reachable through the already-detected legacy-font path, never for a document
+otherwise flagged good or merely low-quality/sparse. Timeout for this path bumped to 900s (was
+600s for the default path) since force-OCR is measurably slower — still inside the job's overall
+1200s ceiling.
+
+Verified against the real production document that surfaced Finding 5 (`Excise Policy Uttar
+Pradesh`, id 16, 112 pages, `verified` status — not re-converted to avoid touching a live/possibly-
+cited document): extracted the affected page standalone (`pdfseparate`), ran Docling directly with
+and without `--force-ocr`. Before: `'Ø0la0'`, `"rhozrk ¼çfr'kr oh@oh½"`. After: `'क्र0सं0'`,
+`'तीव्रता (प्रतिशत वी / वी)'` — correct, readable Devanagari, same page, same table. Also stamped
+`force_ocr`/`structure_force_ocr` into the structure JSON and document metadata respectively, so
+which documents needed this path is visible later without re-deriving it.
+
 ## Open follow-ups, not implemented
 
 - **Full geometric merge** — reconcile Docling's PDF-point/bottom-left bboxes against each OCR
@@ -151,5 +185,8 @@ storage/app/private/ocr-engines/docling/bin/docling convert --to md --to json \
 ```
 
 Always pass `--ocr-engine`/`--ocr-lang` explicitly (Finding 2). Never pass `--force-ocr` on a
-multi-page document (Finding 3). Docling's raw JSON export is large (100MB+ per document) — only
-needed transiently to build the compact structure map, never worth keeping around.
+multi-page document unless you already know it's legacy-font-encoded (Finding 3, M37) — the app
+itself only ever does this automatically, scoped to that one case; manually forcing it on an
+arbitrary multi-page document for a one-off test still risks the timeout Finding 3 describes.
+Docling's raw JSON export is large (100MB+ per document) — only needed transiently to build the
+compact structure map, never worth keeping around.

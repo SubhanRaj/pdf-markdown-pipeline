@@ -181,6 +181,15 @@ queue worker:
 - **`pdf-pipeline-app.service`** (the old `artisan serve` systemd unit) is stopped and disabled
   — Apache replaces it entirely. `pdf-pipeline-queue.service` (queue worker) and
   `pdf-pipeline-tunnel.service` (cloudflared) are unaffected and still required.
+- **Cloudflare's own edge upload cap** — a hostname proxied through Cloudflare (which a Tunnel
+  hostname always is) is subject to Cloudflare's per-plan max request body size **regardless of
+  any origin/Apache/PHP setting**: Free/Pro = 100 MB, Business = 200 MB, Enterprise = up to 500 MB
+  (configurable). Raising `upload_max_filesize`/the app's validation limit (currently 300 MB, see
+  CLAUDE.md's "PHP upload limits") only helps for uploads that reach Apache — a file over the
+  zone's Cloudflare plan cap is rejected at Cloudflare's edge before it ever reaches this box. If a
+  document is legitimately larger than the zone's plan allows, either upload it from a machine on
+  the same LAN hitting `http://127.0.0.1:8080` directly (bypassing the tunnel entirely), or raise
+  the Cloudflare plan/limit for this zone.
 - **`ProtectHome` gotcha** — Ubuntu's `apache2.service` systemd unit ships with
   `ProtectHome=read-only`, which makes all of `/home` (including this app) read-only to Apache
   regardless of Unix file permissions. Since the app lives under `/home/subhan`, this blocked
