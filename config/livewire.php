@@ -260,12 +260,16 @@ return [
     |
     */
 
-    // This app's SecurityHeaders middleware sends a strict CSP with no 'unsafe-eval' — Alpine's
-    // default build (bundled by Livewire) needs new Function()/eval for directive evaluation,
-    // which that CSP silently blocks with no server-side error, leaving every Pulse card stuck on
-    // its loading skeleton forever. The CSP-safe Alpine build avoids eval entirely instead of
-    // loosening the CSP app-wide for one page.
-    'csp_safe' => true,
+    // Tried true (2026-07-25) to avoid loosening the CSP app-wide — reverted the same day.
+    // Pulse's own dashboard components (card.blade.php, scroll.blade.php, theme-switcher.blade.php)
+    // use raw inline Alpine expressions — x-data="{ ... }", @click="menu = !menu",
+    // :class="theme === 'light' ? ... : ..." — which the CSP-safe Alpine build cannot evaluate at
+    // all (it has no eval/new Function capability by design, unlike Livewire's own precompiled
+    // wire: directives). With csp_safe on, Alpine throws immediately trying to parse Pulse's UI,
+    // which halts all page JS — worse than the original bug (blank white page instead of cards
+    // stuck on a loading skeleton). Real fix is 'unsafe-eval' scoped to just /pulse's routes in
+    // SecurityHeaders — see that middleware's comment.
+    'csp_safe' => false,
 
     /*
     |---------------------------------------------------------------------------
