@@ -579,6 +579,7 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - New `/sitemap.xml` (departments, rule sets, public documents) and a tightened `robots.txt` (auth-only paths disallowed).
 - Fixed a real, previously-invisible double-HTML-escaping bug affecting every page's `<title>`/subtitle (`&` was rendering as literal `&amp;`) — see `claude.md`'s SEO section for the Blade gotcha and the convention now used everywhere (`:title="..."` bound syntax, not `title="{{ ... }}"`).
 - Tabler Icons now served self-hosted instead of jsDelivr-primary-with-JS-fallback — the old fallback only checked whether the stylesheet (not the font file) had loaded, so a flaky network could silently show empty glyph boxes with no recovery.
+- A full sweep for URL/sharing edge cases: the app's fallback route was redirecting every malformed URL to `/login` instead of 404ing; the trailing-slash `.htaccess` rule was silently downgrading `https` to `http` (behind the Cloudflare Tunnel, breaking crawler previews for any URL shared with a trailing slash); all 8 HTTP error codes now render a proper branded page instead of Laravel's default; added a real favicon/PWA icon set (there wasn't one before); fixed one legacy document whose slug was its raw uploaded filename instead of a readable, title-derived one.
 
 ## 🚀 Future Roadmap
 
