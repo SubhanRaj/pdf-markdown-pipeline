@@ -76,7 +76,7 @@
         </div>
     </div>
 
-    <div class="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+    <div class="flex items-center gap-1 flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
         <a href="{{ route($showRoute, $showParams) }}"
            class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-all"
            title="View">

@@ -1307,6 +1307,16 @@ All additional JS/CSS packages must be loaded from jsDelivr. Add them to `head.b
 - CSS classes on `#sidebar`: `sidebar-expanded` (w-64) / `sidebar-collapsed` (w-16, icons only).
 - `.sidebar-text`, `.sidebar-logo-text`, `.sidebar-user-text`, `.nav-section-label`, `.sidebar-badge` are hidden when collapsed.
 - `.nav-tooltip` CSS provides hover labels in collapsed state with a `::before` arrow.
+- This desktop collapse is a separate mechanic from the mobile drawer below — both can be active at once (e.g. collapsed-icon sidebar reopened as a full drawer on a narrow window).
+
+### Mobile layout (2026-07-25)
+
+- Below the `md` Tailwind breakpoint, `#sidebar` becomes a fixed off-canvas drawer: `fixed inset-y-0 left-0 z-50 -translate-x-full`, toggled to `translate-x-0` by `window.toggleMobileSidebar()` (`layout.blade.php`). At `md:` and up, `md:translate-x-0 md:relative` puts it back in-flow — desktop behavior is unchanged.
+- `#sidebar-backdrop` (in `layout.blade.php`, `md:hidden`) dims the page and closes the drawer on tap.
+- The header (`header.blade.php`) shows a hamburger button only below `md` that calls the same `toggleMobileSidebar()`. Clicking any link/submit button inside `#sidebar` while `window.innerWidth < 768` auto-closes the drawer (listener wired in `layout.blade.php`'s `DOMContentLoaded`).
+- Header also hides the global search box below `sm` (the sidebar's own "Search" link covers it) and collapses "New Conversion" to an icon-only button below `sm`.
+- Row-level hover-reveal actions (`opacity-0 group-hover:opacity-100` on view/edit icons in document-row partials, search results, etc.) are invisible on touchscreens since there's no hover — changed to `opacity-100 sm:opacity-0 sm:group-hover:opacity-100` everywhere this pattern appears, so they're always visible below `sm` and hover-revealed above it. If you add a new hover-reveal action, use the same three-class pattern, not bare `opacity-0 group-hover:opacity-100`.
+- This is media-query/responsive-class driven, not user-agent detection — there is no separate mobile template.
 
 ### Flash notifications (php-flasher/flasher-laravel)
 

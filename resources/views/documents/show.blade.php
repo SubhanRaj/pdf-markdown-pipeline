@@ -648,7 +648,7 @@
             </div>
             {{-- View link --}}
             <a href="{{ $linkForDoc($amendment) }}"
-               class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+               class="flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
                 View <i class="ti ti-arrow-right text-xs"></i>
             </a>
         </div>

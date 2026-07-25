@@ -2390,3 +2390,46 @@ Slugs/URLs were never touched — `RuleSet::slug` is a separate stored column se
 so renaming the display `name` doesn't move or break any existing link.
 
 **Files changed:** `app/Models/RuleSet.php` · `app/Http/Controllers/RuleSetController.php`.
+
+## M47 — Mobile-browsable layout: off-canvas sidebar, responsive header, stacking dashboard grid (COMPLETED 2026-07-25)
+
+The site was desktop-only in practice: `<x-sidebar>` was a permanent 16rem (or 4rem collapsed)
+flex child inside a `flex h-screen` row, so on a phone viewport it alone consumed most or all of
+the screen width, squeezing the header and every page's content along with it. Not a mobile-first
+rebuild — desktop stays the primary experience — just making the app usable on a phone/tablet for
+someone who has to view or browse a document there.
+
+Approach is media-query/responsive-class driven (Tailwind breakpoints + a JS toggle), not
+server-side user-agent sniffing — simpler, no separate mobile template to maintain, and it
+degrades correctly for tablet widths too:
+
+1. **Sidebar** becomes a fixed-position off-canvas drawer below the `md` breakpoint — translated
+   fully off-screen by default, slides in over the content with a dimmed backdrop when opened.
+   At `md:` and up it reverts to today's static in-flow behavior unchanged.
+2. **Header** gains a hamburger button (visible only below `md`) that toggles the drawer; tapping
+   the backdrop or a nav link closes it again. The search box (redundant with the sidebar's
+   "Search" link) hides below `sm`, "New Conversion" drops to icon-only, padding tightens.
+3. **Dashboard**: stat cards were already responsive (`grid-cols-2` and up) and are left as-is.
+   The "Recent Documents / Status Breakdown" row was hard-locked to `grid-cols-3` — now stacks to
+   one column on mobile, matching the pattern already used in `documents/show.blade.php`.
+4. **Spot-check pass** found `department/show.blade.php`'s category cards already responsive
+   (`grid-cols-1 sm:grid-cols-3`) — no change needed there. It also surfaced a real bug beyond the
+   original plan: every document-row "view/edit" action across the app used
+   `opacity-0 group-hover:opacity-100` to stay hidden until hovered — on a touchscreen there is no
+   hover, so those actions were invisible and untappable on mobile. Fixed by changing the pattern
+   to `opacity-100 sm:opacity-0 sm:group-hover:opacity-100` (always visible below `sm`, hover-reveal
+   restored at `sm:` and up) across all 7 files that used it: `documents/index.blade.php`,
+   `documents/show.blade.php`, `search/index.blade.php` (5 occurrences), `sections/show.blade.php`,
+   `rule_sets/_doc_row.blade.php`, `folders/_doc_row.blade.php`, `divisions/_doc_row.blade.php`.
+
+Verified by rendering the dashboard through `php artisan serve` and inspecting the emitted HTML
+for the new drawer/backdrop/hamburger markup and JS wiring (no headless-browser tooling available
+in this environment to screenshot at a narrow viewport).
+
+**Files changed:** `resources/views/components/sidebar.blade.php` ·
+`resources/views/components/header.blade.php` · `resources/views/components/layout.blade.php` ·
+`resources/views/frontend/index.blade.php` · `resources/views/documents/index.blade.php` ·
+`resources/views/documents/show.blade.php` · `resources/views/search/index.blade.php` ·
+`resources/views/sections/show.blade.php` · `resources/views/rule_sets/_doc_row.blade.php` ·
+`resources/views/folders/_doc_row.blade.php` · `resources/views/divisions/_doc_row.blade.php` ·
+`claude.md`.
