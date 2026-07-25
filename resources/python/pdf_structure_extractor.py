@@ -439,14 +439,27 @@ def _reading_order_sort(lines: list[Line]) -> list[Line]:
 # --mode pdf can hit this (OCR-based modes read rendered pixels, never a font's broken cmap).
 detected_legacy_font: str | None = None
 
+# Set by extract_pdf() when a meaningful fraction of pages have essentially no extractable
+# text — read by main() the same way detected_legacy_font is. Needed because
+# ConvertDocumentToMarkdown's isGoodQuality() only ever saw an aggregate char-count average
+# across the whole document, which a handful of text-heavy pages can trivially outweigh even
+# when most of the document is scanned images with a zero text layer (confirmed on a real
+# 15-page gazette notification: 13 pages pure JBIG2 scans, 2 pages with real embedded text —
+# the average cleared the quality threshold by 10x while 87% of the document was silently
+# dropped from the output entirely, no error, nothing flagged for OCR).
+sparse_page_stats: tuple[int, int] | None = None  # (sparse_page_count, total_page_count)
+
 
 def extract_pdf(path: str) -> list[Line]:
-    global detected_legacy_font
+    global detected_legacy_font, sparse_page_stats
     from pdfminer.high_level import extract_pages
     from pdfminer.layout import LTTextLine, LTChar, LTTextContainer
 
     lines: list[Line] = []
+    page_char_counts: dict[int, int] = {}
+    total_pages = 0
     for page_num, page_layout in enumerate(extract_pages(path)):
+        total_pages = page_num + 1
         for element in page_layout:
             if not isinstance(element, LTTextContainer):
                 continue
@@ -463,8 +476,10 @@ def extract_pdf(path: str) -> list[Line]:
                         if LEGACY_HINDI_FONT_RE.search(c.fontname):
                             detected_legacy_font = c.fontname
                             break
+                text = text_line.get_text()
+                page_char_counts[page_num] = page_char_counts.get(page_num, 0) + len(text.strip())
                 lines.append(Line(
-                    text=text_line.get_text(),
+                    text=text,
                     size=avg_size,
                     bold=bold_count > len(chars) / 2,
                     page=page_num,
@@ -472,6 +487,13 @@ def extract_pdf(path: str) -> list[Line]:
                     x1=text_line.x1,
                     y0=text_line.y0,
                 ))
+
+    if total_pages > 0:
+        # Same 40-chars-per-page bar ConvertDocumentToMarkdown's isGoodQuality() already uses
+        # for its aggregate check — kept identical here so "sparse page" means the same thing
+        # in both places.
+        sparse = sum(1 for p in range(total_pages) if page_char_counts.get(p, 0) < 40)
+        sparse_page_stats = (sparse, total_pages)
 
     if detected_legacy_font is None:
         full_text = ''.join(line.text for line in lines)
@@ -632,6 +654,9 @@ def main():
         # Reuses the existing stdout-string contract with ConvertDocumentToMarkdown rather
         # than adding a new IPC channel — isGoodQuality() strips this marker before saving.
         output = f'<!-- LEGACY_FONT_DETECTED:{detected_legacy_font} -->\n' + output
+    if args.mode == 'pdf' and sparse_page_stats:
+        sparse, total = sparse_page_stats
+        output = f'<!-- SPARSE_PAGES:{sparse}/{total} -->\n' + output
     sys.stdout.write(output)
 
 

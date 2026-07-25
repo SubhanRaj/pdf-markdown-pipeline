@@ -48,13 +48,34 @@ class ConvertDocumentToMarkdown implements ShouldQueue
             // waiting on Docling's per-page structure-detection time to find out.
             $markdown = $this->tryStructuredExtract($absolutePdfPath);
 
+            // Both sentinels are stripped in a loop (not two independent `^`-anchored matches)
+            // since pdf_structure_extractor.py can prepend either or both, in either order.
             $legacyFont = null;
-            if (preg_match('/^<!-- LEGACY_FONT_DETECTED:(.+?) -->\n/', $markdown, $m)) {
-                $legacyFont = $m[1];
-                $markdown = substr($markdown, strlen($m[0]));
+            $sparsePages = null; // [sparse_count, total_pages]
+            while (true) {
+                if (preg_match('/^<!-- LEGACY_FONT_DETECTED:(.+?) -->\n/', $markdown, $m)) {
+                    $legacyFont = $m[1];
+                    $markdown = substr($markdown, strlen($m[0]));
+                    continue;
+                }
+                if (preg_match('/^<!-- SPARSE_PAGES:(\d+)\/(\d+) -->\n/', $markdown, $m)) {
+                    $sparsePages = [(int) $m[1], (int) $m[2]];
+                    $markdown = substr($markdown, strlen($m[0]));
+                    continue;
+                }
+                break;
             }
 
-            $needsOcrReview = $legacyFont !== null || ! $this->isGoodQuality($markdown, $absolutePdfPath);
+            // A meaningful fraction of near-blank pages means the document is a mix of typed
+            // and scanned pages — confirmed on a real gazette notification where 13 of 15 pages
+            // were pure scanned images with zero text layer, but the 2 text-heavy pages alone
+            // cleared isGoodQuality()'s whole-document average by 10x, so the scanned pages
+            // (which happened to carry all of the Hindi notification text) silently vanished
+            // from the output with nothing ever flagged for OCR. 15% is deliberately low —
+            // a real quality problem, not noise from the odd blank/divider page.
+            $hasSparsePages = $sparsePages !== null && $sparsePages[1] > 0 && ($sparsePages[0] / $sparsePages[1]) >= 0.15;
+
+            $needsOcrReview = $legacyFont !== null || $hasSparsePages || ! $this->isGoodQuality($markdown, $absolutePdfPath);
 
             // Pass 0 — Docling structure detection (headings/tables/layout). Runs regardless of
             // the quality check above: structure/heading/table splicing is useful for the
@@ -71,7 +92,11 @@ class ConvertDocumentToMarkdown implements ShouldQueue
             // Docling's pass above is what actually took the time.
             if ($structureAbsolutePath !== null) {
                 $markdown = $this->tryStructuredExtract($absolutePdfPath, $structureAbsolutePath);
+                // Two separate calls, not one pattern with a count limit — preg_replace's `^`
+                // anchors to the original string's position 0 on every match it counts toward
+                // the limit, so it can't strip two consecutive sentinel lines in one call.
                 $markdown = preg_replace('/^<!-- LEGACY_FONT_DETECTED:.+? -->\n/', '', $markdown);
+                $markdown = preg_replace('/^<!-- SPARSE_PAGES:\d+\/\d+ -->\n/', '', $markdown);
             }
 
             $markdownPath = preg_replace('/\.pdf$/i', '.md', $document->original_pdf_path);
@@ -79,7 +104,7 @@ class ConvertDocumentToMarkdown implements ShouldQueue
                 throw new \RuntimeException("Failed to write markdown file: {$markdownPath}");
             }
 
-            DB::transaction(function () use ($document, $markdownPath, $needsOcrReview, $legacyFont, $structureMeta) {
+            DB::transaction(function () use ($document, $markdownPath, $needsOcrReview, $legacyFont, $hasSparsePages, $sparsePages, $structureMeta) {
                 $oldStatus = $document->status;
                 // If the text layer isn't trustworthy, queue OCR immediately rather than making
                 // a reviewer click "Run OCR" after seeing the same "needs review" flag we
@@ -98,6 +123,9 @@ class ConvertDocumentToMarkdown implements ShouldQueue
                 $note = 'Converted to Markdown via pdf-text.';
                 if ($legacyFont !== null) {
                     $note .= " Detected legacy non-Unicode font ({$legacyFont}) — text layer is unreliable; OCR queued automatically.";
+                } elseif ($hasSparsePages) {
+                    [$sparse, $total] = $sparsePages;
+                    $note .= " {$sparse} of {$total} pages have little to no extractable text (likely a mix of typed and scanned pages) — OCR queued automatically so those pages aren't silently dropped.";
                 } elseif ($needsOcrReview) {
                     $note .= ' Text layer looks sparse or unreadable (possible font-encoding issue) — OCR queued automatically.';
                 }
