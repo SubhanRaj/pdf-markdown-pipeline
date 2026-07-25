@@ -834,7 +834,7 @@ Per-page dynamic values are set where each page's `<x-layout>` tag is declared:
 - `rule_sets/show` sets a description (department · rule set · document count); image stays the default banner (no natural single "page 1" for a rule set).
 - Every other page (`department/show`, `sections/*`, `divisions/*`, `folders/*`, `search/index`, etc.) at minimum gets a real dynamic `title`/`page-subtitle` — no page shows the generic homepage description anymore.
 
-Document show also has visible share buttons (WhatsApp, X, copy-link) next to the title — plain `wa.me`/`twitter.com/intent` links plus a `navigator.clipboard` copy button, no library.
+Document show also has a "Share" button on the same row as the status pills, right-aligned (`#share-menu-btn`/`#share-menu-panel`) — the same spot Edit/Delete occupy for a signed-in manager, otherwise empty for a public visitor. Clicking it opens a small dropdown (WhatsApp/X/copy-link — plain `wa.me`/`twitter.com/intent` links plus a `navigator.clipboard` copy button, no library), closes on outside click or Escape.
 
 `public/robots.txt` disallows the auth-only top-level paths (`/admin`, `/profile`, `/approvals`, `/login`, `/logout` — everything else is public read, per the route map above) and points to `/sitemap.xml`. That route (`SitemapController::index`, cached 1 hour via `Cache::remember('sitemap.urls', ...)`) lists every department, every `kind=rules` RuleSet, and every `visibility=public` document in `review`/`verified` status — same visibility rule the show routes themselves already enforce, so the sitemap never lists a URL that would actually 403 for an anonymous crawler.
 
