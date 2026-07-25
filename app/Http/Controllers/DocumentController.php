@@ -85,13 +85,17 @@ class DocumentController extends Controller
     }
 
     /**
-     * JSON health check for the queue worker itself — separate from Laravel's built-in `/up`,
-     * which only proves the app boots, not that background jobs are actually moving. "Healthy"
-     * here means a DocumentStatusHistory row (written by every job status transition) landed
-     * recently; if the queue worker died/hung, this timestamp goes stale even though `/up` would
-     * still report fine. Meant to be checked remotely (e.g. through a tunnel) without SSHing in.
+     * Health check for the queue worker itself — separate from Laravel's built-in `/up`, which
+     * only proves the app boots, not that background jobs are actually moving. "Healthy" here
+     * means a DocumentStatusHistory row (written by every job status transition) landed recently;
+     * if the queue worker died/hung, this timestamp goes stale even though `/up` would still
+     * report fine. Meant to be checked remotely (e.g. through a tunnel) without SSHing in.
+     *
+     * Content-negotiated on one URL: a browser (Accept: text/html) gets the dashboard view below;
+     * a script/monitor explicitly asking for JSON (Accept: application/json, or ?format=json for
+     * curl without headers) gets the same data as JSON.
      */
-    public function pipelineHealth(): JsonResponse
+    public function pipelineHealth(Request $request): View|JsonResponse
     {
         $pipelineStatuses = ['uploaded', 'processing', 'ocr_pending', 'review', 'failed'];
 
@@ -108,16 +112,24 @@ class DocumentController extends Controller
         // last-activity when there's an actual backlog waiting to be worked through.
         $isStalled = $pendingJobs > 0 && (! $lastActivity || $lastActivity->lt(now()->subMinutes(15)));
 
-        return response()->json([
+        $data = [
             'status'            => $isStalled ? 'stalled' : 'healthy',
-            'checked_at'        => now()->toIso8601String(),
-            'last_job_activity' => $lastActivity?->toIso8601String(),
+            'checked_at'        => now(),
+            'last_job_activity' => $lastActivity,
             'last_activity_ago' => $lastActivity?->diffForHumans(),
             'pending_jobs'      => $pendingJobs,
             'failed_jobs'       => $failedJobs,
             'documents'         => $counts,
             'server'            => $this->serverVitals(),
-        ]);
+        ];
+
+        $wantsJson = $request->query('format') === 'json' || ($request->wantsJson() && $request->query('format') !== 'html');
+
+        if ($wantsJson) {
+            return response()->json([...$data, 'checked_at' => $data['checked_at']->toIso8601String(), 'last_job_activity' => $lastActivity?->toIso8601String()]);
+        }
+
+        return view('documents.pipeline-health', ['pipelineStatuses' => $pipelineStatuses, ...$data]);
     }
 
     /**

@@ -557,8 +557,13 @@ viewing is never scoped, only mutations are.
 
 **Pipeline/server health check (`GET /documents/pipeline/health`, 2026-07-25)** —
 `DocumentController::pipelineHealth()`, same `auth`+`throttle:reads` gate as the monitor above.
-JSON only, meant to be checked remotely (e.g. through a tunnel) without SSHing in. Returns
-`pending_jobs`/`failed_jobs` (from the `jobs`/`failed_jobs` tables), per-status document counts,
+Content-negotiated on one URL: a browser gets an HTML dashboard
+(`documents/pipeline-health.blade.php`, auto-refreshes via `<meta http-equiv="refresh" content="15">`,
+color-coded load/memory/temp thresholds), a script/monitor gets JSON (`Accept: application/json`,
+or `?format=json` for plain `curl` — its default `Accept: */*` doesn't trigger Laravel's own
+`wantsJson()`). `?format=html` forces the dashboard even with a JSON-ish Accept header. Meant to be
+checked remotely (e.g. through a tunnel) without SSHing in. Returns `pending_jobs`/`failed_jobs`
+(from the `jobs`/`failed_jobs` tables), per-status document counts,
 `last_job_activity` (most recent `DocumentStatusHistory.created_at` — every job status transition
 writes one, so a genuinely stalled worker shows up as this going stale) with `status: 'stalled'`
 when jobs are queued but nothing's moved in 15+ minutes, and a `server` block (`load_avg_*` via
