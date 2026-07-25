@@ -2433,3 +2433,47 @@ in this environment to screenshot at a narrow viewport).
 `resources/views/sections/show.blade.php` · `resources/views/rule_sets/_doc_row.blade.php` ·
 `resources/views/folders/_doc_row.blade.php` · `resources/views/divisions/_doc_row.blade.php` ·
 `claude.md`.
+
+## M48 — Follow-up mobile fixes: breadcrumb/title overflow, document header pills, PDF-in-iframe fallback (COMPLETED 2026-07-25)
+
+Three more mobile bugs found after M47 shipped, all on `documents/show.blade.php` and the shared
+`<x-breadcrumb>`/`<x-header>` components it uses:
+
+1. **Breadcrumb stretched the whole page horizontally on mobile** instead of wrapping — `<x-breadcrumb>`
+   was a plain `flex items-center` row with no wrap, so a long chain (Home › Departments › Excise ›
+   Rules & Regulations › a long rule-set name › a long document title) forced the page width out
+   and added a horizontal scrollbar. Fixed by making the nav `flex-wrap` (each crumb now wraps to
+   the next line instead of pushing the page wide) and constraining only the *last* crumb (the
+   current page name, usually the longest) to `max-w-[70vw] sm:max-w-xs truncate` so one runaway
+   title can't dominate the wrapped line either.
+2. **Sticky header title bar clipped long document titles** — `header.blade.php`'s `<h1>` used
+   `truncate` (single line + ellipsis), added during M47 to stop long titles overflowing the header
+   row. On a phone, legal document titles are often the whole page title and got clipped mid-word
+   with no way to read the rest. Changed to `line-clamp-2 sm:truncate` — wraps up to 2 lines below
+   `sm`, keeps the original single-line truncate at `sm:` and up where there's more horizontal room
+   next to search/buttons.
+3. **Document header pills/actions could overflow narrow screens** — the title+badges block and
+   the share/edit/convert/delete button row sat in a `flex items-start justify-between` with no
+   wrap. Added `flex-wrap` to both the outer row and the actions row so buttons drop to their own
+   line(s) instead of squeezing or overflowing on a narrow viewport.
+4. **PDF wouldn't render inside the `<iframe>` on mobile browsers** — not a server bug (every PDF
+   route already sends `Content-Type: application/pdf` + `Content-Disposition: inline`). Most
+   mobile browsers simply have no inline-PDF plugin for an iframe to use — desktop Chrome/Firefox/
+   Edge use PDFium, Android Chrome/Firefox don't, so the frame renders blank or triggers a silent
+   download. Fixed with feature-detection, not UA-sniffing: Chromium browsers expose
+   `navigator.pdfViewerEnabled` (true on desktop, false on Android — exactly the broken case).
+   Where that API doesn't exist (older Firefox, Safari) fall back to assuming only Android is
+   unsupported, since iOS Safari previews PDFs in an iframe fine. When unsupported, the iframe
+   (`#pdf-iframe`) is hidden and a plain "Open PDF" card (`#pdf-iframe-fallback`, opens the PDF
+   route in a new tab) is shown instead. Only the main document viewer was changed — the
+   admin-only Compare & Verify modal's side-by-side iframes, and the trash/approvals preview
+   iframes in `documents/trash.blade.php`/`approvals/index.blade.php`, are desktop admin workflows
+   and were left as-is.
+
+Verified by compiling the Blade template (`Blade::compileString` + `php -l` on the output — an IDE
+false-positive flagged unrelated lines as JS syntax errors, confirmed spurious this way) and by
+rendering a real public document's show page through `php artisan serve`, confirming the new
+`#pdf-iframe-fallback` markup, `supportsInlinePdf` script, and wrapped breadcrumb nav all render.
+
+**Files changed:** `resources/views/components/breadcrumb.blade.php` ·
+`resources/views/components/header.blade.php` · `resources/views/documents/show.blade.php`.

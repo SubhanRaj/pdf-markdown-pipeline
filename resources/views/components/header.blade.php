@@ -15,7 +15,9 @@
         </button>
 
         <div class="min-w-0">
-            <h1 class="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">{{ $pageTitle }}</h1>
+            {{-- line-clamp (not truncate) — document titles are often long legal names; a single-line
+                 ellipsis clips them unreadably on a narrow phone screen, so wrap up to 2 lines instead. --}}
+            <h1 class="text-base font-semibold text-slate-800 dark:text-slate-100 line-clamp-2 sm:truncate break-words">{{ $pageTitle }}</h1>
             <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate hidden sm:block">{{ $pageSubtitle }}</p>
         </div>
     </div>
