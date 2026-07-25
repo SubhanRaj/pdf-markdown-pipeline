@@ -173,6 +173,12 @@
             <i class="ti ti-activity w-5 text-center text-base flex-shrink-0"></i>
             <span class="sidebar-text">Activity Log</span>
         </a>
+        <a href="{{ route('documents.pipeline.health') }}"
+           data-tooltip="Pipeline Health"
+           class="nav-link {{ request()->routeIs('documents.pipeline.health') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-heart-rate-monitor w-5 text-center text-base flex-shrink-0 text-emerald-400"></i>
+            <span class="sidebar-text">Pipeline Health</span>
+        </a>
         @endif
         @endauth
 
