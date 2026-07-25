@@ -270,7 +270,16 @@ class DocumentController extends Controller
             }
         }
 
-        return Storage::disk('public')->response($thumbPath, null, ['Content-Type' => 'image/jpeg']);
+        // Explicit public/long-lived cache headers — without this, the default web middleware
+        // stack's session cookie makes the response implicitly private, and Cloudflare's edge
+        // won't cache a response carrying Set-Cookie at all (bypasses to origin every hit,
+        // confirmed via cf-cache-status: BYPASS). A page-1 render never changes for a given
+        // document, so it's safe to cache aggressively; verifying/re-uploading changes the
+        // filename (new timestamp suffix), which naturally busts this.
+        return Storage::disk('public')->response($thumbPath, null, [
+            'Content-Type'  => 'image/jpeg',
+            'Cache-Control' => 'public, max-age=86400',
+        ]);
     }
 
     public function store(StoreDocumentRequest $request): JsonResponse
