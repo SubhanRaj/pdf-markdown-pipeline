@@ -2557,3 +2557,66 @@ earlier decision this session to leave the queue on a single worker.
 rather than the document-browsing sections above it.
 
 **File changed:** `resources/views/components/sidebar.blade.php`.
+
+## M50 — Laravel Pulse installed for ongoing app monitoring; a self-inflicted outage along the way (COMPLETED 2026-07-25)
+
+User asked about `pulse.laravel.com` as an alternative to the custom health page. Recommended
+keeping both rather than choosing one: Pulse gives slow-query/exception/cache/queue-throughput
+history the custom page never had, but has no concept of this app's `documents` table or its
+pipeline statuses, and its Servers card doesn't read CPU temperature at all — the one metric that
+actually mattered this weekend. `composer require laravel/pulse` (pulled in `livewire/livewire` —
+the only page in the app using it; everything else stays plain Blade/vanilla JS), published
+config + migration + the dashboard view, `php artisan migrate`. Bonus: `composer audit` flagged 6
+medium-severity `guzzlehttp/guzzle`/`guzzlehttp/psr7` advisories already present before this
+session touched anything — fixed in the same pass with `composer update
+guzzlehttp/guzzle guzzlehttp/psr7 --with-all-dependencies`, zero advisories remaining.
+
+Gated `GET /pulse` behind a `viewPulse` Gate in `AppServiceProvider::configurePulseAccess()`
+(`fn (?User $user) => $user?->isAdmin() ?? false`) — same Fortify-managed session and admin check
+as every other admin-only page (Users, Activity Log, Pipeline Health), answering the user's "same
+Fortify logic" ask directly: no separate login, reachable through the same public tunnel as
+everything else since it's just another gated route. The Servers card (CPU/memory/storage) needs
+its own continuously-running `pulse:check` process — added
+`~/.config/systemd/user/pdf-pipeline-pulse.service`, same shape as the existing
+`pdf-pipeline-queue.service`, enabled and confirmed recording within seconds. Added a `Pulse`
+sidebar link under "Manage", next to the new Pipeline Health link.
+
+**Self-inflicted outage, root-caused and fixed:** while checking why the *previous* session's
+health-dashboard Memory card was blank, re-verified `/etc/systemd/system/apache2.service.d/
+override.conf` — the file this session's earlier `ProcSubset=all` fix had been written to. Missed
+that `DEPLOY.md` already documented a **different, load-bearing** directive living in that exact
+same file (`ReadWritePaths`, letting Apache write `storage/`/`bootstrap/cache` despite
+`ProtectHome=read-only` — without it, every request fails on "Read-only file system"). The
+`sudo tee ... <<EOF` command given to the user overwrote the file instead of amending it, silently
+dropping `ReadWritePaths`. Confirmed via `curl` against the live domain: HTTP 500 on every page,
+site down for roughly 14 minutes until caught and the user re-ran a corrected command with both
+directives together. Fixed the root cause, not just the symptom: updated `DEPLOY.md`'s own
+documentation of this file to keep both directives shown together going forward with an explicit
+warning never to blindly overwrite it, and corrected the same mistake in
+`infra-notes/cpu-thermal-and-apache-procfs.md`. Verified recovery via `curl` (200 on both
+`127.0.0.1:8080` and the public `docsrepo.exciseup.in`) and confirmed Apache was writing to
+`storage/framework/views/` again post-fix.
+
+**Files changed:** `composer.json` · `composer.lock` · `config/pulse.php` (new) ·
+`database/migrations/2026_07_25_180203_create_pulse_tables.php` (new) ·
+`resources/views/vendor/pulse/dashboard.blade.php` (new, published) ·
+`app/Providers/AppServiceProvider.php` · `resources/views/components/sidebar.blade.php` ·
+`DEPLOY.md`. **Also:** `~/.config/systemd/user/pdf-pipeline-pulse.service` (new, outside the
+repo) · `infra-notes/cpu-thermal-and-apache-procfs.md`.
+
+**Follow-up (same day): Pulse cards stuck loading forever, no server error.** Every card on
+`/pulse` sat on its gray loading-skeleton placeholder indefinitely — confirmed via a rendered
+dump that the page and each Livewire component *did* mount server-side (`wire:snapshot` present in
+the HTML), and `storage/logs/laravel.log` had zero errors for the request window, ruling out a
+backend failure. Root cause was client-side and silent: `App\Http\Middleware\SecurityHeaders`'s
+CSP allows `'unsafe-inline'` but not `'unsafe-eval'`, and Livewire bundles Alpine.js for its
+front-end reactivity — Alpine's default build evaluates every directive via `new Function(...)`,
+which that CSP blocks with no visible error anywhere (not a server log, not even a page-level
+failure — Alpine just never initializes, so nothing ever replaces the skeletons). Rather than
+loosen the CSP app-wide for one page, published `config/livewire.php` and set `'csp_safe' => true`
+— Livewire ships an eval-free Alpine build (`livewire.csp.min.js`) precisely for this, served at
+the exact same asset URL, confirmed via `curl` (zero `new Function` occurrences in the served JS,
+vs. several in the default bundle). Any future Livewire component added to this app inherits the
+fix automatically.
+
+**Files changed:** `config/livewire.php` (new, published) · `claude.md`.

@@ -195,13 +195,22 @@ queue worker:
   regardless of Unix file permissions. Since the app lives under `/home/subhan`, this blocked
   every write (logs, Blade view cache, sessions) with confusing `tempnam()`/"Read-only file
   system" errors even though `storage/`/`bootstrap/cache` were correctly `775`. Fixed with a
-  drop-in at `/etc/systemd/system/apache2.service.d/override.conf`:
+  drop-in at `/etc/systemd/system/apache2.service.d/override.conf`. **This same file also carries
+  `ProcSubset=all`** (added 2026-07-25 so PHP can read `/proc/meminfo` for the Pipeline Health
+  dashboard — see `infra-notes/cpu-thermal-and-apache-procfs.md` for why) — **both directives must
+  stay in this one file together**:
   ```ini
   [Service]
   ReadWritePaths=/home/subhan/Sites/pdf-markdown-pipeline/storage /home/subhan/Sites/pdf-markdown-pipeline/bootstrap/cache
+  ProcSubset=all
   ```
-  then `sudo systemctl daemon-reload && sudo systemctl restart apache2`. Only needed because the
-  app sits under `/home`; deploying under `/var/www` instead avoids this entirely.
+  ⚠️ **If you ever need to touch this file again, always read its current contents first and
+  amend in place — never blindly `tee`/overwrite it.** Doing exactly that on 2026-07-25 silently
+  dropped `ReadWritePaths` while adding `ProcSubset`, which took the live site down (every request
+  failing on "Read-only file system" writing to `storage/`) until both lines were restored
+  together. After any edit: `sudo systemctl daemon-reload && sudo systemctl restart apache2`. Only
+  needed because the app sits under `/home`; deploying under `/var/www` instead avoids this
+  `ProtectHome` half of it entirely (the `ProcSubset` half would still be needed either way).
 
 After changing the vhost or tunnel config: `sudo systemctl reload apache2` and
 `systemctl --user restart pdf-pipeline-tunnel.service` respectively.
@@ -248,6 +257,30 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl enable --now pdf-pipeline-queue
 ```
+
+**Laravel Pulse's Servers card** (2026-07-25) needs its own always-running process,
+`php artisan pulse:check` — same pattern, separate unit
+(`pdf-pipeline-pulse.service` in this deployment, a `--user` unit alongside
+`pdf-pipeline-queue.service` rather than a system one, since it doesn't need
+`www-data` — it only reads `/proc`/`/sys` and writes to the `pulse_*` tables):
+```ini
+[Unit]
+Description=pdf-markdown-pipeline Pulse server-metrics recorder
+After=network.target mariadb.service
+
+[Service]
+WorkingDirectory=/path/to/pdf-markdown-pipeline
+ExecStart=/usr/bin/php artisan pulse:check
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+```
+Deliberately run as a plain CLI process, not through Apache — Apache's systemd unit has its own
+`ProcSubset=pid` hardening (see the `ProtectHome`/`ProcSubset` note above) that would otherwise
+block it from reading `/proc/meminfo` the same way it blocked the Pipeline Health endpoint until
+that override was added.
 
 `--timeout=1900` matches `RunOcrExtraction::$timeout` (1900s — the longer of the two job
 classes; `ConvertDocumentToMarkdown::$timeout` is 1200s). The worker-level `--timeout` must be
