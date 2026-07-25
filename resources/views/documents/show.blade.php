@@ -108,6 +108,12 @@
     if ($isDivisionFolderDoc) {
         $breadcrumbItems[] = ['name' => $division->name, 'url' => route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division])];
     }
+    if ($isRuleSetDoc) {
+        $breadcrumbItems[] = [
+            'name' => $ruleSet->kind === 'policy' ? 'Policies' : 'Rules & Regulations',
+            'url'  => route("departments.{$ruleSet->kind}.index", [$department->levelAlias(), $department]),
+        ];
+    }
     $breadcrumbItems[] = ['name' => $contextName, 'url' => $contextUrl];
     $breadcrumbItems[] = ['name' => $document->title, 'url' => null];
 @endphp
