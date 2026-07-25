@@ -33,9 +33,14 @@
     RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
 
     # Redirect Trailing Slashes If Not A Folder...
+    # Forced to https:// explicitly — this app sits behind a Cloudflare Tunnel that terminates
+    # TLS and forwards plain http:// internally (see ~/.cloudflared/config.yml), so Apache only
+    # ever sees http and would otherwise build this redirect's Location header as http://,
+    # silently downgrading any URL shared with a trailing slash and breaking social-crawler
+    # link previews (most crawlers won't follow an https->http redirect).
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_URI} (.+)/$
-    RewriteRule ^ %1 [L,R=301]
+    RewriteRule ^ https://%{HTTP_HOST}%1 [L,R=301]
 
     # Send Requests To Front Controller...
     RewriteCond %{REQUEST_FILENAME} !-d
