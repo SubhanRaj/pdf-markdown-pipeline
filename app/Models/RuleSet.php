@@ -136,4 +136,17 @@ class RuleSet extends Model
 
         return $slug;
     }
+
+    /** Append "Rules"/"Policy" to a user-typed name unless it's already there. */
+    public static function withKindSuffix(string $name, string $kind): string
+    {
+        $suffix = $kind === 'policy' ? 'Policy' : 'Rules';
+        $name   = trim($name);
+
+        if (preg_match('/\b'.$suffix.'\b/i', $name)) {
+            return $name;
+        }
+
+        return "{$name} {$suffix}";
+    }
 }
