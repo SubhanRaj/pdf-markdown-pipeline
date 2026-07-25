@@ -123,7 +123,24 @@ class StoreDocumentRequest extends FormRequest
             'division_id'   => ['nullable', 'integer', 'exists:divisions,id'],
             'folder_id'     => ['nullable', 'integer', 'exists:folders,id'],
             'parent_id'     => ['nullable', 'integer', 'exists:documents,id'],
-            'title'         => ['required', 'string', 'max:255', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
+            // The closure rejects titles with no letters at all — the upload form auto-fills
+            // the title field from the file's name (see fileToTitle() in
+            // bulk-upload.blade.php/rule_sets/show.blade.php) as a convenience default, and a
+            // source filename that's purely a document/gazette number (e.g. "1776420884.pdf")
+            // slips through unedited more easily than you'd think. A numbers-only title also
+            // becomes a numbers-only, non-descriptive slug (its one-time source, see
+            // Document::uniqueSlugForRuleSet()), which defeats the whole point of a readable,
+            // shareable URL. Real titles always contain at least one letter in any language.
+            // A closure (not a second `regex:` rule) so it gets its own, specific message —
+            // Laravel can't attach distinct custom messages to two `regex` rules on one field.
+            'title' => [
+                'required', 'string', 'max:255', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u',
+                function (string $attribute, mixed $value, \Closure $fail) {
+                    if (is_string($value) && ! preg_match('/\p{L}/u', $value)) {
+                        $fail('Title must contain at least one letter — a filename or ID number alone makes a poor, unreadable document URL.');
+                    }
+                },
+            ],
             'document_type' => ['required', 'string', "in:{$validTypes}"],
             'language'      => ['nullable', 'string', 'in:english,hindi,both'],
             'visibility'    => ['nullable', 'string', 'in:public,authenticated'],
