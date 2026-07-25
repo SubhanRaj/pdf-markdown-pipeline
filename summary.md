@@ -2536,3 +2536,18 @@ something to bulk-rewrite without being asked).
 
 **Files changed:** `config/database.php` · `app/Http/Controllers/DocumentController.php` ·
 `routes/web.php`.
+
+**Follow-up (same day):** the JSON-only endpoint wasn't useful to glance at from a phone browser,
+so gave it a real dashboard. `pipelineHealth()` now content-negotiates on the same URL — a browser
+gets a new `documents/pipeline-health.blade.php` view (status banner, queue/document stat cards,
+color-coded load average / memory / CPU temperature thresholds, auto-refreshes every 15s via a
+plain `<meta http-equiv="refresh">`, no JS polling needed for something checked this occasionally),
+while a script/monitor requesting JSON (or hitting `?format=json`, since plain `curl`'s default
+`Accept: */*` doesn't trip Laravel's `wantsJson()`) still gets the original JSON body. No new route
+— same `GET /documents/pipeline/health`. Verified by compiling the Blade template and rendering it
+through the real controller method (`Blade::compileString` + `php -l`, then an authenticated
+in-process request) — CPU temp read 94°C in that same check, a couple degrees past the 90°C
+"reduce concurrent workers" threshold the dashboard itself now flags in red, consistent with the
+earlier decision this session to leave the queue on a single worker.
+
+**File added:** `resources/views/documents/pipeline-health.blade.php`.
