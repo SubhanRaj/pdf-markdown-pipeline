@@ -89,6 +89,29 @@ copied server-side from the container and never re-entered.
   `effective_start_date`/`effective_end_date` fields and their Cleave.js date-mask script (dates now
   live on periods, not containers); relabeled copy from "policy period" to "policy".
 
+### Update (2026-07-25) — wording, date picker, supersession bug, one-step upload
+
+Four follow-up fixes after real usage surfaced problems (see `summary.md` M39 for the full
+write-up):
+
+- The container page's "Add Period" button and the period form's "Create Period" button are now
+  both **"Add Policy"** — a period is how the department uploads a policy (including old,
+  backfilled ones), not a bookkeeping record a user would think to "add" on its own.
+- `PolicyPeriodController::store()`'s auto-supersession (§ "Supersession, now scoped to the
+  container" above) only promotes the new period to `current` when its `effective_start_date` is
+  chronologically on/after the previous current period's — a backfilled older period (e.g. adding
+  "2021-22" after "2024-25" is already current) no longer steals `current` status. An edit-form
+  "Set as the current policy period" checkbox (`mark_as_current`) covers the case where dates are
+  omitted or a manual override is needed.
+- `periods/create.blade.php` is no longer just name + dates — it also has an optional file input
+  (+ language/visibility) so the period and its root policy document are created in one submit
+  instead of two; `PolicyPeriodController@store` creates the `Document` row(s) inline (mirrors
+  `DocumentController@store`'s `rule_set_id` branch).
+- The Cleave.js masked-text date fields were replaced with **Air Datepicker** (CDN) — a real
+  calendar popup locked to `dd-MM-yyyy` display, immune to browser/OS locale (native
+  `<input type="date">` was tried in between and dropped for exactly that reason), with built-in
+  day → month → year view navigation for jumping to old policy years.
+
 ## 2. Bilingual documents
 
 `documents` gained two columns (`database/migrations/2026_07_23_162101_add_language_fields_to_documents_table.php`):

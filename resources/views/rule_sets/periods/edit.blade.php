@@ -49,16 +49,16 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label for="effective_start_date_display" class="field-label">Effective From</label>
-                        <input id="effective_start_date_display" type="text" inputmode="numeric" placeholder="DD-MM-YYYY"
-                               class="field-input" autocomplete="off">
+                        <input id="effective_start_date_display" type="text" placeholder="DD-MM-YYYY" autocomplete="off"
+                               class="field-input @error('effective_start_date') field-error @enderror">
                         <input type="hidden" id="effective_start_date" name="effective_start_date"
                                value="{{ old('effective_start_date', $period->effective_start_date?->format('Y-m-d')) }}">
                         @error('effective_start_date') <p class="field-err-msg">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label for="effective_end_date_display" class="field-label">Effective Till</label>
-                        <input id="effective_end_date_display" type="text" inputmode="numeric" placeholder="DD-MM-YYYY"
-                               class="field-input" autocomplete="off">
+                        <input id="effective_end_date_display" type="text" placeholder="DD-MM-YYYY" autocomplete="off"
+                               class="field-input @error('effective_end_date') field-error @enderror">
                         <input type="hidden" id="effective_end_date" name="effective_end_date"
                                value="{{ old('effective_end_date', $period->effective_end_date?->format('Y-m-d')) }}">
                         @error('effective_end_date') <p class="field-err-msg">{{ $message }}</p> @enderror
@@ -74,6 +74,19 @@
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Require approval for all uploads to this period</span>
                     </label>
                 </div>
+
+                @if($period->policy_status !== 'current')
+                <div class="pt-4 border-t border-slate-200 dark:border-slate-700">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="hidden" name="mark_as_current" value="0">
+                        <input type="checkbox" name="mark_as_current" value="1"
+                            class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-green-600 focus:ring-green-500"
+                            {{ old('mark_as_current') ? 'checked' : '' }}>
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Set as the current policy period</span>
+                    </label>
+                    <p class="field-hint ml-7">Marks this period current and supersedes whichever period is current now.</p>
+                </div>
+                @endif
             </div>
         </div>
 
@@ -119,31 +132,66 @@
 </form>
 
 @push('scripts')
-<script src="https://cdn.jsdelivr.net/npm/cleave.js@1.6.0/dist/cleave.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/air-datepicker@3/air-datepicker.css">
+<style>
+    .dark .air-datepicker {
+        --adp-background-color: #1e293b;
+        --adp-background-color-hover: #334155;
+        --adp-background-color-active: #475569;
+        --adp-color: #e2e8f0;
+        --adp-color-secondary: #94a3b8;
+        --adp-accent-color: #6366f1;
+        --adp-color-other-month: #475569;
+        --adp-color-other-month-hover: #64748b;
+        --adp-border-color: #334155;
+        --adp-border-color-inner: #334155;
+        --adp-day-name-color: #818cf8;
+        --adp-cell-background-color-selected: #4f46e5;
+        --adp-cell-background-color-selected-hover: #4338ca;
+    }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/air-datepicker@3/air-datepicker.js"></script>
 <script>
 (function () {
     try {
-        function bindDateMask(displayId, hiddenId) {
+        // Air Datepicker's built-in default locale is Russian — always pass English explicitly.
+        const EN_LOCALE = {
+            days: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+            daysShort: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+            daysMin: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
+            months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+            monthsShort: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+            today: 'Today',
+            clear: 'Clear',
+            dateFormat: 'dd-MM-yyyy',
+            timeFormat: 'hh:mm aa',
+            firstDay: 0,
+        };
+
+        function bindDatePicker(displayId, hiddenId) {
             const display = document.getElementById(displayId);
             const hidden  = document.getElementById(hiddenId);
-            new Cleave(display, {
-                date: true,
-                datePattern: ['d', 'm', 'Y'],
-                delimiter: '-',
-                onValueChanged: function (e) {
-                    const parts = e.target.value.split('-');
-                    hidden.value = (parts.length === 3 && parts[2].length === 4)
-                        ? `${parts[2]}-${parts[1]}-${parts[0]}`
-                        : '';
+            const pad = n => String(n).padStart(2, '0');
+            const toISO = d => d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : '';
+
+            let initialDate = null;
+            if (hidden.value) {
+                const [y, m, d] = hidden.value.split('-').map(Number);
+                if (y && m && d) initialDate = new Date(y, m - 1, d);
+            }
+
+            new AirDatepicker(display, {
+                locale: EN_LOCALE,
+                dateFormat: 'dd-MM-yyyy',
+                autoClose: true,
+                selectedDates: initialDate ? [initialDate] : [],
+                onSelect({ date }) {
+                    hidden.value = toISO(Array.isArray(date) ? date[0] : date);
                 },
             });
-            if (hidden.value) {
-                const [y, m, d] = hidden.value.split('-');
-                if (y && m && d) display.value = `${d}-${m}-${y}`;
-            }
         }
-        bindDateMask('effective_start_date_display', 'effective_start_date');
-        bindDateMask('effective_end_date_display', 'effective_end_date');
+        bindDatePicker('effective_start_date_display', 'effective_start_date');
+        bindDatePicker('effective_end_date_display', 'effective_end_date');
 
         const docCount = {{ $period->documents()->count() }};
         document.getElementById('delete-period-btn').addEventListener('click', function () {

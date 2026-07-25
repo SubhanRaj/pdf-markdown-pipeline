@@ -2063,4 +2063,49 @@ tables). Verified with a standalone script building `Line`/`TableBlock` objects 
 needed): a page with both a wrong 2-column geometric table and a correct Docling table for the
 same page now keeps only Docling's.
 
+## M39 — Policy Period UX fixes: wording, calendar picker, wrong-supersede bug, one-step upload (COMPLETED 2026-07-25)
+
+Four issues reported from the live Policy Period screens:
+
+1. **Wording.** "Add Period"/"Create Period" read as adding a bookkeeping record, not uploading
+   a policy (including old, backfilled ones) — relabeled to "Add Policy" throughout
+   `policy_container.blade.php` and `periods/create.blade.php`.
+
+2. **Wrong-supersede bug (root cause fix).** `PolicyPeriodController@store` always marked the
+   newly-created period `current` and flipped whatever was `current` before it to `superseded`,
+   regardless of either period's dates — so adding a backfilled "2021-22" after "2024-25" was
+   already current wrongly stole "current" status. Fixed by comparing `effective_start_date`:
+   a new period only supersedes the existing current one when it's chronologically on/after it;
+   an earlier or undated new period is created as `superseded` instead of guessing. Extracted as
+   `PolicyPeriodController::isChronologicallyLater()` (pure, DB-free) and covered by
+   `tests/Unit/PolicyPeriodSupersedeTest.php`. Since dates can be omitted, also added a "Set as
+   the current policy period" checkbox to the edit form (`mark_as_current`) as a manual override —
+   there was previously no way to promote a period at all.
+
+3. **One-step create + upload.** Creating a period and uploading its PDF were two separate visits
+   (create the period, then go upload). `periods/create.blade.php` now has an optional file input
+   plus language/visibility fields; `PolicyPeriodController@store` stores the file and creates the
+   `Document` row(s) (mirroring `DocumentController@store`'s `rule_set_id` branch, including the
+   English+Hindi "both" sibling-document split) inside the same transaction as the period.
+
+4. **Calendar picker, two iterations.** First pass used native `<input type="date">` — dropped
+   because its displayed format (and the calendar itself) is rendered by the browser/OS locale,
+   not controllable via `placeholder` or any HTML attribute, so a US-locale browser showed
+   MM/DD/YYYY on an India-only form. Replaced with **Air Datepicker** (CDN, page-scoped, matches
+   this codebase's existing "no build step" convention already used for `Cleave.js`/`Grid.js`):
+   locked to `dd-MM-yyyy` display regardless of browser locale, real calendar popup, and — the
+   deciding factor over Flatpickr, which was tried first and dropped — clicking the month/year
+   header natively cycles day → month → year grid views for fast navigation to an old policy
+   year, with no plugin required. Implementation keeps the established display-input +
+   hidden-ISO-field split (same shape as the original Cleave.js masking) so the value posted to
+   Laravel's `date` validation rule is always unambiguous `Y-m-d`, never locale-dependent.
+   Dark mode themed entirely via Air Datepicker's `--adp-*` CSS custom properties rather than
+   per-element overrides.
+
+**Files changed:** `app/Http/Controllers/PolicyPeriodController.php` ·
+`app/Http/Requests/StorePolicyPeriodRequest.php` · `app/Http/Requests/UpdatePolicyPeriodRequest.php` ·
+`resources/views/rule_sets/policy_container.blade.php` ·
+`resources/views/rule_sets/periods/create.blade.php` · `resources/views/rule_sets/periods/edit.blade.php` ·
+`tests/Unit/PolicyPeriodSupersedeTest.php` · `README.md`.
+
 **Files changed:** `resources/python/pdf_structure_extractor.py` · `STRUCTURE_RESEARCH.md`.
