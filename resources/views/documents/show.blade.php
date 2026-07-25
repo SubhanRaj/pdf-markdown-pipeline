@@ -174,7 +174,7 @@
 @endif
 
 {{-- ── Document header ──────────────────────────────────────────────────────── --}}
-<div class="flex items-start justify-between gap-4 mb-6">
+<div class="flex flex-wrap items-start justify-between gap-4 mb-6">
     <div class="flex items-start gap-4">
         <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0
             @if($document->status === 'verified') bg-green-500/10 dark:bg-green-500/20
@@ -227,7 +227,7 @@
     {{-- ── Share + (if manager) edit/convert/delete — same row as the pills, right-aligned.
          Share is visible to everyone; it's the only thing here for a public visitor, since
          edit/delete only ever render for a signed-in manager. ──────────────────────────── --}}
-    <div class="flex items-center gap-2 flex-shrink-0">
+    <div class="flex items-center gap-2 flex-wrap">
         <div class="relative">
             <button type="button" id="share-menu-btn" title="Share"
                     class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
@@ -433,11 +433,24 @@
             </div>
 
             <div id="viewer-pdf">
-                <iframe src="{{ $pdfRoute }}#view=FitH&toolbar=1&navpanes=0"
+                <iframe id="pdf-iframe" src="{{ $pdfRoute }}#view=FitH&toolbar=1&navpanes=0"
                         class="w-full border-0"
                         style="height: 75vh;"
                         title="{{ $document->title }}">
                 </iframe>
+                {{-- Fallback for browsers that can't preview a PDF inside an iframe (most mobile
+                     Chrome/Firefox — no inline PDF plugin, unlike desktop). JS shows this and hides
+                     the iframe above when `navigator.pdfViewerEnabled` says inline won't work. --}}
+                <div id="pdf-iframe-fallback" class="hidden flex-col items-center justify-center gap-3 text-center px-6" style="height: 75vh;">
+                    <i class="ti ti-file-type-pdf text-4xl text-red-400 dark:text-red-500"></i>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 max-w-xs">
+                        Your browser can't preview PDFs inline. Open it directly instead.
+                    </p>
+                    <a href="{{ $pdfRoute }}" target="_blank"
+                       class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                        <i class="ti ti-external-link text-base"></i> Open PDF
+                    </a>
+                </div>
             </div>
 
             @if($hasMarkdown && $isVerified)
@@ -883,6 +896,26 @@ try {
     }
 } catch (e) {
     console.error('Convert button init failed:', e);
+}
+
+try {
+    // Feature-detect inline PDF support rather than sniffing the UA string. Chromium browsers
+    // expose navigator.pdfViewerEnabled — true on desktop, false on Android Chrome/Firefox (they
+    // have no inline PDF plugin, so the iframe below would render blank or trigger a download).
+    // Where the API doesn't exist (older Firefox, Safari), only Android is assumed unsupported —
+    // iOS Safari generally previews PDFs in an iframe fine.
+    const supportsInlinePdf = ('pdfViewerEnabled' in navigator)
+        ? navigator.pdfViewerEnabled
+        : ! /Android/i.test(navigator.userAgent);
+
+    if (!supportsInlinePdf) {
+        document.getElementById('pdf-iframe')?.classList.add('hidden');
+        const fallback = document.getElementById('pdf-iframe-fallback');
+        if (fallback) fallback.classList.remove('hidden');
+        if (fallback) fallback.classList.add('flex');
+    }
+} catch (e) {
+    console.error('PDF inline-support detection failed:', e);
 }
 
 try {
