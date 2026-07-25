@@ -581,6 +581,7 @@ Controller method signatures **must** declare `string $level` as their first par
 | Method | URI | Route name | Auth |
 |---|---|---|---|
 | GET | `/documents` | `documents.index` | Public |
+| GET | `/documents/{document}/og-image.jpg` | `documents.og-image` | Public |
 | POST | `/documents` | `documents.store` | Auth |
 | GET | `/documents/{level}/{dept}/{section}/{doc}` | `documents.show` | Public* |
 | PATCH | `/documents/{level}/{dept}/{section}/{doc}` | `documents.update` | Auth |
@@ -823,6 +824,21 @@ Documents carry a `visibility` column independent of the processing-status workf
 
 - **`documents/show`** — context-aware: receives context flags `$isRuleSetDoc`, `$isDivisionDoc`, `$isSectionFolderDoc`, `$isDivisionFolderDoc`. Each flag switches breadcrumbs, page subtitle, vault path display, and all route helpers (PDF, edit, destroy). The "Section / Division / Rule Set / Folder" metadata label adapts accordingly. Visibility badge shown in header. When `$isSectionFolderDoc` or `$isDivisionFolderDoc`, the folder name + link are shown in the metadata sidebar.
 - **`documents/index`** — tabbed by department; renders section, rule-set, and folder documents; row links follow routing priority: `$doc->folder ? ($doc->division ? documents.divisions.folders.show : documents.folders.show) : ($doc->division ? documents.divisions.show : ($doc->section ? documents.show : documents.rules.show))`. Display context name: `$doc->folder?->name ?? $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name`.
+
+### SEO / social-share metadata (2026-07-25)
+
+`<x-head>` (`resources/views/components/head.blade.php`) accepts `title`, `description`, `image`, `url`, `type` props and emits `<meta name="description">`, `<link rel="canonical">`, and full Open Graph + `twitter:card` (`summary_large_image`) tags. `<x-layout>` forwards these (`description` defaults to `pageSubtitle` if not given). Default `image` is `public/og-default.jpg` (a static 1200×630 branded banner, generated once via a GD script — regenerate by re-running the same script if branding changes, no build step involved).
+
+Per-page dynamic values are set where each page's `<x-layout>` tag is declared:
+- `documents/show` builds a real description (doc type · rule set/section · department · amendment · effective year) and, for `visibility=public` documents only, points `image` at `route('documents.og-image', $document)` — `DocumentController::ogImage()` rasterizes page 1 of the PDF via `pdftoppm` on first request (`-scale-to-x 1200`), caches it as a `.og.jpg` sibling file on the `public` disk (same convention as `.md`/`.structure.json`), and serves it directly after. `visibility=authenticated` documents fall back to the generic banner — the route has to be reachable unauthenticated for a social crawler to fetch it at all, so a real thumbnail there would leak content past the auth gate.
+- `rule_sets/show` sets a description (department · rule set · document count); image stays the default banner (no natural single "page 1" for a rule set).
+- Every other page (`department/show`, `sections/*`, `divisions/*`, `folders/*`, `search/index`, etc.) at minimum gets a real dynamic `title`/`page-subtitle` — no page shows the generic homepage description anymore.
+
+Document show also has visible share buttons (WhatsApp, X, copy-link) next to the title — plain `wa.me`/`twitter.com/intent` links plus a `navigator.clipboard` copy button, no library.
+
+`public/robots.txt` disallows the auth-only top-level paths (`/admin`, `/profile`, `/approvals`, `/login`, `/logout` — everything else is public read, per the route map above) and points to `/sitemap.xml`. That route (`SitemapController::index`, cached 1 hour via `Cache::remember('sitemap.urls', ...)`) lists every department, every `kind=rules` RuleSet, and every `visibility=public` document in `review`/`verified` status — same visibility rule the show routes themselves already enforce, so the sitemap never lists a URL that would actually 403 for an anonymous crawler.
+
+**Blade gotcha this surfaced, applies everywhere in this codebase:** `<x-component prop="{{ $var }}">` (unprefixed attribute containing `{{ }}`) compiles to `'prop' => e($var)` — the value arrives at the component **pre-escaped**. If that prop is later echoed again with `{{ }}` anywhere downstream (as `<x-head>`'s new meta tags now do with `title`/`pageSubtitle`), the escaping doubles: `&` → `&amp;` → `&amp;amp;`, rendering literally as `&amp;` in the browser. Every `<x-layout title="{{ ... }}">` / `page-subtitle="{{ ... }}"` call site in the app was converted to bound syntax (`:title="..."`, a raw PHP expression, no pre-baked escaping) so the single `{{ $title }}` in `head.blade.php`/`header.blade.php` is the only escape that ever happens. **When adding a new page, always use `:title="..."` / `:page-subtitle="..."` (colon-prefixed) on `<x-layout>`, never the unprefixed `title="{{ ... }}"` form** — the latter silently reintroduces this bug the moment the value contains `&`, `<`, `>`, or `"`.
 
 ### Folder views
 
@@ -1260,12 +1276,14 @@ Never interpolate `{{ }}` inside `<script>` blocks — IDE JS parsers choke on i
 | Library | Source |
 |---|---|
 | Tailwind CSS (Play CDN, `typography` plugin) | `https://cdn.tailwindcss.com?plugins=typography` — the `typography` plugin is required; it's what makes the `prose`/`prose-invert` classes actually render (they're inert without it) |
-| Tabler Icons (webfont) | jsDelivr — `@tabler/icons-webfont@3.30.0` |
+| Tabler Icons (webfont) | Self-hosted (`public/vendor/tabler-icons/`), **not** CDN — see note below |
 | Chart.js | jsDelivr — `chart.js@4.4.7` |
 | SweetAlert2 | jsDelivr — `sweetalert2@11` |
 | marked.js | jsDelivr — `marked@13` — page-scoped (`@push('scripts')` in `documents/show.blade.php` only, not global); client-side Markdown→HTML for the Compare & Verify editor's live Preview tab |
 
 All additional JS/CSS packages must be loaded from jsDelivr. Add them to `head.blade.php` (global) or push to `@stack('styles')` / `@stack('scripts')` from individual pages.
+
+**Tabler Icons is the one deliberate exception (2026-07-25)** — it used to be jsDelivr-primary with a JS timeout-based fallback to the self-hosted copy, but that fallback only checked whether the *stylesheet* had loaded (`link.sheet`), not whether the actual `.woff2` font file behind it had — on a flaky/restrictive network (this app is used inside a government office) the small CSS file can load fine while the much larger font file stalls or gets blocked, and the fallback never fires. Icons showing as empty glyph boxes with no recovery was a real, repeated user complaint. Fixed by serving the self-hosted copy (`public/vendor/tabler-icons/`) directly, no CDN involved at all — both files were already vendored in the repo.
 
 ### Shared utility CSS classes (defined in head.blade.php via `<style type="text/tailwindcss">`)
 

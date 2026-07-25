@@ -1,8 +1,8 @@
 <?php $canManage = auth()->check() && auth()->user()->canManagePolicy($ruleSet); ?>
 <x-layout
-    title="{{ $ruleSet->name }}"
-    page-title="{{ $ruleSet->name }}"
-    page-subtitle="{{ $department->name }} · {{ $ruleSet->state }} · {{ $periods->count() }} {{ Str::plural('period', $periods->count()) }}"
+    :title="$ruleSet->name"
+    :page-title="$ruleSet->name"
+    :page-subtitle="$department->name . ' · ' . $ruleSet->state . ' · ' . $periods->count() . ' ' . Str::plural('period', $periods->count())"
 >
 
 <x-breadcrumb :items="[

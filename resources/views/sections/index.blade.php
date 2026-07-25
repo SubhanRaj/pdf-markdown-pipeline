@@ -1,7 +1,7 @@
 <x-layout
     title="Sections"
     page-title="Sections"
-    page-subtitle="{{ $department->name }} · {{ $sections->count() }} {{ Str::plural('section', $sections->count()) }}"
+    :page-subtitle="$department->name . ' · ' . $sections->count() . ' ' . Str::plural('section', $sections->count())"
 >
 
 <x-breadcrumb :items="[

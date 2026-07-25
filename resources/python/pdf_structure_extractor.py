@@ -87,6 +87,19 @@ NUMBERED_PREFIX_RE = re.compile(r'^(\d+(?:\.\d+)*)[\.\)]?\s+')
 # STRUCTURE_RESEARCH.md.
 LEGACY_HINDI_FONT_RE = re.compile(r'kruti|chanakya|devlys|shusha|walkman|agra|shree.?dev', re.IGNORECASE)
 
+# Fallback for when the font-name check above can't fire at all: some PDF exporters (seen on a
+# real gazette notification, BWFL-2 Rules 2021 7th amendment) strip/anonymize embedded font
+# names down to generic subset tags like "CIDFont+F1" with no trace of "KrutiDev" left, so
+# LEGACY_HINDI_FONT_RE never matches even though the text layer is exactly the same garbled
+# non-Unicode-Devanagari-as-Latin remap. These fonts map Devanagari matras onto a handful of
+# Latin-1/extended-Latin codepoints that essentially never appear in real English or properly
+# decoded Unicode-Hindi text — ¼/½ alone showed up 47 times each in the one confirmed real
+# case (vowel-sign substitutes), vs ~0 in genuine prose. Zero real Devanagari codepoints is the
+# other half of the signal: a real Unicode-Hindi page would show up in the U+0900-097F range,
+# not here.
+LEGACY_ENCODING_TELL_RE = re.compile('[¼½¾ŒªÙç¶§†‡„Øøµ]')
+LEGACY_ENCODING_TELL_MIN_COUNT = 15
+
 # Table-row grouping tolerances, in the source's native units (PDF points for --mode pdf,
 # pixels for every OCR-based mode) — coarse on purpose since OCR bounding boxes are noisier
 # than pdfminer's exact glyph coordinates.
@@ -459,6 +472,14 @@ def extract_pdf(path: str) -> list[Line]:
                     x1=text_line.x1,
                     y0=text_line.y0,
                 ))
+
+    if detected_legacy_font is None:
+        full_text = ''.join(line.text for line in lines)
+        has_devanagari = any(0x0900 <= ord(c) <= 0x097F for c in full_text)
+        tell_count = len(LEGACY_ENCODING_TELL_RE.findall(full_text))
+        if not has_devanagari and tell_count >= LEGACY_ENCODING_TELL_MIN_COUNT:
+            detected_legacy_font = f'unnamed subset font (content heuristic, {tell_count} tell-chars)'
+
     return _reading_order_sort(lines)
 
 

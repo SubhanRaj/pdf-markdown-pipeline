@@ -1,7 +1,7 @@
 <x-layout
     title="Add Policy"
     page-title="Add Policy"
-    page-subtitle="{{ $policy->name }} · {{ $policy->state }}"
+    :page-subtitle="$policy->name . ' · ' . $policy->state"
 >
 
 <x-breadcrumb :items="[

@@ -1,10 +1,38 @@
-@props(['title' => 'Dashboard'])
+@props([
+    'title'       => 'Dashboard',
+    'description' => 'UP Department of Excise document vault — browse rules, policies, notices and government orders.',
+    'image'       => null,
+    'url'         => null,
+    'type'        => 'website',
+])
+
+@php
+    $ogImage = $image ?: asset('og-default.jpg');
+    $ogUrl   = $url ?: request()->url();
+    $fullTitle = "{$title} | " . config('app.name');
+@endphp
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ $title }} | {{ config('app.name') }}</title>
+    <title>{{ $fullTitle }}</title>
+    <meta name="description" content="{{ Str::limit($description, 200) }}">
+    <link rel="canonical" href="{{ $ogUrl }}">
+
+    {{-- Open Graph — dynamic per page so a link shared in WhatsApp/Slack/etc. shows what it
+         actually is (document title, rule set, department) rather than a generic site card. --}}
+    <meta property="og:site_name" content="{{ config('app.name') }}">
+    <meta property="og:type" content="{{ $type }}">
+    <meta property="og:title" content="{{ $title }}">
+    <meta property="og:description" content="{{ Str::limit($description, 200) }}">
+    <meta property="og:image" content="{{ $ogImage }}">
+    <meta property="og:url" content="{{ $ogUrl }}">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ $title }}">
+    <meta name="twitter:description" content="{{ Str::limit($description, 200) }}">
+    <meta name="twitter:image" content="{{ $ogImage }}">
 
     {{-- Anti-flash: runs synchronously before paint to prevent theme flicker --}}
     <script>
@@ -25,31 +53,15 @@
     {{-- Tailwind CSS Play CDN (typography plugin powers the `prose` classes used to render Markdown) --}}
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
 
-    {{-- Tabler Icons webfont: jsDelivr CDN as primary, self-hosted copy (public/vendor/tabler-icons)
-         as fallback if the CDN errors out or hasn't loaded within TIMEOUT_MS — the CDN was flaky
-         on some users' networks (blocked/slow), but still worth keeping as the default. --}}
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.30.0/dist/tabler-icons.min.css" id="tabler-icons-cdn">
-    <script>
-        (function () {
-            var link = document.getElementById('tabler-icons-cdn');
-            var TIMEOUT_MS = 1500; // generous — a real CDN fetch is commonly 50-300ms+ even when healthy
-            var settled = false;
-
-            function useFallback() {
-                if (settled) return;
-                settled = true;
-                var fallback = document.createElement('link');
-                fallback.rel = 'stylesheet';
-                fallback.href = '{{ asset("vendor/tabler-icons/tabler-icons.min.css") }}';
-                document.head.appendChild(fallback);
-            }
-
-            link.addEventListener('load', function () { settled = true; });
-            link.addEventListener('error', useFallback);
-            // Covers CDN requests that stall/hang rather than erroring outright.
-            setTimeout(function () { if (!link.sheet) useFallback(); }, TIMEOUT_MS);
-        })();
-    </script>
+    {{-- Tabler Icons webfont: served self-hosted (public/vendor/tabler-icons), not from jsDelivr.
+         The previous CDN-primary + JS-timeout-fallback only checked whether the *stylesheet*
+         had loaded (`link.sheet`), which resolves as soon as the small CSS text file arrives —
+         it never checked whether the actual .woff2 font file behind it did. On a flaky/restrictive
+         network (e.g. a government office proxy) the CSS can load fine while the much larger font
+         file stalls or gets blocked, so the fallback never fired and icons rendered as empty glyph
+         boxes with no recovery. Self-hosting removes the CDN round-trip (and this failure mode)
+         entirely — both files already live in this repo, no reason to fetch them remotely. --}}
+    <link rel="stylesheet" href="{{ asset('vendor/tabler-icons/tabler-icons.min.css') }}">
 
     {{-- Chart.js via jsDelivr --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>

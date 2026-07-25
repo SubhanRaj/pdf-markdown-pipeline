@@ -1,7 +1,7 @@
 <x-layout
     title="Edit Section"
     page-title="Edit Section"
-    page-subtitle="{{ $department->name }} · {{ $section->name }}"
+    :page-subtitle="$department->name . ' · ' . $section->name"
 >
 
 <x-breadcrumb :items="[

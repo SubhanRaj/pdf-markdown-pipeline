@@ -1,8 +1,8 @@
 <?php $isPolicy = $kind === 'policy'; ?>
 <x-layout
-    title="{{ $isPolicy ? 'Policies' : 'Rules & Regulations' }}"
-    page-title="{{ $isPolicy ? 'Policies' : 'Rules & Regulations' }}"
-    page-subtitle="{{ $department->name }} · {{ $ruleSets->count() }} {{ $isPolicy ? Str::plural('state', $ruleSets->count()) : Str::plural('rule set', $ruleSets->count()) }}"
+    :title="$isPolicy ? 'Policies' : 'Rules & Regulations'"
+    :page-title="$isPolicy ? 'Policies' : 'Rules & Regulations'"
+    :page-subtitle="$department->name . ' · ' . $ruleSets->count() . ' ' . ($isPolicy ? Str::plural('state', $ruleSets->count()) : Str::plural('rule set', $ruleSets->count()))"
 >
 
 <x-breadcrumb :items="[

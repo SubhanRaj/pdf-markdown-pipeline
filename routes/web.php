@@ -25,6 +25,8 @@ Route::get('/admin', function () {
 
 Route::get('/', [FrontendController::class, 'dashboard'])->name('home');
 
+Route::get('/sitemap.xml', [\App\Http\Controllers\SitemapController::class, 'index'])->name('sitemap');
+
 Route::get('/search', [SearchController::class, 'index'])->name('search.index');
 
 // Documents — read-only browse is public
@@ -32,6 +34,10 @@ Route::get('/search', [SearchController::class, 'index'])->name('search.index');
 // {level} = 'dept' (department_level) | 'sectt' (secretariat_level)
 Route::prefix('documents')->name('documents.')->group(function () {
     Route::get('/', [DocumentController::class, 'index'])->name('index');
+    // Page-1 thumbnail for social share previews (WhatsApp/Slack/etc.) — gated on the
+    // document's own visibility inside the controller, not this route, since the URL
+    // itself has to be reachable unauthenticated for a crawler to fetch it at all.
+    Route::get('/{document}/og-image.jpg', [DocumentController::class, 'ogImage'])->name('og-image');
     // Section-based documents (direct — no division)
     Route::get('/{level}/{department}/{section}/{document}',     [DocumentController::class, 'show'])->name('show');
     Route::get('/{level}/{department}/{section}/{document}/pdf', [DocumentController::class, 'pdf'])->name('pdf');

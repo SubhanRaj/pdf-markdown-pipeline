@@ -1,8 +1,8 @@
 <?php $isPolicy = $kind === 'policy'; ?>
 <x-layout
-    title="{{ $isPolicy ? 'Add Policy' : 'Add Rule Set' }}"
-    page-title="{{ $isPolicy ? 'Add Policy' : 'Add Rule Set' }}"
-    page-subtitle="{{ $isPolicy ? 'Create a new policy under' : 'Create a new rule set under' }} {{ $department->name }}"
+    :title="$isPolicy ? 'Add Policy' : 'Add Rule Set'"
+    :page-title="$isPolicy ? 'Add Policy' : 'Add Rule Set'"
+    :page-subtitle="($isPolicy ? 'Create a new policy under' : 'Create a new rule set under') . ' ' . $department->name"
 >
 
 <x-breadcrumb :items="[

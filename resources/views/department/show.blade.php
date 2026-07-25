@@ -1,7 +1,7 @@
 <x-layout
-    title="{{ $department->name }}"
-    page-title="{{ $department->name }}"
-    page-subtitle="{{ $department->level === 'secretariat_level' ? 'Secretariat Level' : 'Department Level' }} · {{ $department->sections_count }} {{ Str::plural('section', $department->sections_count) }} · {{ $department->documents_count }} {{ Str::plural('document', $department->documents_count) }}"
+    :title="$department->name"
+    :page-title="$department->name"
+    :page-subtitle="($department->level === 'secretariat_level' ? 'Secretariat Level' : 'Department Level') . ' · ' . $department->sections_count . ' ' . Str::plural('section', $department->sections_count) . ' · ' . $department->documents_count . ' ' . Str::plural('document', $department->documents_count)"
 >
 
 <x-breadcrumb :items="[

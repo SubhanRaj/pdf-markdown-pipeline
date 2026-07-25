@@ -169,6 +169,32 @@ Verified with a standalone script (`Line`/`TableBlock` objects built directly, n
 a page with both a wrong 2-column geometric table and a correct Docling table for the same page —
 before the fix, output kept the wrong one; after, only Docling's survives.
 
+## M41 (2026-07-25) — Legacy-font detection needed a content-based fallback, not just font names
+
+M37's `LEGACY_HINDI_FONT_RE` (`pdf_structure_extractor.py`) only ever matches the embedded font's
+*name*. A real gazette notification (`BWFL-2 Rules-2021 7th amendment`, part of M40's bulk import)
+defeated it entirely: `pdffonts` showed its fonts subset/renamed to generic tags (`CIDFont+F1`
+through `F5`) with no trace of "Kruti Dev" left, so the name never matched even though the text
+layer was exactly the same garbled non-Unicode-Devanagari-as-Latin remap M37 was written to catch.
+
+Fix: a content-based fallback that doesn't need the font name at all. These fonts map Devanagari
+matras onto a small, specific set of Latin-1/extended-Latin codepoints (`¼ ½ ¾ Œ ª Ù ç ¶ § † ‡ „ Ø
+ø µ`) that essentially never appear in genuine English or properly-decoded Unicode-Hindi text — in
+the reported document, `¼`/`½` alone occurred 47 times each vs. ~0 in real prose. If a document's
+extracted text has zero real Devanagari Unicode characters (U+0900–097F) but ≥15 occurrences of
+these tell-characters, `detect_legacy_font` fires with a synthetic label (`'unnamed subset font
+(content heuristic, N tell-chars)'`) instead of the actual font name, since there isn't one to
+report. Checked once, over the whole document's extracted text, after the per-line loop in
+`extract_pdf()` — not per-character like the name check, since this needs the full picture to be
+a reliable signal.
+
+Verified against 7 real documents from the bulk-import batch: fired correctly on the reported
+document (138 tell-chars) and 2 more from the same batch that had silently slipped through
+(`FL Bottling 24th amendment`: 732, `Beer Retail 19th amendment`: 286); zero false positives on
+Chandigarh's clean-English policy or two scanned-with-no-text-layer documents (empty output,
+correctly not flagged — those already get caught by the separate near-empty-text quality check
+in `ConvertDocumentToMarkdown::isGoodQuality()`).
+
 ## Open follow-ups, not implemented
 
 - **Full geometric merge** — reconcile Docling's PDF-point/bottom-left bboxes against each OCR

@@ -1,7 +1,7 @@
 <x-layout
     :title="$q ? 'Search: ' . $q : 'Search'"
     page-title="Search"
-    :page-subtitle="$q ? 'Results for &quot;' . e($q) . '&quot;' : 'Find documents, sections, and rule sets'"
+    :page-subtitle='$q ? "Results for \"{$q}\"" : "Find documents, sections, and rule sets"'
 >
 
 <x-breadcrumb :items="[

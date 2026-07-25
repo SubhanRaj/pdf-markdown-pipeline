@@ -2,12 +2,16 @@
     'title'        => 'Dashboard',
     'pageTitle'    => 'Dashboard',
     'pageSubtitle' => 'UP Department of Excise — Document Vault',
+    'description'  => null,
+    'image'        => null,
+    'ogUrl'        => null,
+    'ogType'       => 'website',
 ])
 
 <!DOCTYPE html>
 <html lang="en" class="h-full">
 
-<x-head :title="$title" />
+<x-head :title="$title" :description="$description ?? $pageSubtitle" :image="$image" :url="$ogUrl" :type="$ogType" />
 
 <body class="bg-slate-100 dark:bg-slate-950 h-full transition-colors duration-200">
 <div class="flex h-screen overflow-hidden">

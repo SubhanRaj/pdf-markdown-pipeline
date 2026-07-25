@@ -1,7 +1,7 @@
 <x-layout
     title="Approval Queue"
     page-title="Approval Queue"
-    page-subtitle="{{ $isApprover ? 'Review pending uploads and take action.' : 'Track the status of your submitted documents.' }}"
+    :page-subtitle="$isApprover ? 'Review pending uploads and take action.' : 'Track the status of your submitted documents.'"
 >
     <x-slot:breadcrumb>
         <a href="{{ route('home') }}">Home</a>

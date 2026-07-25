@@ -8,9 +8,9 @@
         : route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $folder]);
 @endphp
 <x-layout
-    title="Edit Folder — {{ $folder->name }}"
+    :title="'Edit Folder — ' . $folder->name"
     page-title="Edit Folder"
-    page-subtitle="{{ $section->name }} · {{ $folder->name }}"
+    :page-subtitle="$section->name . ' · ' . $folder->name"
 >
 
 <x-breadcrumb :items="[

@@ -23,6 +23,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
@@ -234,6 +235,42 @@ class DocumentController extends Controller
             $filename,
             ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
         );
+    }
+
+    /**
+     * Page-1 thumbnail used as the og:image/twitter:image for a document's share preview —
+     * generated on first request (rasterizing 300+ pages upfront for a batch import would be
+     * wasted work for documents that never get shared) and cached as a sibling file on the
+     * public disk from then on, same convention as .md/.structure.json. Social-media crawlers
+     * (WhatsApp, Slack, etc.) fetch this unauthenticated, so it only ever renders for documents
+     * that are already public — everything else falls back to the site's generic OG banner
+     * (see documents.show / rule_sets.show passing null image when visibility isn't public).
+     */
+    public function ogImage(Document $document): \Symfony\Component\HttpFoundation\StreamedResponse|RedirectResponse
+    {
+        if ($document->visibility !== 'public' || ! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
+            return redirect(asset('og-default.jpg'));
+        }
+
+        $thumbPath = preg_replace('/\.pdf$/i', '.og.jpg', $document->original_pdf_path);
+
+        if (! Storage::disk('public')->exists($thumbPath)) {
+            $absolutePdfPath = Storage::disk('public')->path($document->original_pdf_path);
+            $absoluteThumbPath = Storage::disk('public')->path($thumbPath);
+
+            $result = Process::timeout(30)->run([
+                'pdftoppm', '-jpeg', '-f', '1', '-l', '1', '-singlefile',
+                '-scale-to-x', '1200', '-scale-to-y', '-1',
+                $absolutePdfPath, preg_replace('/\.jpg$/', '', $absoluteThumbPath),
+            ]);
+
+            if (! $result->successful() || ! Storage::disk('public')->exists($thumbPath)) {
+                Log::warning('OG thumbnail generation failed', ['document_id' => $document->id, 'error' => $result->errorOutput()]);
+                return redirect(asset('og-default.jpg'));
+            }
+        }
+
+        return Storage::disk('public')->response($thumbPath, null, ['Content-Type' => 'image/jpeg']);
     }
 
     public function store(StoreDocumentRequest $request): JsonResponse

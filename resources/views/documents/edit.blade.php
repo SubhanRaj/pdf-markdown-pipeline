@@ -35,9 +35,9 @@
 @endphp
 
 <x-layout
-    title="Edit: {{ $document->title }}"
+    :title="'Edit: ' . $document->title"
     page-title="Edit Document"
-    page-subtitle="{{ $department->name }}{{ $wing ? ' · ' . Str::title(str_replace('_', ' ', $wing)) : '' }} · {{ $contextName }}"
+    :page-subtitle="$department->name . ($wing ? ' · ' . Str::title(str_replace('_', ' ', $wing)) : '') . ' · ' . $contextName"
 >
 
 <x-breadcrumb :items="[
