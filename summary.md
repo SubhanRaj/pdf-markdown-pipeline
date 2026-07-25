@@ -2616,7 +2616,63 @@ failure — Alpine just never initializes, so nothing ever replaces the skeleton
 loosen the CSP app-wide for one page, published `config/livewire.php` and set `'csp_safe' => true`
 — Livewire ships an eval-free Alpine build (`livewire.csp.min.js`) precisely for this, served at
 the exact same asset URL, confirmed via `curl` (zero `new Function` occurrences in the served JS,
-vs. several in the default bundle). Any future Livewire component added to this app inherits the
-fix automatically.
+vs. several in the default bundle).
 
-**Files changed:** `config/livewire.php` (new, published) · `claude.md`.
+**Correction (same day): that fix was wrong, made it worse.** User reported the page still didn't
+work after a hard refresh (ruling out browser/Cloudflare caching, both checked directly) — now
+showing a blank white page instead of stuck skeletons. Root cause: Pulse's *own* dashboard
+components (`card.blade.php`, `scroll.blade.php`, `theme-switcher.blade.php`) use raw inline
+Alpine expressions — `x-data="{ ... }"`, `@click="menu = !menu"`, `:class="theme === 'light' ? ...
+: ..."` — which the CSP-safe Alpine build cannot evaluate at all (no `eval`/`new Function`
+capability by design, unlike Livewire's own precompiled `wire:` directives it's meant for). With
+`csp_safe` on, Alpine threw immediately trying to parse Pulse's UI, halting all page JS —
+literally worse than the original bug. Reverted `csp_safe` to `false`, and instead scoped
+`'unsafe-eval'` into `SecurityHeaders`'s CSP for just `/pulse` and `/livewire-*` routes (checked
+via `$request->is()`) — every other page keeps the stricter policy unchanged. Verified via `curl`:
+CSP header on `/pulse` includes `'unsafe-eval'`, homepage's doesn't; confirmed live through the
+tunnel too (no config caching on this box, so no redeploy/cache-clear step needed).
+
+**Files changed:** `config/livewire.php` (new, published) ·
+`app/Http/Middleware/SecurityHeaders.php` · `claude.md`.
+
+## M51 — Tabler icon font subset to the ~114 classes actually used (COMPLETED 2026-07-26)
+
+User asked why the self-hosted Tabler Icons webfont "doesn't load easily" and whether SVG would
+be better. Answer: it wasn't a WOFF-vs-SVG problem so much as a *scope* problem — the self-hosted
+font (`public/vendor/tabler-icons/`) bundled the entire ~5,900-icon Tabler set (~892KB woff2 +
+247KB CSS) when a `grep` across every Blade view found only **114 unique `ti-*` classes** actually
+used anywhere in the app — roughly 2% utilization. Subsetting keeps the exact same class-based
+markup (`<i class="ti ti-xxx">`, zero Blade changes) while dropping the font itself to what's
+actually needed.
+
+Built via a throwaway venv (`fonttools[woff]`, not an app dependency — a one-time asset-generation
+step, output committed as static files): parsed the existing CSS's `.ti-name:before{content:"\eXXX"}`
+rules to map class names → codepoints, subsetted the full `.ttf` down to just the 114 used
+codepoints via `pyftsubset` (`--drop-tables+=GSUB,GPOS,GDEF --layout-features='' --no-hinting` —
+the full font's GSUB table trips a `fontTools` assertion otherwise, and icon fonts have no real
+layout features to lose anyway), converted to woff2/woff, and rebuilt a trimmed CSS with just the
+`@font-face`/`.ti` base rules plus one `:before` rule per used class. Result: **247KB → ~5KB CSS,
+892KB → ~22KB woff2** — roughly a 97% reduction. Verified the subset font's cmap contains exactly
+114 glyphs (matching the kept CSS rules 1:1), and confirmed both files serve `200` through the live
+tunnel.
+
+Considered CDN instead, given the file is now tiny — decided against it. Self-hosting was
+originally chosen specifically for reliability on a flaky/restrictive office network (see the
+existing "Tabler Icons webfont" note in `head.blade.php`/`CLAUDE.md`), and that reasoning doesn't
+change just because the file got smaller; if anything a CDN is now the comparatively *heavier*
+dependency (an external network round-trip for a file that's cheaper to just serve locally).
+
+**Bonus find:** one of the 115 `ti-*` classes grepped from the codebase, `ti-upload-off`
+(`documents/bulk-upload.blade.php`), turned out not to be a real Tabler icon name in this version
+at all — it was silently rendering nothing already, pre-existing and unrelated to this change.
+Fixed to `ti-upload` (already in the used-icon set, no subset change needed for the fix itself).
+
+Documented the going-forward policy in `CLAUDE.md`: before using a new `ti-*` class, check the
+full set at tabler.io/icons (or the CDN copy, for reference only, never loaded on the page) to
+confirm the exact name, then add its glyph to the subset — don't add the class and assume it
+renders, and don't switch back to loading the full set for one new icon.
+
+**Files changed:** `public/vendor/tabler-icons/tabler-icons.min.css` ·
+`public/vendor/tabler-icons/fonts/tabler-icons-subset.{woff,woff2}` (new; old
+`tabler-icons.{woff,woff2,ttf}` removed) · `resources/views/documents/bulk-upload.blade.php` ·
+`resources/views/components/head.blade.php` · `claude.md`.

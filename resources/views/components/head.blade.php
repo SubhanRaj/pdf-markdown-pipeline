@@ -71,7 +71,13 @@
          network (e.g. a government office proxy) the CSS can load fine while the much larger font
          file stalls or gets blocked, so the fallback never fired and icons rendered as empty glyph
          boxes with no recovery. Self-hosting removes the CDN round-trip (and this failure mode)
-         entirely — both files already live in this repo, no reason to fetch them remotely. --}}
+         entirely — both files already live in this repo, no reason to fetch them remotely.
+
+         2026-07-26: subset to only the ~114 ti-* classes this app actually uses (247KB CSS + 892KB
+         woff2 → ~5KB CSS + ~22KB woff2). Self-hosting stays the right call even at this smaller
+         size — the whole point above was avoiding a third-party network dependency on a
+         restrictive office connection, and that reasoning doesn't change just because the file
+         got smaller. See CLAUDE.md's "Icon font" note before adding a new ti-* class. --}}
     <link rel="stylesheet" href="{{ asset('vendor/tabler-icons/tabler-icons.min.css') }}">
 
     {{-- Chart.js via jsDelivr --}}
