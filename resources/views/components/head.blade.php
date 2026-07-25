@@ -4,6 +4,7 @@
     'image'       => null,
     'url'         => null,
     'type'        => 'website',
+    'noindex'     => false,
 ])
 
 @php
@@ -19,6 +20,9 @@
     <title>{{ $fullTitle }}</title>
     <meta name="description" content="{{ Str::limit($description, 200) }}">
     <link rel="canonical" href="{{ $ogUrl }}">
+    @if($noindex)
+    <meta name="robots" content="noindex, nofollow">
+    @endif
 
     {{-- Open Graph — dynamic per page so a link shared in WhatsApp/Slack/etc. shows what it
          actually is (document title, rule set, department) rather than a generic site card. --}}
