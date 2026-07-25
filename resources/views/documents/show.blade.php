@@ -342,7 +342,7 @@
                 Elapsed <span id="convert-elapsed">0:00</span> — OCR on scanned documents can take several minutes. This page updates automatically.
             </p>
             <p id="convert-queue-note" class="mt-1 text-xs text-amber-600 dark:text-amber-400 hidden">
-                Waiting in queue — another document is currently processing (single worker, see CLAUDE.md).
+                Waiting in queue — other documents are ahead of this one.
             </p>
         </div>
         @elseif($document->status === 'failed')
