@@ -1,7 +1,7 @@
 <x-layout
-    title="{{ $section->name }}"
-    page-title="{{ $section->name }}"
-    page-subtitle="{{ $department->name }}{{ $section->wing ? ' · ' . str_replace('_', ' ', ucfirst($section->wing)) : '' }}"
+    :title="$section->name"
+    :page-title="$section->name"
+    :page-subtitle="$department->name . ($section->wing ? ' · ' . str_replace('_', ' ', ucfirst($section->wing)) : '')"
 >
 
 <x-breadcrumb :items="[

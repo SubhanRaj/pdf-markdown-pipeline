@@ -3,9 +3,9 @@ $isPolicy   = $ruleSet->kind === 'policy';
 $canManage  = auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canManagePolicy($ruleSet));
 ?>
 <x-layout
-    title="{{ $isPolicy ? 'Edit Policy' : 'Edit Rule Set' }}"
-    page-title="{{ $isPolicy ? 'Edit Policy' : 'Edit Rule Set' }}"
-    page-subtitle="{{ $ruleSet->name }}"
+    :title="$isPolicy ? 'Edit Policy' : 'Edit Rule Set'"
+    :page-title="$isPolicy ? 'Edit Policy' : 'Edit Rule Set'"
+    :page-subtitle="$ruleSet->name"
 >
 
 <x-breadcrumb :items="[

@@ -11,9 +11,9 @@
         : route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $folder]);
 @endphp
 <x-layout
-    title="{{ $folder->name }}"
-    page-title="{{ $folder->name }}"
-    page-subtitle="{{ $department->name }} · {{ $isDivisionFolder ? $division->name : $section->name }}"
+    :title="$folder->name"
+    :page-title="$folder->name"
+    :page-subtitle="$department->name . ' · ' . ($isDivisionFolder ? $division->name : $section->name)"
 >
 
 <x-breadcrumb :items="[

@@ -7,11 +7,13 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
 $showRoute    = $isPolicy ? route('departments.policy.periods.show',    [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.show',    [$department->levelAlias(), $department, $ruleSet]);
 $editRoute    = $isPolicy ? route('departments.policy.periods.edit',    [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.edit',    [$department->levelAlias(), $department, $ruleSet]);
 $destroyRoute = $isPolicy ? route('departments.policy.periods.destroy', [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.destroy', [$department->levelAlias(), $department, $ruleSet]);
+$ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSet->documents->count() . ' ' . Str::plural('document', $ruleSet->documents->count());
 ?>
 <x-layout
-    title="{{ $ruleSet->name }}"
-    page-title="{{ $ruleSet->name }}"
-    page-subtitle="{{ $department->name }} · {{ $isPolicy ? 'Policy Period' : 'Rules & Regulations' }}"
+    :title="$ruleSet->name"
+    :page-title="$ruleSet->name"
+    :page-subtitle="$department->name . ' · ' . ($isPolicy ? 'Policy Period' : 'Rules & Regulations')"
+    :description="$ogDescription"
 >
 
 <x-breadcrumb :items="[

@@ -2151,3 +2151,103 @@ Policy Chhattisgarh" policy row both left untouched, physical files present on t
 `amendments()` relation returns the correct children for a spot-checked root (Bar).
 
 **Files changed:** `app/Console/Commands/SeedExciseRules.php` (new) · `README.md`.
+
+## M41 — Kruti Dev detection missed anonymized fonts; bulk-import batch reset and reprocessed (COMPLETED 2026-07-25)
+
+Reported live: `BWFL-2 Rules-2021 (7th amendment)` (one of the M40 bulk-imported documents) still
+showed garbled Hindi text (`Øe-la[;k-99¼d½...` instead of readable Devanagari) despite M37's
+legacy-font detection, and `needs_ocr_review` was `false`. Root cause: M37's detection
+(`LEGACY_HINDI_FONT_RE` in `pdf_structure_extractor.py`) only ever matched on the embedded font's
+*name* (`kruti|chanakya|devlys|...`) — this PDF's export tool had stripped/anonymized its fonts
+down to generic subset tags (`pdffonts` showed `CIDFont+F1`…`F5`, no trace of the original name),
+so the regex never fired.
+
+Fix: added a content-based fallback in `extract_pdf()` that doesn't depend on the font name at
+all — legacy Devanagari fonts (Kruti Dev, Chanakya, etc.) remap matras onto a handful of
+Latin-1/extended-Latin codepoints that essentially never appear in genuine English or properly
+decoded Unicode-Hindi text (`¼ ½ ¾ Œ ª Ù ç ¶ § † ‡ „ Ø ø µ`); if a document has zero real
+Devanagari Unicode characters (U+0900–097F) but ≥15 of these tell-characters, it's flagged as
+legacy-font regardless of what the font is named. Verified against the reported document (138
+tell-chars, now correctly flagged) and spot-checked against 6 other already-converted documents:
+caught 2 more silently-affected ones from the same M40 batch (`FL Bottling 24th amendment`, `Beer
+Retail 19th amendment`), zero false positives on clean English/Chandigarh-policy/Jharkhand-policy
+documents.
+
+Per direct request, since the fix could only be trusted going forward: stopped all 3 queue
+workers, wiped the `jobs` table (confirmed all 179 pending jobs belonged to this batch — no
+unrelated work in flight), and reset all 190 M40-imported documents (RuleSets 32–49; `RFP State
+Tax` explicitly left untouched) back to `status=uploaded` — deleted their `.md`/`.structure.json`/
+`.pre-ocr.md` artifacts, cleared extraction metadata, logged a `DocumentStatusHistory` note
+explaining why. Restarted workers, re-dispatched via `documents:convert-all`. Reprocessing was
+still in progress with 0 failures as of this entry.
+
+Separately diagnosed, not yet fixed: the same document's English section has a two-column
+Column-I/Column-II amendment-comparison table that Docling's table model didn't detect
+(`structure_tables_count: 0`) — falls back to a flattened row-by-row paragraph read, which reads
+as "duplicated" text (often genuinely near-identical, since many clauses are unchanged between
+old and new wording) rather than a real table. This is a Docling layout-model limitation on this
+document's borderless/continued-table format, not a text-encoding bug — left as a known gap.
+
+**Files changed:** `resources/python/pdf_structure_extractor.py`.
+
+## M42 — Dynamic OG/SEO meta tags, share buttons, sitemap, a real Blade double-escaping bug, and self-hosted Tabler Icons (COMPLETED 2026-07-25)
+
+Asked to make link previews work properly when a document/rule-set page is shared via WhatsApp or
+any other social channel — the two sibling projects (Revenue Recovery, Spatial Revenue Recovery)
+only ever had static, generic OG tags since they're guarded portals; this one needed real
+per-page dynamic previews since its content is meant to be shared and found.
+
+`<x-head>` (`resources/views/components/head.blade.php`) gained `description`/`image`/`url`/
+`type` props, emitting `<meta name="description">`, `<link rel="canonical">`, full Open Graph, and
+`twitter:card=summary_large_image` tags; `<x-layout>` forwards them (`description` defaults to
+`pageSubtitle`). Every page now sets a real dynamic title/subtitle instead of the generic
+homepage default. `documents/show` builds a real description (doc type · rule set/section ·
+department · amendment number · effective year) and, for `visibility=public` documents only,
+points `image` at a new route (`DocumentController::ogImage()`) that rasterizes PDF page 1 via
+`pdftoppm` on first request, caches it as a `.og.jpg` sibling file (same convention as `.md`/
+`.structure.json`), and serves it directly after — `visibility=authenticated` documents fall back
+to a generic banner (`public/og-default.jpg`, a static 1200×630 image generated once via a small
+GD script) since the route has to be crawler-reachable unauthenticated. Document show also gained
+visible WhatsApp/X/copy-link share buttons.
+
+**Real bug found and fixed while wiring this up, not isolated to OG tags:** every page using
+`<x-layout title="{{ $x }}">` (unprefixed Blade attribute containing `{{ }}`) was silently
+double-escaping. Laravel compiles that syntax to `'title' => e($x)` — the prop arrives at the
+component *pre-escaped* — so wherever it got echoed again downstream via a plain `{{ }}` (the
+page header's `<h1>`, and now this session's new meta tags), the escaping happened a second time:
+`&` → `&amp;` → `&amp;amp;`, rendered as the literal text `&amp;` in the browser. This had been
+silently present since the app's first Blade layouts; it only became visible now because "Rules &
+Regulations" (added as breadcrumb/title text a few commits before this session) was the first
+title string in the app to contain an HTML-special character. Fixed at the root across all ~18
+affected views (`rule_sets/*`, `documents/*`, `sections/*`, `divisions/*`, `folders/*`,
+`department/show`, `approvals/index`, `search/index`) by converting `title`/`page-title`/
+`page-subtitle` from the unprefixed `attr="{{ }}"` form to bound `:attr="..."` raw PHP
+expressions, so the single `{{ }}` in `head.blade.php`/`header.blade.php` is the only escape that
+ever runs. Verified live: `Rules &amp; Regulations` (was `Rules &amp;amp; Regulations`) across
+every affected page; `php artisan view:cache` compiles all views clean.
+
+Also fixed, reported separately in the same session: Tabler Icons occasionally rendering as empty
+glyph boxes. The existing setup was jsDelivr-primary with a JS timeout fallback to the (already
+vendored) self-hosted copy — but the fallback only checked whether the *stylesheet* had loaded
+(`link.sheet`), not the actual `.woff2` font file behind it, so on a flaky/restrictive network
+(this app runs inside a government office) the CSS could load fine while the font silently
+stalled, and the fallback never triggered. Switched to serving the self-hosted copy directly, no
+CDN involved.
+
+Also added, per request ("we can add robots etc too"): `public/robots.txt` now disallows the
+auth-only top-level paths (`/admin`, `/profile`, `/approvals`, `/login`, `/logout`) and points to
+a new `/sitemap.xml` (`SitemapController`, cached 1 hour) listing every department, every
+`kind=rules` RuleSet, and every `visibility=public` document in `review`/`verified` status — the
+same visibility rule the show routes themselves enforce, so nothing in the sitemap 403s for an
+anonymous crawler.
+
+**Files changed:** `resources/views/components/head.blade.php` · `resources/views/components/layout.blade.php`
+· `app/Http/Controllers/DocumentController.php` (new `ogImage()`) · `app/Http/Controllers/SitemapController.php` (new)
+· `resources/views/sitemap.blade.php` (new) · `routes/web.php` · `public/robots.txt` · `public/og-default.jpg` (new)
+· `resources/views/documents/show.blade.php` · `resources/views/rule_sets/show.blade.php` · `resources/views/rule_sets/index.blade.php`
+· `resources/views/rule_sets/edit.blade.php` · `resources/views/rule_sets/create.blade.php` · `resources/views/rule_sets/policy_container.blade.php`
+· `resources/views/rule_sets/periods/edit.blade.php` · `resources/views/rule_sets/periods/create.blade.php`
+· `resources/views/documents/edit.blade.php` · `resources/views/sections/show.blade.php` · `resources/views/sections/edit.blade.php`
+· `resources/views/sections/index.blade.php` · `resources/views/divisions/show.blade.php` · `resources/views/divisions/edit.blade.php`
+· `resources/views/folders/show.blade.php` · `resources/views/folders/edit.blade.php` · `resources/views/department/show.blade.php`
+· `resources/views/approvals/index.blade.php` · `resources/views/search/index.blade.php` · `claude.md`.

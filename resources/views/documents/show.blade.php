@@ -87,12 +87,31 @@
         if ($isDivisionDoc)       return route('documents.divisions.show',        [$department->levelAlias(), $department, $section, $division, $doc]);
         return route('documents.show', [$department->levelAlias(), $department, $section, $doc]);
     };
+
+    // Social-share metadata — what a link to this document should look like when pasted into
+    // WhatsApp/Slack/etc. Description reads as "Rule · Beer (Retail) · Excise Department · 7th
+    // amendment · Effective 2021". Image only renders for public documents — a crawler fetches
+    // it unauthenticated, so a visibility='authenticated' document falls back to the generic
+    // site banner rather than leaking a page-1 thumbnail (see DocumentController::ogImage()).
+    $ogDocTypeLabel = \App\Models\Document::DOCUMENT_TYPES[$document->document_type] ?? $document->document_type;
+    $ogAmendmentNum = $document->metadata['amendment_number'] ?? null;
+    $ogEffectiveYear = $document->metadata['effective_year'] ?? null;
+    $ogDescription = implode(' · ', array_filter([
+        $ogDocTypeLabel,
+        $contextName,
+        $document->department->name,
+        $ogAmendmentNum ? \Illuminate\Support\Number::ordinal($ogAmendmentNum) . ' amendment' : null,
+        $ogEffectiveYear ? "Effective {$ogEffectiveYear}" : null,
+    ]));
+    $ogImageUrl = $document->visibility === 'public' ? route('documents.og-image', $document) : null;
 @endphp
 
 <x-layout
-    title="{{ $document->title }}"
-    page-title="{{ $document->title }}"
-    page-subtitle="{{ $document->department->name }}{{ $wing ? ' · ' . Str::title(str_replace('_', ' ', $wing)) : '' }} · {{ $contextName }}"
+    :title="$document->title"
+    :page-title="$document->title"
+    :page-subtitle="$document->department->name . ($wing ? ' · ' . Str::title(str_replace('_', ' ', $wing)) : '') . ' · ' . $contextName"
+    :description="$ogDescription"
+    :image="$ogImageUrl"
 >
 
 @php
@@ -201,6 +220,23 @@
                 <span class="text-slate-300 dark:text-slate-600">·</span>
                 <span class="text-xs text-slate-400 dark:text-slate-500">{{ $document->user->name }}</span>
                 @endif
+            </div>
+            <div class="flex items-center gap-1.5 mt-2.5">
+                <span class="text-xs text-slate-400 dark:text-slate-500 mr-0.5">Share:</span>
+                <a href="https://wa.me/?text={{ urlencode($document->title . ' — ' . url()->current()) }}" target="_blank" rel="noopener"
+                   title="Share on WhatsApp"
+                   class="p-1.5 rounded-lg text-slate-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                    <i class="ti ti-brand-whatsapp text-base"></i>
+                </a>
+                <a href="https://twitter.com/intent/tweet?text={{ urlencode($document->title) }}&url={{ urlencode(url()->current()) }}" target="_blank" rel="noopener"
+                   title="Share on X"
+                   class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                    <i class="ti ti-brand-x text-base"></i>
+                </a>
+                <button type="button" id="share-copy-link-btn" data-share-url="{{ url()->current() }}" title="Copy link"
+                        class="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                    <i class="ti ti-link text-base"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -889,6 +925,21 @@ try {
                 setTimeout(function () {
                     icon.classList.remove('ti-check');
                     icon.classList.add('ti-copy');
+                }, 1500);
+            });
+        });
+    }
+
+    const shareCopyBtn = document.getElementById('share-copy-link-btn');
+    if (shareCopyBtn) {
+        shareCopyBtn.addEventListener('click', function () {
+            navigator.clipboard.writeText(shareCopyBtn.dataset.shareUrl).then(function () {
+                const icon = shareCopyBtn.querySelector('i');
+                icon.classList.remove('ti-link');
+                icon.classList.add('ti-check');
+                setTimeout(function () {
+                    icon.classList.remove('ti-check');
+                    icon.classList.add('ti-link');
                 }, 1500);
             });
         });
