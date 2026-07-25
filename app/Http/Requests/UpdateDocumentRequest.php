@@ -47,7 +47,16 @@ class UpdateDocumentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'title'            => ['sometimes', 'required', 'string', 'min:3', 'max:255', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
+            'title' => [
+                'sometimes', 'required', 'string', 'min:3', 'max:255', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u',
+                // See StoreDocumentRequest's matching rule — same reasoning, editing a title
+                // into a numbers-only string is just as bad as uploading one that way.
+                function (string $attribute, mixed $value, \Closure $fail) {
+                    if (is_string($value) && ! preg_match('/\p{L}/u', $value)) {
+                        $fail('Title must contain at least one letter — a filename or ID number alone makes a poor, unreadable document URL.');
+                    }
+                },
+            ],
             'document_type'    => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::DOCUMENT_TYPES))],
             'status'           => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::STATUSES))],
             'visibility'       => ['sometimes', 'nullable', 'string', 'in:public,authenticated'],
