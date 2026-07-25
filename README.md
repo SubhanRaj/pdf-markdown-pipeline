@@ -569,6 +569,10 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - `ConvertDocumentToMarkdown` now runs the fast text-layer pass before Docling's structure pass (previously the reverse), so the quality/legacy-font check is known before Docling's per-page time is spent, not after.
 - If that check flags the text layer unreadable, `RunOcrExtraction` is now dispatched automatically — no reviewer click needed for the common "this is a scan" case. Manual OCR re-runs (e.g. a different engine) still work as before.
 
+**Completed (2026-07-25 — Policy Period UX fixes + bulk rules import):**
+- `PolicyPeriodController` wording fixed ("Add Policy" everywhere, never "Period"), a chronological-date supersession bug fixed (backfilling an older period no longer steals `current` status from a newer one), period creation and its root PDF upload merged into one step, and the Cleave.js masked date inputs replaced with `Air Datepicker` (CDN) for a real calendar with day→month→year navigation. See `POLICY_PERIODS.md`.
+- New `php artisan rules:seed` command (`app/Console/Commands/SeedExciseRules.php`) bulk-imports a folder tree of UP excise rule-book PDFs (one subfolder per subject) into `RuleSet`(kind=rules)/`Document` rows, auto-splitting each subject into a root "base rules" document with its amendments linked via `parent_id` (year-parsed from the filename decides the root; circulars/checklists import as standalone documents instead of joining the amendment chain).
+
 ## 🚀 Future Roadmap
 
 Advanced enterprise features and security enhancements planned for SDC/NIC compliance and high-value bureaucratic workflows are documented in [ROADMAP.md](ROADMAP.md).
