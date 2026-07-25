@@ -285,6 +285,12 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'is_admin', 'throttl
 
 // ── Fallback ──────────────────────────────────────────────────────────────────
 
+// Any real protected page already redirects to login on its own via the 'auth' middleware —
+// this only ever fires for a URL that matches no route at all (typo, truncated link, bad
+// share). Redirecting *that* to login was actively wrong: a mistyped/incomplete public URL
+// (e.g. a document link missing its final segment) would send an anonymous visitor — and any
+// social-media crawler fetching it for a link preview — to a login page instead of a plain 404,
+// so a broken share link silently became "Sign In" in WhatsApp/etc. instead of failing cleanly.
 Route::fallback(function () {
-    return redirect()->route('login');
+    abort(404);
 });
