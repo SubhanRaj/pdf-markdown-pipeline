@@ -37,7 +37,12 @@ class SecurityHeaders
         // csp_safe comment) — it's compile-time-directives-only, and Pulse's UI wasn't built for
         // it. Scoping the loosened policy to just these admin-gated routes (rather than app-wide)
         // keeps the rest of the site's CSP as strict as before.
-        $needsUnsafeEval = $request->is('pulse') || $request->is('pulse/*') || $request->is('livewire-*');
+        // Livewire's asset/update route prefix changed shape when the app moved from Livewire v4
+        // to v3 (2026-07-26, see composer.json) — v4 used a per-release hashed prefix
+        // (`livewire-4e4e7cb7/...`), v3 uses a plain `livewire/...` prefix. Match both patterns so
+        // this doesn't silently break again on a future Livewire version bump.
+        $needsUnsafeEval = $request->is('pulse') || $request->is('pulse/*')
+            || $request->is('livewire-*') || $request->is('livewire/*');
         $scriptSrc = "script-src 'self' 'unsafe-inline'" . ($needsUnsafeEval ? " 'unsafe-eval'" : '') . " https://cdn.tailwindcss.com https://cdn.jsdelivr.net";
 
         $csp = implode('; ', [
