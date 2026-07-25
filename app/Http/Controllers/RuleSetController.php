@@ -75,8 +75,10 @@ class RuleSetController extends Controller
     public function store(StoreRuleSetRequest $request, string $level, Department $department, string $kind = 'rules'): RedirectResponse
     {
         try {
-            DB::transaction(function () use ($request, $department, $kind) {
+            $finalName = null;
+            DB::transaction(function () use ($request, $department, $kind, &$finalName) {
                 $validated = $request->validated();
+                $validated['name'] = $finalName = RuleSet::withKindSuffix($validated['name'], $kind);
                 $slug = RuleSet::uniqueSlugForDepartment($validated['name'], $department->id);
 
                 // For kind=policy this creates a container only (state + policy_type,
@@ -90,7 +92,7 @@ class RuleSetController extends Controller
             });
 
             $label = $kind === 'policy' ? 'Policy' : 'Rule set';
-            flash()->success("{$label} \"{$request->validated()['name']}\" created.");
+            flash()->success("{$label} \"{$finalName}\" created.");
             return redirect()->route('departments.show', [$department->levelAlias(), $department]);
         } catch (\Throwable $e) {
             Log::error('RuleSetController@store failed', [
@@ -130,7 +132,13 @@ class RuleSetController extends Controller
     public function update(UpdateRuleSetRequest $request, string $level, Department $department, RuleSet $ruleSet): RedirectResponse
     {
         try {
-            DB::transaction(fn () => $ruleSet->update($request->validated()));
+            DB::transaction(function () use ($request, $ruleSet) {
+                $validated = $request->validated();
+                if (array_key_exists('name', $validated) && $validated['name'] !== $ruleSet->name) {
+                    $validated['name'] = RuleSet::withKindSuffix($validated['name'], $ruleSet->kind);
+                }
+                $ruleSet->update($validated);
+            });
 
             $label = $ruleSet->kind === 'policy' ? 'Policy' : 'Rule set';
             flash()->success("{$label} \"{$ruleSet->name}\" updated.");

@@ -914,6 +914,7 @@ Deletion is a two-stage process — soft-delete to trash, then optional permanen
 
 ### Rule set views
 
+- **Auto kind-suffix on name (2026-07-25)**: `RuleSet::withKindSuffix($name, $kind)` appends " Rules" (kind=rules) or " Policy" (kind=policy) to a user-typed name, unless that word already appears (case-insensitive `\b` match) — so "Bar" → "Bar Rules" but "Bar Rules" stays as-is. Applied in `RuleSetController@store` (both kinds) and `@update` (only when `name` actually changed, so re-saving an edited record doesn't double-suffix). Policy *periods* (`PolicyPeriodController`, e.g. "2024-25") are a different concept — not suffixed.
 - **`rule_sets/create`** — name + description form with JS validation; slug is auto-generated server-side from name.
 - **`rule_sets/edit`** — same, pre-populated; slug is read-only (set at creation, never changed).
 - **`rule_sets/show`** — header + two state-aware upload buttons + two independent modals + hierarchy document list.

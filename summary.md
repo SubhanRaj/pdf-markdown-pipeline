@@ -2370,3 +2370,23 @@ before this landed, since the same blind spot could affect other mixed typed/sca
 it — held stopped, to be restarted later once confirmed ready.
 
 **Files changed:** `app/Jobs/ConvertDocumentToMarkdown.php` · `resources/python/pdf_structure_extractor.py`.
+
+## M46 — Rule-set/policy names now auto-suffixed with "Rules"/"Policy" (COMPLETED 2026-07-25)
+
+Bulk-imported rule sets were named after their bare category ("Bar", "BWFL-2"), so the breadcrumb
+and header read "Bar" instead of "Bar Rules". Renamed the 15 genuine rule categories in the batch
+(ids 32–41, 43–45, 47–48) to append " Rules"; left `UP Excise Act` (it's the Act, not Rules),
+`FL9-9A` and `Number and Location` (their contents are circulars/licence orders, not rules), and
+`RFP State Tax` (a pre-existing, unrelated mis-slotted record) unchanged.
+
+Made it permanent going forward: `RuleSet::withKindSuffix($name, $kind)` appends " Rules" (kind=
+rules) or " Policy" (kind=policy) to whatever a user types when creating/renaming a rule set or
+policy container, unless that word is already present (case-insensitive). Wired into
+`RuleSetController@store` (both kinds) and `@update` (only fires when the name field actually
+changed, so resaving an untouched record can't double-suffix it). Policy *periods* (yearly
+sub-documents like "2024-25") are unaffected — different naming convention entirely.
+
+Slugs/URLs were never touched — `RuleSet::slug` is a separate stored column set once at creation,
+so renaming the display `name` doesn't move or break any existing link.
+
+**Files changed:** `app/Models/RuleSet.php` · `app/Http/Controllers/RuleSetController.php`.
