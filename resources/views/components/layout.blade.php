@@ -19,11 +19,15 @@
 
     <x-sidebar />
 
+    {{-- Mobile sidebar backdrop — only ever shown below md, dismisses the drawer on tap --}}
+    <div id="sidebar-backdrop" onclick="window.toggleMobileSidebar()"
+         class="fixed inset-0 bg-black/50 z-40 hidden md:hidden"></div>
+
     <div class="flex-1 flex flex-col min-w-0 overflow-y-auto">
 
         <x-header :page-title="$pageTitle" :page-subtitle="$pageSubtitle" />
 
-        <main class="flex-1 p-6">
+        <main class="flex-1 p-3 sm:p-6">
             {{ $slot }}
         </main>
 
@@ -56,6 +60,15 @@ function updateDarkIcon() {
     const isDark = document.documentElement.classList.contains('dark');
     icon.className = isDark ? 'ti ti-sun text-base' : 'ti ti-moon text-base';
 }
+
+// ── Mobile sidebar drawer (off-canvas below md) ─────────────────────────────
+window.toggleMobileSidebar = function () {
+    const sidebar  = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    sidebar.classList.toggle('-translate-x-full');
+    sidebar.classList.toggle('translate-x-0');
+    backdrop.classList.toggle('hidden');
+};
 
 // ── Sidebar collapse ─────────────────────────────────────────────────────────
 window.toggleSidebar = function () {
@@ -123,6 +136,13 @@ document.addEventListener('DOMContentLoaded', function () {
     updateSidebarIcon();
     updateDarkIcon();
     initTooltips();
+
+    // Auto-close the mobile drawer after navigating, so it doesn't stay open on the next page.
+    document.querySelectorAll('#sidebar a, #sidebar button[type="submit"]').forEach(function (el) {
+        el.addEventListener('click', function () {
+            if (window.innerWidth < 768) window.toggleMobileSidebar();
+        });
+    });
 });
 </script>
 

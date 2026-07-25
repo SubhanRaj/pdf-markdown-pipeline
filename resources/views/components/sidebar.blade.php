@@ -12,7 +12,7 @@
     $fallbackIcons  = ['ti-building', 'ti-folder', 'ti-archive', 'ti-files', 'ti-database'];
     $fallbackColors = ['text-sky-400', 'text-pink-400', 'text-orange-400', 'text-teal-400', 'text-lime-400'];
 @endphp
-<aside id="sidebar" class="sidebar-expanded bg-slate-950 flex flex-col flex-shrink-0 overflow-hidden">
+<aside id="sidebar" class="sidebar-expanded bg-slate-950 flex flex-col flex-shrink-0 overflow-hidden fixed inset-y-0 left-0 z-50 -translate-x-full transition-transform duration-200 ease-in-out md:translate-x-0 md:relative">
 
     {{-- Logo --}}
     <div class="px-4 py-5 flex items-center gap-3 border-b border-slate-800/70 min-w-0">

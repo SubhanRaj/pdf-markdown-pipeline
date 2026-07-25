@@ -149,10 +149,10 @@
 </div>
 
 {{-- ── Recent docs + Status chart ── --}}
-<div class="grid grid-cols-3 gap-4">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
     {{-- Recent Documents --}}
-    <div class="col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
+    <div class="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col">
         <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between flex-shrink-0">
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                 <i class="ti ti-clock-hour-4 text-slate-400 dark:text-slate-500"></i> Recent Documents
