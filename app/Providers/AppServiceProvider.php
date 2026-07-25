@@ -8,10 +8,12 @@ use App\Models\Division;
 use App\Models\Folder;
 use App\Models\RuleSet;
 use App\Models\Section;
+use App\Models\User;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -32,6 +34,18 @@ class AppServiceProvider extends ServiceProvider
         $this->configureRateLimiters();
         $this->configureRouteBindings();
         $this->configureActivityLogging();
+        $this->configurePulseAccess();
+    }
+
+    /**
+     * Gates Pulse's own /pulse route — no separate login, same Fortify-managed session and
+     * admin check every other admin-only page in this app uses (Users, Activity Log, Pipeline
+     * Health). Nullable typehint so a guest request (no authenticated user) denies cleanly
+     * instead of throwing a type error.
+     */
+    private function configurePulseAccess(): void
+    {
+        Gate::define('viewPulse', fn (?User $user) => $user?->isAdmin() ?? false);
     }
 
     private function configureActivityLogging(): void

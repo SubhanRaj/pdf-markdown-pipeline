@@ -179,6 +179,12 @@
             <i class="ti ti-heart-rate-monitor w-5 text-center text-base flex-shrink-0 text-emerald-400"></i>
             <span class="sidebar-text">Pipeline Health</span>
         </a>
+        <a href="{{ route('pulse') }}"
+           data-tooltip="Pulse (App Metrics)"
+           class="nav-link {{ request()->routeIs('pulse') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-activity-heartbeat w-5 text-center text-base flex-shrink-0 text-rose-400"></i>
+            <span class="sidebar-text">Pulse</span>
+        </a>
         @endif
         @endauth
 
