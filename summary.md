@@ -2551,3 +2551,9 @@ in-process request) — CPU temp read 94°C in that same check, a couple degrees
 earlier decision this session to leave the queue on a single worker.
 
 **File added:** `resources/views/documents/pipeline-health.blade.php`.
+
+**Follow-up:** added a `Pipeline Health` sidebar link so it's discoverable without knowing the URL
+— sits under "Manage" (admin-only, next to Users/Activity Log), matching its operational nature
+rather than the document-browsing sections above it.
+
+**File changed:** `resources/views/components/sidebar.blade.php`.
