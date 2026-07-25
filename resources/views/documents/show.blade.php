@@ -221,30 +221,38 @@
                 <span class="text-xs text-slate-400 dark:text-slate-500">{{ $document->user->name }}</span>
                 @endif
             </div>
-            <div class="flex items-center gap-1.5 mt-2.5">
-                <span class="text-xs text-slate-400 dark:text-slate-500 mr-0.5">Share:</span>
+        </div>
+    </div>
+
+    {{-- ── Share + (if manager) edit/convert/delete — same row as the pills, right-aligned.
+         Share is visible to everyone; it's the only thing here for a public visitor, since
+         edit/delete only ever render for a signed-in manager. ──────────────────────────── --}}
+    <div class="flex items-center gap-2 flex-shrink-0">
+        <div class="relative">
+            <button type="button" id="share-menu-btn" title="Share"
+                    class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
+                <i class="ti ti-share-2 text-base"></i>
+                <span class="hidden sm:inline">Share</span>
+            </button>
+            <div id="share-menu-panel" class="hidden absolute right-0 top-full mt-2 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20">
                 <a href="https://wa.me/?text={{ urlencode($document->title . ' — ' . url()->current()) }}" target="_blank" rel="noopener"
-                   title="Share on WhatsApp"
-                   class="p-1.5 rounded-lg text-slate-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                    <i class="ti ti-brand-whatsapp text-base"></i>
+                   class="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                    <i class="ti ti-brand-whatsapp text-base text-green-500"></i> WhatsApp
                 </a>
                 <a href="https://twitter.com/intent/tweet?text={{ urlencode($document->title) }}&url={{ urlencode(url()->current()) }}" target="_blank" rel="noopener"
-                   title="Share on X"
-                   class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                    <i class="ti ti-brand-x text-base"></i>
+                   class="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                    <i class="ti ti-brand-x text-base"></i> X
                 </a>
-                <button type="button" id="share-copy-link-btn" data-share-url="{{ url()->current() }}" title="Copy link"
-                        class="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                    <i class="ti ti-link text-base"></i>
+                <button type="button" id="share-copy-link-btn" data-share-url="{{ url()->current() }}"
+                        class="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                    <i class="ti ti-link text-base"></i> Copy link
                 </button>
             </div>
         </div>
-    </div>
 
     @auth
     @if($canManageDoc)
     @php $ruleIsLocked = $document->document_type === 'rule' && $document->amendments->isNotEmpty(); @endphp
-    <div class="flex items-center gap-2 flex-shrink-0">
         @if(! $ruleIsLocked)
         <a href="{{ $editRoute }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
@@ -280,9 +288,9 @@
             @csrf @method('DELETE')
             <input type="hidden" name="reason" id="delete-doc-reason">
         </form>
-    </div>
     @endif
     @endauth
+    </div>
 </div>
 
 {{-- ── Vault path ────────────────────────────────────────────────────────────── --}}
@@ -930,6 +938,23 @@ try {
         });
     }
 
+    const shareMenuBtn   = document.getElementById('share-menu-btn');
+    const shareMenuPanel = document.getElementById('share-menu-panel');
+    if (shareMenuBtn && shareMenuPanel) {
+        shareMenuBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            shareMenuPanel.classList.toggle('hidden');
+        });
+        document.addEventListener('click', function (e) {
+            if (!shareMenuPanel.classList.contains('hidden') && !shareMenuPanel.contains(e.target)) {
+                shareMenuPanel.classList.add('hidden');
+            }
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') shareMenuPanel.classList.add('hidden');
+        });
+    }
+
     const shareCopyBtn = document.getElementById('share-copy-link-btn');
     if (shareCopyBtn) {
         shareCopyBtn.addEventListener('click', function () {
@@ -940,6 +965,7 @@ try {
                 setTimeout(function () {
                     icon.classList.remove('ti-check');
                     icon.classList.add('ti-link');
+                    shareMenuPanel?.classList.add('hidden');
                 }, 1500);
             });
         });
