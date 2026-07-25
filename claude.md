@@ -263,6 +263,8 @@ All check `withTrashed()` and append `-2`, `-3` on collision. DB unique constrai
 
 Append-only audit table. Only authenticated users are logged (guests are never recorded). Read-only from the application layer — no update/delete routes exist.
 
+**Timezone note (2026-07-25):** `document_status_histories.created_at`, `activity_logs.created_at`, and `failed_jobs.failed_at` all use a MariaDB-level `useCurrent()` column default rather than Eloquent's own timestamp assignment (the first two have `$timestamps = false` on their models). MariaDB's `CURRENT_TIMESTAMP` evaluates using the **server's system timezone** (this box is `Asia/Kolkata`/IST), not `config('app.timezone')` (`UTC`) — without the `'timezone' => '+00:00'` entry on the `mariadb` connection in `config/database.php`, these three columns silently stored IST wall-clock values that every other part of the app (Carbon casts, `now()`, `diffForHumans()`) treated as UTC, a consistent ~5.5h skew on any calculation against them (the raw printed digits via `format()` were never visibly wrong — only diffs/comparisons were). Fixed once at the connection level so any future `useCurrent()` column is automatically correct too — don't re-add a per-table fix. Existing historical rows in these three tables predate the fix and remain skewed.
+
 ### `users`
 Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings — see `User::PRIVILEGES` constant for the canonical whitelist), `uploads_require_approval` (boolean, default false — when true every document this user uploads goes to `pending_approval` regardless of context), `department_id` (FK → departments, nullable, `nullOnDelete`), `section_id` (FK → sections, nullable, `nullOnDelete`), `division_id` (FK → divisions, nullable, `nullOnDelete`). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
 
@@ -553,6 +555,19 @@ on any row whose status is `processing`/`ocr_pending`. Viewing is unscoped (all 
 users see all departments' pipeline items) — consistent with this codebase's existing rule that
 viewing is never scoped, only mutations are.
 
+**Pipeline/server health check (`GET /documents/pipeline/health`, 2026-07-25)** —
+`DocumentController::pipelineHealth()`, same `auth`+`throttle:reads` gate as the monitor above.
+JSON only, meant to be checked remotely (e.g. through a tunnel) without SSHing in. Returns
+`pending_jobs`/`failed_jobs` (from the `jobs`/`failed_jobs` tables), per-status document counts,
+`last_job_activity` (most recent `DocumentStatusHistory.created_at` — every job status transition
+writes one, so a genuinely stalled worker shows up as this going stale) with `status: 'stalled'`
+when jobs are queued but nothing's moved in 15+ minutes, and a `server` block (`load_avg_*` via
+`sys_getloadavg()`, memory from `/proc/meminfo`, `cpu_temp_c` from
+`/sys/class/thermal/thermal_zone*/temp`, `cpu_count` via `nproc`) — all read directly from
+`/proc`/`/sys`, no monitoring software installed. Chosen over installing Webmin (a full root-level
+admin panel — much bigger attack surface than "check load and queue status" needs, especially
+exposed through a tunnel) precisely so there's no new exposed service.
+
 **Toolchain** (installed once; see `DEPLOY.md` for full reproducible setup):
 ```bash
 composer require innobrain/markitdown erusev/parsedown
@@ -622,6 +637,7 @@ Controller method signatures **must** declare `string $level` as their first par
 | POST | `/documents/bulk-destroy` | `documents.bulk-destroy` | Auth |
 | GET | `/documents/bulk-upload` | `documents.bulk-upload` | Auth |
 | GET | `/documents/pipeline` | `documents.pipeline` | Auth |
+| GET | `/documents/pipeline/health` | `documents.pipeline.health` | Auth |
 | POST | `/documents/{id}/convert` | `documents.convert` | Admin (controller check) |
 | POST | `/documents/{id}/convert-ocr` | `documents.convert-ocr` | Admin (controller check) |
 | POST | `/documents/{id}/revert-ocr` | `documents.revert-ocr` | Admin (controller check) |

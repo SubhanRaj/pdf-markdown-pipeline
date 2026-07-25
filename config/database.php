@@ -79,6 +79,15 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            // Server's system timezone is IST (Asia/Kolkata), but app.timezone is UTC. Without
+            // this, MariaDB's own CURRENT_TIMESTAMP/useCurrent() column defaults (jobs.failed_at,
+            // activity_logs.created_at, document_status_histories.created_at — none of which go
+            // through Eloquent's own UTC-based timestamp assignment) get written in IST wall-clock
+            // but read back everywhere else as if they were UTC — a ~5.5h-in-the-future skew on
+            // any diff/comparison against now() (found while building the pipeline health check
+            // below: last-activity timestamps looked like they were hours in the future). This
+            // forces the session to UTC so DB-level defaults line up with Laravel's own clock.
+            'timezone' => '+00:00',
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],

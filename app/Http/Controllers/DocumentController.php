@@ -85,6 +85,90 @@ class DocumentController extends Controller
     }
 
     /**
+     * JSON health check for the queue worker itself — separate from Laravel's built-in `/up`,
+     * which only proves the app boots, not that background jobs are actually moving. "Healthy"
+     * here means a DocumentStatusHistory row (written by every job status transition) landed
+     * recently; if the queue worker died/hung, this timestamp goes stale even though `/up` would
+     * still report fine. Meant to be checked remotely (e.g. through a tunnel) without SSHing in.
+     */
+    public function pipelineHealth(): JsonResponse
+    {
+        $pipelineStatuses = ['uploaded', 'processing', 'ocr_pending', 'review', 'failed'];
+
+        $counts = Document::whereIn('status', $pipelineStatuses)
+            ->selectRaw('status, count(*) as c')
+            ->groupBy('status')
+            ->pluck('c', 'status');
+
+        $lastActivity = DocumentStatusHistory::latest('created_at')->value('created_at');
+        $pendingJobs  = DB::table('jobs')->count();
+        $failedJobs   = DB::table('failed_jobs')->count();
+
+        // Nothing queued means there's nothing to be stalled on — only judge staleness against
+        // last-activity when there's an actual backlog waiting to be worked through.
+        $isStalled = $pendingJobs > 0 && (! $lastActivity || $lastActivity->lt(now()->subMinutes(15)));
+
+        return response()->json([
+            'status'            => $isStalled ? 'stalled' : 'healthy',
+            'checked_at'        => now()->toIso8601String(),
+            'last_job_activity' => $lastActivity?->toIso8601String(),
+            'last_activity_ago' => $lastActivity?->diffForHumans(),
+            'pending_jobs'      => $pendingJobs,
+            'failed_jobs'       => $failedJobs,
+            'documents'         => $counts,
+            'server'            => $this->serverVitals(),
+        ]);
+    }
+
+    /**
+     * Load average, memory, and CPU temperature — read straight from /proc and /sys, no shell-out
+     * and no extra monitoring software needed. Added so the same tunnel-exposed, auth-gated route
+     * that reports queue health can also answer "is the machine itself okay" (this box runs with
+     * only case fans, no AC, so temperature in particular matters when it's left unattended).
+     * Best-effort: every read is wrapped so a missing /proc or /sys path (e.g. a container, or a
+     * kernel without hwmon) degrades to null instead of a 500.
+     */
+    private function serverVitals(): array
+    {
+        $loadAvg = sys_getloadavg();
+
+        $memInfo = @file_get_contents('/proc/meminfo');
+        $memTotalKb = $memAvailableKb = null;
+        if ($memInfo !== false) {
+            if (preg_match('/MemTotal:\s+(\d+)/', $memInfo, $m)) $memTotalKb = (int) $m[1];
+            if (preg_match('/MemAvailable:\s+(\d+)/', $memInfo, $m)) $memAvailableKb = (int) $m[1];
+        }
+
+        // Highest reading across all thermal zones — on a multi-sensor board (coretemp per-core,
+        // acpi, etc.) that's the one worth alerting on, not any single zone.
+        $tempC = null;
+        foreach (glob('/sys/class/thermal/thermal_zone*/temp') ?: [] as $zoneFile) {
+            $raw = (int) trim((string) @file_get_contents($zoneFile));
+            if ($raw > 0) {
+                $tempC = max($tempC ?? 0, $raw / 1000);
+            }
+        }
+
+        $cpuCount = null;
+        try {
+            $nproc = Process::run(['nproc']);
+            $cpuCount = $nproc->successful() ? (int) trim($nproc->output()) : null;
+        } catch (\Throwable) {
+            // best-effort only
+        }
+
+        return [
+            'load_avg_1m'         => $loadAvg[0] ?? null,
+            'load_avg_5m'         => $loadAvg[1] ?? null,
+            'load_avg_15m'        => $loadAvg[2] ?? null,
+            'cpu_count'           => $cpuCount,
+            'memory_total_mb'     => $memTotalKb ? round($memTotalKb / 1024) : null,
+            'memory_available_mb' => $memAvailableKb ? round($memAvailableKb / 1024) : null,
+            'cpu_temp_c'          => $tempC,
+        ];
+    }
+
+    /**
      * Departments/sections/divisions/folders/rule-sets the current user may upload
      * to, scoped by User::uploadScope() so the picker never offers a context that
      * would 403 on submit. Mirrors the parentOptions queries already used by each

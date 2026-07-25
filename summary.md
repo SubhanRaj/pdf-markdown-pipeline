@@ -2477,3 +2477,62 @@ rendering a real public document's show page through `php artisan serve`, confir
 
 **Files changed:** `resources/views/components/breadcrumb.blade.php` ·
 `resources/views/components/header.blade.php` · `resources/views/documents/show.blade.php`.
+
+## M49 — Pipeline/server health endpoint, and a real MariaDB-timezone bug found while building it (COMPLETED 2026-07-25)
+
+User reported documents showing "awaiting verification" in one place and "OCR pending" on the
+document page itself — investigated and found no data corruption: the single `queue:work`
+process (`pdf-pipeline-queue.service`) was healthy (0 restarts, 0 failed jobs, steadily completing
+jobs), just working serially through the ~190-document rules batch dispatched by
+`documents:convert-all`. That command bulk-flips every matching document to `processing`
+immediately at dispatch time, before the single worker has touched most of them — so "Processing"
+on 47 of them meant "queued, not yet started," not "actively running," which is what read as
+inconsistent. Confirmed via `journalctl` and DB state, not a bug — just an artifact of one worker
+serially draining a large batch (estimated ~13–14h total remaining at observed per-job timings).
+
+Declined to add extra concurrent queue workers to speed it up: CPU was already at 85°C (package)
+with only one Docling process running, on an unattended AIO with case fans only (no AC) over the
+weekend — adding 2 more CPU-bound workers risked the 100°C critical threshold with no one there to
+notice. Left it on one worker; confirmed the remaining backlog comfortably fits the weekend runtime
+already planned.
+
+To let this be checked remotely (through the tunnel) without SSHing in or running `tinker` by hand,
+added `GET /documents/pipeline/health` (`DocumentController::pipelineHealth()`, same `auth` +
+`throttle:reads` gate as the existing `/documents/pipeline` monitor — no new public exposure).
+Returns JSON: queue backlog (`pending_jobs`/`failed_jobs` from the `jobs`/`failed_jobs` tables),
+per-status document counts, a `last_job_activity` timestamp sourced from the most recent
+`DocumentStatusHistory` row (every job status transition writes one, so a stalled worker shows up
+as this going stale), and a `server` block (load average via `sys_getloadavg()`, memory from
+`/proc/meminfo`, CPU temperature from `/sys/class/thermal/thermal_zone*/temp`, CPU count via
+`nproc`) — all read directly from `/proc`/`/sys`, no new software installed. `status` flips to
+`stalled` if jobs are queued but nothing has moved in 15+ minutes.
+
+User also asked about installing Webmin for server monitoring — declined: Webmin is a full
+root-level system-administration panel (users, firewall, packages, its own daemon/port), a much
+bigger attack surface than "check load and queue status" needs, especially exposed through a
+public tunnel. The new health endpoint answers the actual need (queue + CPU/memory/temp) through
+the app's existing auth, with no new exposed service.
+
+**Real bug found while building this:** `last_job_activity` initially showed timestamps hours in
+the *future* (e.g. "5 hours from now" for an event that had just happened). Root cause: this
+server's system timezone is IST (`Asia/Kolkata`), while `config('app.timezone')` is `UTC` — normal
+Eloquent-managed timestamps go through Carbon (correctly UTC), but three tables opt out of that and
+rely on a MariaDB-level `useCurrent()` column default instead: `document_status_histories.created_at`
+(`$timestamps = false` on the model), `activity_logs.created_at`, and `jobs`' sibling
+`failed_jobs.failed_at`. MariaDB's own `CURRENT_TIMESTAMP` evaluates using the **server's system
+timezone** (IST) unless told otherwise, so those columns were silently storing IST wall-clock values
+that every other part of the app (Carbon casts, `now()`, `diffForHumans()`) treats as UTC — a
+consistent ~5.5h skew on any calculation (not on the raw printed digits, which coincidentally show
+correct IST wall-clock time when just `format()`-ed, e.g. the Status History list on the document
+page was never visibly wrong). Fixed at the connection level, not per-table: added
+`'timezone' => '+00:00'` to the `mariadb` connection in `config/database.php` (the connection this
+app actually uses per `DB_CONNECTION=mariadb` in `.env`, not the unused `mysql` block) — Laravel's
+connector issues `SET time_zone = '+00:00'` on every new connection, so all three affected tables'
+DB-level defaults are correct going forward with a one-line, one-place fix. Verified: `SELECT NOW()`
+now returns the same instant as PHP's `now()`, and a live `document_status_histories` row written
+after the fix showed `last_activity_ago: "1 minute ago"` instead of "5 hours from now." Existing
+historical rows in those three tables remain skewed (not backfilled — an audit-trail table isn't
+something to bulk-rewrite without being asked).
+
+**Files changed:** `config/database.php` · `app/Http/Controllers/DocumentController.php` ·
+`routes/web.php`.
