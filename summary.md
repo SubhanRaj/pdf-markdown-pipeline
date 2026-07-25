@@ -2310,3 +2310,24 @@ status codes, all real branded content, no regressions.
 `public/{favicon.ico,favicon-16.png,favicon-32.png,apple-touch-icon.png,icon-192.png,icon-512.png,site.webmanifest}` (new)
 · `resources/views/documents/show.blade.php` · `claude.md`.
 *(robots.txt already updated in M42; no further change this milestone.)
+
+## M44 — Root-caused and closed the RFP numeric-slug bug at its source (COMPLETED 2026-07-25)
+
+M43 fixed the one affected document (RFP, id 21) by regenerating its slug, but didn't explain how
+a document with a perfectly good title ("Request for Proposal...") ended up with slug
+`1776420884`. Traced it: the upload form auto-fills the title field from the file's name as a
+convenience (`fileToTitle()` in `bulk-upload.blade.php`/`rule_sets/show.blade.php` — strips the
+extension, swaps `-`/`_` for spaces). The source PDF's filename was itself just a number
+(`1776420884.pdf`, presumably its internal document ID), so the auto-filled title stayed
+`"1776420884"` when the uploader didn't replace it — that (bad) title is exactly what
+`Document::uniqueSlugForRuleSet()` slugged at creation time. The document's title must have been
+corrected afterward through the edit form, but title edits never touch `slug` (by design, to keep
+URLs stable across a legitimate rename) — so the slug stayed frozen on the original bad title.
+
+Fix: added a validation rule to both `StoreDocumentRequest` and `UpdateDocumentRequest` requiring
+the title to contain at least one letter (any language) — rejects both the upload-time and
+edit-time path that let this happen, with a message explaining why ("a filename or ID number
+alone makes a poor, unreadable document URL"). Verified via `Validator::make()`: `"1776420884"`
+rejected, `"Bar Rules 2020"` accepted.
+
+**Files changed:** `app/Http/Requests/StoreDocumentRequest.php` · `app/Http/Requests/UpdateDocumentRequest.php`.
