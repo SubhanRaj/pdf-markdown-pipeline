@@ -2331,3 +2331,42 @@ alone makes a poor, unreadable document URL"). Verified via `Validator::make()`:
 rejected, `"Bar Rules 2020"` accepted.
 
 **Files changed:** `app/Http/Requests/StoreDocumentRequest.php` · `app/Http/Requests/UpdateDocumentRequest.php`.
+
+## M45 — Quality check was averaging across whole document, silently dropping scanned pages (COMPLETED 2026-07-25)
+
+Reported live: `FL Bottling Rules 2011 (16th amendment)` shows only English content, Hindi entirely
+missing. Traced it: `isGoodQuality()` only ever checked an aggregate char-count average across the
+whole document (`charCount >= pageCount * 40`). This document is 15 pages — 13 of them pure JBIG2
+scanned images with zero text layer, and only 2 pages (7 and 9) with real embedded text. Those 2
+text-heavy pages alone produced ~7,265 characters against a 600-character threshold (15 × 40),
+clearing the average by ~10x — so `needs_ocr_review` stayed `false` and the other 13 pages, which
+happen to carry the Hindi notification content, silently vanished from the extracted Markdown.
+Nothing errored, nothing was flagged; the gap was invisible without manually checking page-by-page.
+
+Fix: `pdf_structure_extractor.py`'s `extract_pdf()` now tracks per-page character counts during
+extraction (same 40-chars-per-page bar `isGoodQuality()` already used, so "sparse page" means the
+same thing in both places) and emits a `SPARSE_PAGES:n/total` sentinel — same stdout-string
+contract as the existing `LEGACY_FONT_DETECTED` marker — when ≥15% of pages are near-blank.
+`ConvertDocumentToMarkdown` parses both sentinels independently now (they can appear together, in
+either order — the parsing loop from a single `^`-anchored regex check to one that strips
+whichever marker(s) are present) and routes to OCR whenever the sparse-page condition fires,
+alongside the existing legacy-font and aggregate-quality checks. Verified: sentinel correctly
+fires `13/15` on the reported document.
+
+**Also investigated, not shipped:** the same document's two-column "Column-I / Column-II"
+amendment-comparison table (confirmed recurring across most of these gazette documents — the
+user described it as "standard in amendments"). Built and tested a targeted heuristic: detect the
+"Column-I" marker text, then split the remainder of that page into two columns by clustering line
+x0-positions around the widest gap. Tested against the real OCR (Tesseract) output for this
+document and rejected it — the gap-based clustering picked the wrong split point on real messy
+OCR data, dumping most of both columns' text into one bucket while the other came out nearly
+empty. That's a worse failure mode than the status quo (flattened-but-complete text), so it was
+reverted rather than shipped. Two-column detection remains a known limitation (see
+`STRUCTURE_RESEARCH.md`) — a real fix needs per-word OCR coordinates and a more careful clustering
+algorithm, not a quick heuristic.
+
+Per direct request, the reprocessing batch (already running from M41's Kruti Dev fix) was stopped
+before this landed, since the same blind spot could affect other mixed typed/scanned documents in
+it — held stopped, to be restarted later once confirmed ready.
+
+**Files changed:** `app/Jobs/ConvertDocumentToMarkdown.php` · `resources/python/pdf_structure_extractor.py`.
