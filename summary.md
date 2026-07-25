@@ -2109,3 +2109,45 @@ Four issues reported from the live Policy Period screens:
 `tests/Unit/PolicyPeriodSupersedeTest.php` · `README.md`.
 
 **Files changed:** `resources/python/pdf_structure_extractor.py` · `STRUCTURE_RESEARCH.md`.
+
+## M40 — Bulk import of UP excise rule-book PDFs, with root/amendment nesting (COMPLETED 2026-07-25)
+
+User had ~190 real rule-book PDFs on disk (`~/Excise Rule Book/All Rules Files/`,
+one subfolder per subject — Bar, Beer Retail, Bottling Foreign Liquor, Distilleries, Model Shops,
+etc.) that needed to land in the document vault without uploading one file at a time through the
+form.
+
+New command `php artisan rules:seed` (`app/Console/Commands/SeedExciseRules.php`, modeled on the
+existing `policies:seed`/`SeedStatePolicies`): one `RuleSet` (`kind=rules`) per subject subfolder
+under the Excise Department, one `Document` per PDF, same storage convention a normal upload uses
+(`document_vault/{level}/{deptSlug}/rules/{ruleSetSlug}/...`).
+
+Per the user's explicit ask ("don't dump all in root, ... each file lists which amendment it is,
+the file without any amended word is the base file"), each subfolder is split into a root "base
+rules" document and its amendments (`parent_id` chain) instead of a flat list:
+- Files are sorted by year parsed from the filename (undated files, e.g. a "(Misc)" consolidated
+  copy, sort first); the earliest becomes the root (`document_type=rule`, `parent_id=null`), the
+  rest become amendments (`document_type=rule_amendment`, `parent_id` = root's id) — even when the
+  root file's own name happens to contain the word "amendment" (a few subjects' earliest digitized
+  copy is itself titled "(amendment) Rules 19xx", amending an even older undigitized rule).
+- Filenames that are clearly not part of the rule series (circulars, checklists — matched via
+  `/circular|check\s*list/i`) import as standalone documents (`document_type=other`) instead of
+  joining the amendment chain.
+- Idempotent (skips a file if a `Document` with that `original_filename` already exists in that
+  `RuleSet`), so safe to re-run if more files are added later.
+
+**Bug caught after the first run, fixed same session:** the year-sort tie-break was wrong when two
+files in the same subfolder shared a year (e.g. `Beer Retail Rules 2001.pdf` and `Beer Retail
+Rules 2001 (1st amendment).pdf` are both dated 2001) — `sortBy` fell back to array/filename order,
+which put the amendment-titled file first, so it got picked as root. Caught by auditing every
+ruleset's chosen root via tinker before declaring done. Fixed the two affected rulesets (Beer
+(Retail), Foreign Liquor (Retail)) directly in the DB (repointed children, swapped `parent_id`/
+`document_type` between the two documents), and patched the command's sort key to tie-break on
+"contains the word amendment" so a future re-run won't reproduce it.
+
+Verified: 190/190 real PDFs imported (macOS `._*`/`.DS_Store` junk filtered out), count matches
+per-subfolder, `RFP State Tax` (the only pre-existing `kind=rules` RuleSet) and the unrelated "Bar
+Policy Chhattisgarh" policy row both left untouched, physical files present on the `public` disk,
+`amendments()` relation returns the correct children for a spot-checked root (Bar).
+
+**Files changed:** `app/Console/Commands/SeedExciseRules.php` (new) · `README.md`.
