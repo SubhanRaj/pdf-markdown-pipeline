@@ -27,6 +27,7 @@ class UpdatePolicyPeriodRequest extends FormRequest
             'effective_start_date'  => ['nullable', 'date'],
             'effective_end_date'    => ['nullable', 'date', 'after_or_equal:effective_start_date'],
             'requires_approval'     => ['nullable', 'boolean'],
+            'mark_as_current'       => ['nullable', 'boolean'],
         ];
     }
 
