@@ -19,7 +19,9 @@ $destroyRoute = $isPolicy ? route('departments.policy.periods.destroy', [$depart
     ['name' => 'Departments',             'url' => route('departments.index')],
     ['name' => $department->levelLabel(), 'url' => null],
     ['name' => $department->name,         'url' => route('departments.show', [$department->levelAlias(), $department])],
-    ...($isPolicy ? [['name' => $policy->name, 'url' => route('departments.policy.show', [$department->levelAlias(), $department, $policy])]] : []),
+    ...($isPolicy
+        ? [['name' => $policy->name, 'url' => route('departments.policy.show', [$department->levelAlias(), $department, $policy])]]
+        : [['name' => 'Rules & Regulations', 'url' => route('departments.rules.index', [$department->levelAlias(), $department])]]),
     ['name' => $ruleSet->name,            'url' => null],
 ]" />
 
