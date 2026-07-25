@@ -2251,3 +2251,62 @@ anonymous crawler.
 · `resources/views/sections/index.blade.php` · `resources/views/divisions/show.blade.php` · `resources/views/divisions/edit.blade.php`
 · `resources/views/folders/show.blade.php` · `resources/views/folders/edit.blade.php` · `resources/views/department/show.blade.php`
 · `resources/views/approvals/index.blade.php` · `resources/views/search/index.blade.php` · `claude.md`.
+
+## M43 — URL/sharing edge-case sweep: trailing-slash https downgrade, fallback 404, full branded error pages, favicon, stray legacy slug (COMPLETED 2026-07-25)
+
+Continued from M42 after two real bugs surfaced from live WhatsApp testing:
+
+1. **Fallback route redirected everyone to `/login`.** `Route::fallback()` unconditionally
+   redirected any URL matching no route — guests and crawlers included — to `/login`, instead of
+   404ing. A malformed/incomplete document link (missing a path segment) silently became a
+   "Sign In" page instead of failing cleanly. Changed to `abort(404)`; real protected routes
+   still redirect correctly via their own `auth` middleware, untouched.
+2. **Trailing-slash redirect downgraded https to http.** Apache sits behind a Cloudflare Tunnel
+   that terminates TLS and forwards plain `http://` internally (`~/.cloudflared/config.yml`), so
+   Laravel's standard `.htaccess` "redirect trailing slash" rule built its `301` using the scheme
+   Apache itself saw (`http`), not what the client actually used. Most crawlers (WhatsApp
+   included) refuse to follow an `https→http` downgrade, so `.../rules/` (trailing slash) failed
+   to preview while `.../rules` (no slash) worked — same underlying "doesn't exist" URL, two
+   different-looking symptoms purely from the slash. Forced `https://` explicitly in the rewrite
+   target.
+
+Per direct request ("fix all things all types of issues... software that should work always"),
+followed with a broad sweep across every route pattern (department/section/division/folder/
+rule-set/policy-container/policy-period × show/document/auth-restricted, trailing slashes) rather
+than stopping at the two reported bugs:
+
+- Built a branded 404 page (`resources/views/errors/404.blade.php` + new shared
+  `<x-error-page>` component) — previously fell back to Laravel's bare default. Then, per a
+  follow-up request to use Laravel's own scaffolding rather than hand-rolling, ran
+  `php artisan vendor:publish --tag=laravel-errors` for the complete standard error-code set and
+  replaced all of them (401/402/403/404/419/429/500/503) with the same shared component instead
+  of Laravel's default templates — consistent branding, real per-page title/description,
+  `noindex` meta (never indexed, never generates a misleading rich preview if a broken/restricted
+  link is shared).
+- No favicon existed at all (`public/favicon.ico` was a 0-byte empty file, no `<link rel="icon">`
+  in `<head>`). Generated a small branded icon set (document-page glyph, indigo, matching the
+  app's own palette) via a one-off GD script: `favicon.ico` (PNG-in-ICO, valid in every current
+  browser), 16/32px PNGs, `apple-touch-icon.png`, 192/512px PWA icons, and a `site.webmanifest`.
+- Found and fixed one real legacy document (RFP, id 21) whose slug was `1776420884` — its raw
+  uploaded filename, not derived from its title, predating this session (the slug generator
+  itself was never buggy; this one row came from some other insertion path). Regenerated via the
+  same `Document::uniqueSlugForRuleSet()` every other document already uses. Swept
+  Document/RuleSet for other numeric-only slugs — none found, isolated to this one row.
+- Also fixed the og-image thumbnail route carrying implicit `private`/session-cookie cache
+  headers (Cloudflare refuses to cache anything with `Set-Cookie`, confirmed via
+  `cf-cache-status: BYPASS`) — added explicit `Cache-Control: public, max-age=86400`.
+- Also cleaned up user-facing copy that leaked an internal implementation detail: the
+  document-conversion "waiting in queue" message said "(single worker, see CLAUDE.md)" — removed
+  (and was stale anyway, since the pipeline now runs multiple concurrent workers).
+
+Verified live via a systematic sweep of every route-pattern type (department/section/division/
+folder/rule-set/policy show pages, a real `visibility=authenticated` document via a section-folder
+path, the sitemap, robots.txt, all 8 error codes, all 6 favicon/manifest assets) — all correct
+status codes, all real branded content, no regressions.
+
+**Files changed:** `routes/web.php` · `public/.htaccess` · `public/robots.txt`* ·
+`app/Http/Controllers/DocumentController.php` · `resources/views/components/error-page.blade.php` (new)
+· `resources/views/errors/{401,402,403,404,419,429,500,503}.blade.php` ·
+`public/{favicon.ico,favicon-16.png,favicon-32.png,apple-touch-icon.png,icon-192.png,icon-512.png,site.webmanifest}` (new)
+· `resources/views/documents/show.blade.php` · `claude.md`.
+*(robots.txt already updated in M42; no further change this milestone.)
