@@ -234,3 +234,14 @@ DOM injection, and the real `<path>` data genuinely was there in the final DOM. 
 are real archipelagos/scattered enclaves (Lakshadweep = coral atolls; Puducherry = several
 non-contiguous enclaves across South India) — their *accurate* shape is a small cluster of dots,
 which just visually resembles the pin icon at small size. Correct behavior, not a defect.
+
+## 6. States vs Union Territories, split into two sections (2026-07-26, same day)
+
+The "Other States" grid (§4) listed all 35 non-UP entries in one flat grid. Split into two
+labeled sections — "States" (27) and "Union Territories" (8) — since `RuleSet::STATES` already
+listed them in exactly that order (28 states, then 8 UTs) but with no way to distinguish them
+programmatically. Added `RuleSet::UNION_TERRITORIES` (the 8 UT names, explicit list rather than
+relying on array position — safer if `STATES`'s order ever changes) and split
+`RuleSetController::policyOtherStates()`'s single collection into `$states`/`$unionTerritories`.
+Extracted the card markup into `rule_sets/_state_card.blade.php` so both sections render from
+one source instead of duplicating the card markup twice.

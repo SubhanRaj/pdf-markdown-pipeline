@@ -3036,3 +3036,19 @@ result that looks like a bug at a glance but isn't — verified thoroughly rathe
 `resources/views/rule_sets/index.blade.php`, `resources/views/rule_sets/policy_other_states.blade.php`,
 `app/Http/Middleware/SecurityHeaders.php` (CSP `connect-src`). Docs: `POLICY_PERIODS.md` §5,
 `claude.md`, `README.md`.
+
+## M59 — Other-states page splits States from Union Territories (COMPLETED 2026-07-26)
+
+Quick follow-up to M57: the 35-card "Other States" grid mixed all states and UTs together.
+`RuleSet::STATES` already listed all 28 states before all 8 UTs (no accident — that ordering was
+already there), just with no explicit way to tell them apart programmatically. Added
+`RuleSet::UNION_TERRITORIES` (an explicit 8-name list, not array-position-dependent — safer if
+`STATES`'s order ever changes), split `RuleSetController::policyOtherStates()`'s one collection
+into `$states`/`$unionTerritories`, and extracted the repeated card markup into
+`rule_sets/_state_card.blade.php` so the two sections don't duplicate it. Verified live via
+screenshot: 27 states under a "States" heading, 8 UTs under "Union Territories" — same shape
+icons, counts, and links as before, just grouped.
+
+**Files changed:** `app/Models/RuleSet.php`, `app/Http/Controllers/RuleSetController.php`,
+`resources/views/rule_sets/policy_other_states.blade.php`,
+`resources/views/rule_sets/_state_card.blade.php` (new). Docs: `POLICY_PERIODS.md` §6, `claude.md`.
