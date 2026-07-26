@@ -2998,3 +2998,41 @@ index confirmed unaffected.
 `resources/views/rule_sets/policy_state.blade.php` (new),
 `resources/views/rule_sets/policy_other_states.blade.php` (new). Docs: `POLICY_PERIODS.md` §4,
 `claude.md`, `README.md`.
+
+## M58 — Real per-state shape icons on the Policy pages (COMPLETED 2026-07-26, same day as M57)
+
+Follow-up to M57: the generic `ti-map-pin` icon on every state card wasn't distinctive enough.
+Found `@svg-maps/india` (CC-BY-4.0, one SVG with all 36 states/UTs as separate labeled paths,
+accurate boundaries) and wired it in **without npm/a build step** — this app stays Node-free by
+loading it client-side from a pinned-version jsDelivr CDN URL, the same pattern already used for
+Alpine.js/Grid.js/Air Datepicker, rather than vendoring extracted assets.
+
+**How it works:** one `fetch()` of the map SVG (`resources/views/rule_sets/_state_icon_loader.blade.php`),
+parsed client-side; for each `[data-state-icon]` element, match by `aria-label`, clone the path
+into an off-screen `<svg>`, `getBBox()` for a tight crop, inject a small cropped `<svg>`. Purely
+decorative — a failed fetch or unmatched state just leaves the existing `ti-map-pin` fallback in
+place, unlike a missing icon-font glyph elsewhere in the app.
+
+**Real bug caught and fixed along the way**: nothing rendered at all initially — traced via a
+live headless-Chrome console capture (no Puppeteer/CDP tooling needed to install; Chrome's own
+`--dump-dom`/`--enable-logging=stderr --v=1` was enough) to a CSP violation: `connect-src 'self'`
+blocked the `fetch()` outright, even though `cdn.jsdelivr.net` was already trusted for
+script-src/style-src/font-src. Added it to `connect-src` too (`SecurityHeaders.php`).
+
+**Two boundary mismatches** between the map's (older) data and `RuleSet::STATES` (current)
+handled gracefully: Ladakh (split from J&K in 2019) has no path at all, falls back to the plain
+icon; "Dadra and Nagar Haveli and Daman and Diu" (merged 2020) is reconstructed by combining the
+map's two separate old-UT paths.
+
+**One thing chased as a suspected bug that turned out correct**: Lakshadweep and Puducherry
+initially looked broken (same pin-like appearance as the genuinely-missing Ladakh). Full
+DOM-level tracing (found path → computed real bbox → confirmed real `<path>` injected in the
+final DOM) showed the icons were rendering *correctly* — both territories are real archipelagos/
+scattered enclaves, so their *accurate* shape is a small dot cluster that just happens to look
+similar to the pin fallback at small icon size. Worth recording since it's exactly the kind of
+result that looks like a bug at a glance but isn't — verified thoroughly rather than assumed.
+
+**Files changed:** `resources/views/rule_sets/_state_icon_loader.blade.php` (new),
+`resources/views/rule_sets/index.blade.php`, `resources/views/rule_sets/policy_other_states.blade.php`,
+`app/Http/Middleware/SecurityHeaders.php` (CSP `connect-src`). Docs: `POLICY_PERIODS.md` §5,
+`claude.md`, `README.md`.
