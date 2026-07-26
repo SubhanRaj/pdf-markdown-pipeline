@@ -103,62 +103,14 @@
             </div>
         </div>
 
-        {{-- ── Section: Password ── --}}
+        {{-- ── Section: Account activation ── --}}
         <div class="px-6 py-5">
-            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
-                <i class="ti ti-lock text-slate-400 dark:text-slate-500"></i> Password
-            </h3>
-            <div class="grid grid-cols-2 gap-4">
-
-                <div class="col-span-2 sm:col-span-1">
-                    <label for="password" class="field-label">Password <span class="text-red-500">*</span></label>
-                    <div class="relative">
-                        <input
-                            id="password" name="password" type="password"
-                            placeholder="••••••••"
-                            class="field-input pr-10 @error('password') field-error @enderror"
-                            data-rule="password"
-                            required
-                        >
-                        <button type="button" onclick="toggleField('password','eye-pw')"
-                            class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
-                            <i id="eye-pw" class="ti ti-eye text-sm"></i>
-                        </button>
-                    </div>
-                    <p class="field-hint">Min 8 chars · uppercase · lowercase · number · symbol.</p>
-                    <p class="field-err-msg hidden" id="password-err"></p>
-                    @error('password') <p class="field-err-msg">{{ $message }}</p> @enderror
-                </div>
-
-                <div class="col-span-2 sm:col-span-1">
-                    <label for="password_confirmation" class="field-label">Confirm Password <span class="text-red-500">*</span></label>
-                    <div class="relative">
-                        <input
-                            id="password_confirmation" name="password_confirmation" type="password"
-                            placeholder="••••••••"
-                            class="field-input pr-10"
-                            data-rule="password_confirmation"
-                            required
-                        >
-                        <button type="button" onclick="toggleField('password_confirmation','eye-pw2')"
-                            class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
-                            <i id="eye-pw2" class="ti ti-eye text-sm"></i>
-                        </button>
-                    </div>
-                    <p class="field-err-msg hidden" id="password_confirmation-err"></p>
-                </div>
-
-            </div>
-
-            {{-- Password strength bar --}}
-            <div class="mt-3">
-                <div class="flex gap-1 h-1.5">
-                    <div id="str-1" class="flex-1 rounded-full bg-slate-200 dark:bg-slate-700 transition-colors duration-300"></div>
-                    <div id="str-2" class="flex-1 rounded-full bg-slate-200 dark:bg-slate-700 transition-colors duration-300"></div>
-                    <div id="str-3" class="flex-1 rounded-full bg-slate-200 dark:bg-slate-700 transition-colors duration-300"></div>
-                    <div id="str-4" class="flex-1 rounded-full bg-slate-200 dark:bg-slate-700 transition-colors duration-300"></div>
-                </div>
-                <p id="str-label" class="text-xs text-slate-400 mt-1"></p>
+            <div class="flex items-start gap-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/50 rounded-lg px-4 py-3">
+                <i class="ti ti-mail-forward text-indigo-500 dark:text-indigo-400 text-lg flex-shrink-0 mt-0.5"></i>
+                <p class="text-sm text-indigo-700 dark:text-indigo-300">
+                    No password to set here — once created, an activation email is sent to this
+                    address with a one-time link. The officer sets their own password from it.
+                </p>
             </div>
         </div>
 
@@ -364,44 +316,12 @@
             msg: 'Enter STD code + number (e.g. 0522-223456). Digits, spaces, hyphens, and parentheses only.',
             optional: true
         },
-        password: {
-            pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&\#^()\[\]{}|;:,.<>?\/\\`~"'\-_=+])[^\s]{8,}$/,
-            msg: 'Min 8 chars with uppercase, lowercase, number, and symbol.'
-        },
-        password_confirmation: {
-            custom: () => {
-                const pw = document.getElementById('password').value;
-                const cf = document.getElementById('password_confirmation').value;
-                return pw === cf ? null : 'Passwords do not match.';
-            }
-        },
         post: {
             pattern: /^[\p{L}\s'\-\.&\/\(\)]{0,100}$/u,
             msg: 'Designation contains invalid characters.',
             optional: true
         },
     };
-
-    // ── Password strength ────────────────────────────────────────────────────
-    const strChecks = [
-        (v) => v.length >= 8,
-        (v) => /[A-Z]/.test(v) && /[a-z]/.test(v),
-        (v) => /\d/.test(v),
-        (v) => /[@$!%*?&\#^()\[\]{}|;:,.<>?\/\\`~"'\-_=+]/.test(v),
-    ];
-    const strColors  = ['bg-red-400', 'bg-amber-400', 'bg-yellow-400', 'bg-emerald-500'];
-    const strLabels  = ['Weak', 'Fair', 'Good', 'Strong'];
-
-    function updateStrength(val) {
-        const score = strChecks.filter(fn => fn(val)).length;
-        for (let i = 1; i <= 4; i++) {
-            const bar = document.getElementById(`str-${i}`);
-            bar.className = `flex-1 rounded-full transition-colors duration-300 ${i <= score ? strColors[score - 1] : 'bg-slate-200'}`;
-        }
-        const label = document.getElementById('str-label');
-        label.textContent = val.length ? strLabels[score - 1] ?? '' : '';
-        label.className = `text-xs mt-1 ${score >= 4 ? 'text-emerald-600' : score >= 2 ? 'text-amber-600' : 'text-red-500'}`;
-    }
 
     // ── Field validation ─────────────────────────────────────────────────────
     function validateField(id) {
@@ -442,11 +362,6 @@
         el.addEventListener('blur',  () => validateField(id));
         el.addEventListener('input', () => {
             if (el.classList.contains('field-error')) validateField(id);
-            if (id === 'password') {
-                updateStrength(el.value);
-                if (document.getElementById('password_confirmation').value)
-                    validateField('password_confirmation');
-            }
         });
     });
 
@@ -491,14 +406,6 @@
             opt.disabled = sectionId && opt.dataset.section !== String(sectionId);
         });
         if (sectionId) select.value = '';
-    };
-
-    // ── Password toggle ──────────────────────────────────────────────────────
-    window.toggleField = function (fieldId, iconId) {
-        const el   = document.getElementById(fieldId);
-        const icon = document.getElementById(iconId);
-        el.type    = el.type === 'password' ? 'text' : 'password';
-        icon.className = el.type === 'password' ? 'ti ti-eye text-sm' : 'ti ti-eye-off text-sm';
     };
 
     // Run cascade filters on load if old() values pre-populate the selects

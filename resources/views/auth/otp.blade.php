@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<x-head title="Enter Code" />
+
+<body class="bg-slate-100 dark:bg-slate-950 h-full flex items-center justify-center p-4 transition-colors duration-200">
+
+<div class="w-full max-w-md">
+
+    {{-- Logo / App identity --}}
+    <div class="text-center mb-8">
+        <div class="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <i class="ti ti-shield-lock text-white text-2xl"></i>
+        </div>
+        <h1 class="text-xl font-bold text-slate-800 dark:text-slate-100">Verify It's You</h1>
+        <p class="text-sm text-slate-400 dark:text-slate-500 mt-1">Enter the 6-digit code sent to your email</p>
+    </div>
+
+    {{-- Card --}}
+    <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-8">
+
+        @if(session('status'))
+        <div class="mb-4 flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700 rounded-lg px-4 py-3">
+            <i class="ti ti-circle-check flex-shrink-0"></i>
+            {{ session('status') }}
+        </div>
+        @endif
+
+        @if($errors->any())
+        <div class="mb-4 flex items-start gap-2 text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg px-4 py-3">
+            <i class="ti ti-alert-circle flex-shrink-0 mt-0.5"></i>
+            <span>{{ $errors->first() }}</span>
+        </div>
+        @endif
+
+        <form method="POST" action="{{ route('otp.verify') }}" x-data="otpForm()" x-init="init()">
+            @csrf
+            <input type="hidden" name="code" :value="digits.join('')">
+
+            <div class="flex justify-between gap-2 mb-6" @paste="paste($event)">
+                <input type="text" inputmode="numeric" maxlength="1" x-ref="box0" x-model="digits[0]" @input="onInput(0, $event)" @keydown.backspace="onBackspace(0)"
+                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                <input type="text" inputmode="numeric" maxlength="1" x-ref="box1" x-model="digits[1]" @input="onInput(1, $event)" @keydown.backspace="onBackspace(1)"
+                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                <input type="text" inputmode="numeric" maxlength="1" x-ref="box2" x-model="digits[2]" @input="onInput(2, $event)" @keydown.backspace="onBackspace(2)"
+                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                <input type="text" inputmode="numeric" maxlength="1" x-ref="box3" x-model="digits[3]" @input="onInput(3, $event)" @keydown.backspace="onBackspace(3)"
+                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                <input type="text" inputmode="numeric" maxlength="1" x-ref="box4" x-model="digits[4]" @input="onInput(4, $event)" @keydown.backspace="onBackspace(4)"
+                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                <input type="text" inputmode="numeric" maxlength="1" x-ref="box5" x-model="digits[5]" @input="onInput(5, $event)" @keydown.backspace="onBackspace(5)"
+                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+            </div>
+
+            <button
+                type="submit"
+                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+                <i class="ti ti-shield-check"></i>
+                Verify &amp; Continue
+            </button>
+        </form>
+
+        <form method="POST" action="{{ route('otp.resend') }}" class="mt-4">
+            @csrf
+            <button type="submit" class="w-full text-center text-xs text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                Didn't get a code? Resend
+            </button>
+        </form>
+    </div>
+
+    <p class="text-center text-xs text-slate-400 dark:text-slate-600 mt-6">
+        Internal use only &middot; Unauthorized access is prohibited
+    </p>
+
+</div>
+
+<script>
+    function otpForm() {
+        return {
+            digits: ['', '', '', '', '', ''],
+            boxes: null,
+            init() {
+                this.boxes = [this.$refs.box0, this.$refs.box1, this.$refs.box2, this.$refs.box3, this.$refs.box4, this.$refs.box5];
+                this.boxes[0]?.focus();
+            },
+            onInput(i, e) {
+                const val = e.target.value.replace(/\D/g, '').slice(-1);
+                this.digits[i] = val;
+                if (val && i < 5) this.boxes[i + 1]?.focus();
+            },
+            onBackspace(i) {
+                if (!this.digits[i] && i > 0) {
+                    this.boxes[i - 1]?.focus();
+                }
+            },
+            paste(e) {
+                const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '').slice(0, 6);
+                if (!text) return;
+                e.preventDefault();
+                this.digits = text.split('').concat(['', '', '', '', '', '']).slice(0, 6);
+                const lastIndex = Math.min(text.length, 6) - 1;
+                if (lastIndex >= 0) this.boxes[lastIndex]?.focus();
+            },
+        };
+    }
+</script>
+
+</body>
+</html>

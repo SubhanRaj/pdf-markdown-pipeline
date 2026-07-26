@@ -219,6 +219,22 @@ For a from-scratch setup on a new box, the general pattern (any Linux, any paths
 `<VirtualHost>` block above with your own paths, dropped in `/etc/apache2/sites-available/`,
 enabled via `a2ensite` + `a2enmod rewrite`, plus `apachectl configtest` before reloading.
 
+## Mail (onboarding + login-OTP emails, added 2026-07-26)
+
+Onboarding links and login OTP codes are real emails now — `MAIL_MAILER=log` (the safe default
+in `.env.example`) just no-ops them, so nothing breaks with no config, but no officer receives
+anything either. Two supported paths, `.env`-only switch, nothing in the app references either
+transport directly:
+
+- **Resend** (recommended): `MAIL_MAILER=resend`, `RESEND_API_KEY=<key>`. The `symfony/resend-mailer`
+  bridge package is already in `composer.json` — nothing further to install.
+- **SMTP** (NIC/Gmail/etc): `MAIL_MAILER=smtp`, plus `MAIL_HOST`/`MAIL_PORT`/`MAIL_USERNAME`/
+  `MAIL_PASSWORD`/`MAIL_SCHEME` for whichever provider.
+
+Either way, `MAIL_FROM_ADDRESS=noreply@mail.exciseup.in` / `MAIL_FROM_NAME="UP Excise Document
+Vault"` — same address already in use for this purpose elsewhere. After changing any `MAIL_*`
+value: `php artisan config:clear` (or `optimize:clear` if configs are cached).
+
 ## Keeping the queue worker running persistently
 
 `php artisan queue:work` in a foreground terminal is fine for active development but dies the

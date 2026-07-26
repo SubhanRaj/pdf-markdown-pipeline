@@ -11,7 +11,13 @@ class FortifyServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        Fortify::loginView(fn () => view('auth.login'));
+        // Login is fully custom now (email+password → email OTP → session), routed in
+        // routes/web.php via App\Http\Controllers\Auth\LoginController. Fortify's own
+        // AttemptToAuthenticate pipeline calls Auth::login() straight off a valid password,
+        // which is exactly the step OTP needs to sit in front of — so its routes are disabled
+        // here rather than reused. Fortify itself stays installed for PasswordValidationRules
+        // and the 'login'/'two-factor' rate limiter names it established.
+        Fortify::ignoreRoutes();
 
         // Rate limiters for 'login' and 'two-factor' are defined in
         // AppServiceProvider::configureRateLimiters() — do NOT redefine them here.

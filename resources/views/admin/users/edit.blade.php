@@ -98,7 +98,23 @@
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1 flex items-center gap-2">
                 <i class="ti ti-lock text-slate-400 dark:text-slate-500"></i> Password
             </h3>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mb-4">Leave both fields blank to keep the current password.</p>
+
+            @if($user->email_verified_at === null)
+            <div class="flex items-center justify-between gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/50 rounded-lg px-4 py-3 mb-4">
+                <p class="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                    <i class="ti ti-mail-exclamation text-base flex-shrink-0"></i>
+                    This account has not been activated yet.
+                </p>
+                <form method="POST" action="{{ route('admin.users.resend-activation', $user) }}">
+                    @csrf
+                    <button type="submit" class="text-xs font-semibold text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline whitespace-nowrap">
+                        Resend activation link
+                    </button>
+                </form>
+            </div>
+            @endif
+
+            <p class="text-xs text-slate-400 dark:text-slate-500 mb-4">Leave both fields blank to keep the current password{{ $user->email_verified_at === null ? ' (or the officer\'s own, once they activate)' : '' }}.</p>
             <div class="grid grid-cols-2 gap-4">
 
                 <div class="col-span-2 sm:col-span-1">

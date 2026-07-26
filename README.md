@@ -269,6 +269,8 @@ Five-way context exclusivity — exactly one context group is active:
 ### `users`
 Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digits, nullable), `landline` (free-form STD+number, nullable), `post`, `role`, `uploads_require_approval` (boolean, default false — bulk-mode flag; all uploads from this user go to `pending_approval`), `privileges` (JSON — validated against `User::PRIVILEGES` whitelist), `department_id`, `section_id`, `division_id`. Public registration disabled — admin-created only.
 
+**Passwordless onboarding + email-OTP login (2026-07-26):** admins create a user with no password field at all — the account gets an unusable placeholder password and `email_verified_at = null` until the officer completes a one-time signed-link flow (`/onboarding/{user}`, 72h expiry, single-use via the `email_verified_at` gate) and sets their own password. Login is email+password followed by a 6-digit email OTP (`/login/otp`) before a session is granted — modeled on `github.com/SubhanRaj/pla`'s email-OTP pattern, rebuilt for this app's Tailwind/Alpine styling. Combined with the 7-day sliding session + remember-me below, OTP only fires on a genuine fresh login, not every visit. See `claude.md`'s "Auth & access control" section for the full flow.
+
 **Privilege strings:** `documents.upload`, `documents.edit`, `documents.delete`, `documents.restore`, `documents.force-delete`, `documents.verify`, `documents.approve`, `organization.head`, `department.head`, `section.head`. Admins bypass all privilege checks unconditionally.
 
 ## 🗺️ Route Map
