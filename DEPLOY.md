@@ -226,8 +226,12 @@ in `.env.example`) just no-ops them, so nothing breaks with no config, but no of
 anything either. Two supported paths, `.env`-only switch, nothing in the app references either
 transport directly:
 
-- **Resend** (recommended): `MAIL_MAILER=resend`, `RESEND_API_KEY=<key>`. The `symfony/resend-mailer`
-  bridge package is already in `composer.json` — nothing further to install.
+- **Resend** (recommended, currently active): `MAIL_MAILER=resend`, `RESEND_API_KEY=<key>`. Needs
+  Laravel's native `resend` transport dependency, `resend/resend-php` (already in
+  `composer.json` — nothing further to install). Note: `symfony/resend-mailer` looks like the
+  obvious package name but is the *wrong* one — Laravel's own `MailManager::createResendTransport()`
+  instantiates `Resend\Contracts\Client` via `Resend::client()`, which only `resend/resend-php`
+  provides; the Symfony bridge was tried first here and failed with "Class Resend not found."
 - **SMTP** (NIC/Gmail/etc): `MAIL_MAILER=smtp`, plus `MAIL_HOST`/`MAIL_PORT`/`MAIL_USERNAME`/
   `MAIL_PASSWORD`/`MAIL_SCHEME` for whichever provider.
 
