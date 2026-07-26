@@ -13,6 +13,9 @@ $canManage  = auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canMana
     ['name' => 'Departments',             'url' => route('departments.index')],
     ['name' => $department->levelLabel(), 'url' => null],
     ['name' => $department->name,         'url' => route('departments.show', [$department->levelAlias(), $department])],
+    ...($ruleSet->kind === 'policy'
+        ? \App\Models\RuleSet::policyBreadcrumb($department, $ruleSet->state)
+        : [['name' => 'Rules & Regulations', 'url' => route('departments.rules.index', [$department->levelAlias(), $department])]]),
     ['name' => $ruleSet->name,            'url' => route(\"departments.{$ruleSet->kind}.show\", [$department->levelAlias(), $department, $ruleSet])],
     ['name' => 'Edit',                    'url' => null],
 ]" />

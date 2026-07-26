@@ -10,6 +10,7 @@
     ['name' => 'Departments',             'url' => route('departments.index')],
     ['name' => $department->levelLabel(), 'url' => null],
     ['name' => $department->name,         'url' => route('departments.show', [$department->levelAlias(), $department])],
+    ['name' => $isPolicy ? 'Policies' : 'Rules & Regulations', 'url' => route("departments.{$kind}.index", [$department->levelAlias(), $department])],
     ['name' => $isPolicy ? 'Add Policy' : 'Add Rule Set', 'url' => null],
 ]" />
 
