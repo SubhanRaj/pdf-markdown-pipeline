@@ -805,6 +805,73 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
         });
     });
 })();
+
+// ── Live status pills for in-flight documents (processing/OCR) — same polling pattern as
+// documents/pipeline.blade.php's per-row polling, reused verbatim so this page's badges stop
+// needing a manual refresh too.
+(function () {
+    const statusColorClasses = {
+        slate:  'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
+        blue:   'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+        amber:  'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
+        indigo: 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400',
+        green:  'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
+        red:    'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+    };
+    const iconClasses = {
+        slate:  { wrap: 'bg-slate-100 dark:bg-slate-700', icon: 'text-slate-400 dark:text-slate-500' },
+        blue:   { wrap: 'bg-slate-100 dark:bg-slate-700', icon: 'text-slate-400 dark:text-slate-500' },
+        amber:  { wrap: 'bg-slate-100 dark:bg-slate-700', icon: 'text-slate-400 dark:text-slate-500' },
+        indigo: { wrap: 'bg-indigo-500/10 dark:bg-indigo-500/20', icon: 'text-indigo-500 dark:text-indigo-400' },
+        green:  { wrap: 'bg-green-500/10 dark:bg-green-500/20', icon: 'text-green-500 dark:text-green-400' },
+        red:    { wrap: 'bg-red-500/10 dark:bg-red-500/20', icon: 'text-red-500 dark:text-red-400' },
+    };
+    const statusMeta = {
+        uploaded:    { label: 'Uploaded',    color: 'slate'  },
+        processing:  { label: 'Processing',  color: 'blue'   },
+        ocr_pending: { label: 'OCR Pending', color: 'amber'  },
+        review:      { label: 'Review',      color: 'indigo' },
+        verified:    { label: 'Verified',    color: 'green'  },
+        failed:      { label: 'Failed',      color: 'red'    },
+        rejected:    { label: 'Rejected',    color: 'red'    },
+    };
+
+    const pollRows = document.querySelectorAll('[data-poll="1"]');
+    if (!pollRows.length) return;
+
+    const interval = setInterval(() => {
+        let stillPolling = false;
+        const checks = Array.from(pollRows).map(row => {
+            const id = row.dataset.docRow;
+            return fetch(`/documents/${id}/convert-status`, { headers: { Accept: 'application/json' } })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'processing' || data.status === 'ocr_pending') {
+                        stillPolling = true;
+                        return;
+                    }
+                    const meta = statusMeta[data.status] || { label: data.status, color: 'slate' };
+                    const badge = row.querySelector('.doc-status-badge');
+                    if (badge) {
+                        badge.className = 'doc-status-badge inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ' + statusColorClasses[meta.color];
+                        badge.textContent = meta.label;
+                    }
+                    const iconWrap = row.querySelector('.doc-status-icon-wrap');
+                    const icon = row.querySelector('.doc-status-icon');
+                    const colors = iconClasses[meta.color] || iconClasses.slate;
+                    if (iconWrap) iconWrap.className = 'doc-status-icon-wrap w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ' + colors.wrap;
+                    if (icon) icon.className = 'doc-status-icon ti ti-file-text text-sm ' + colors.icon;
+                })
+                .catch(() => {});
+        });
+        Promise.all(checks).then(() => {
+            if (!stillPolling) {
+                clearInterval(interval);
+                window.location.reload();
+            }
+        });
+    }, 5000);
+})();
 </script>
 @endpush
 

@@ -9,10 +9,16 @@
         'red'    => 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
     ];
     $hasAmendments = !$isAmendment && $doc->amendments->isNotEmpty();
+    // Only authed users see the status badge/icon below, so only they need the poll —
+    // guests would just be firing pointless requests at an endpoint with no visible effect.
+    $isPolling = auth()->check() && in_array($doc->status, ['processing', 'ocr_pending'], true);
 @endphp
 
+{{-- Status icon/badge poll (in-flight docs only) reuses the exact plain-JS pattern from
+     documents/pipeline.blade.php — same problem, already solved there, no need for Alpine. --}}
 <div class="flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group
-            {{ $isAmendment ? 'bg-amber-50/30 dark:bg-amber-900/5 border-l-2 border-amber-200 dark:border-amber-700 ml-6 pl-4' : '' }}">
+            {{ $isAmendment ? 'bg-amber-50/30 dark:bg-amber-900/5 border-l-2 border-amber-200 dark:border-amber-700 ml-6 pl-4' : '' }}"
+     @if($isPolling) data-doc-row="{{ $doc->id }}" data-poll="1" @endif>
 
     {{-- Tree connector for amendments --}}
     @if($isAmendment)
@@ -29,12 +35,12 @@
     @endif
 
     {{-- Status icon --}}
-    <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5
+    <div class="doc-status-icon-wrap w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5
         @if($doc->status === 'verified') bg-green-500/10 dark:bg-green-500/20
         @elseif($doc->status === 'failed') bg-red-500/10 dark:bg-red-500/20
         @elseif($doc->status === 'review') bg-indigo-500/10 dark:bg-indigo-500/20
         @else bg-slate-100 dark:bg-slate-700 @endif">
-        <i class="ti ti-file-text text-sm
+        <i class="doc-status-icon ti ti-file-text text-sm
             @if($doc->status === 'verified') text-green-500 dark:text-green-400
             @elseif($doc->status === 'failed') text-red-500 dark:text-red-400
             @elseif($doc->status === 'review') text-indigo-500 dark:text-indigo-400
@@ -77,7 +83,8 @@
                 {{ \App\Models\Document::DOCUMENT_TYPES[$doc->document_type] ?? $doc->document_type }}
             </span>
             @auth
-            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium {{ $sc[$sm['color']] ?? $sc['slate'] }}">
+            <span class="doc-status-badge inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium {{ $sc[$sm['color']] ?? $sc['slate'] }}">
+                @if($isPolling)<i class="ti ti-loader-2 animate-spin text-[10px]"></i>@endif
                 {{ $sm['label'] }}
             </span>
             @endauth
