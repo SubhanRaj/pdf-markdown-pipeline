@@ -1334,12 +1334,16 @@ function startConversionPolling(card, elapsedElId) {
     if (!pollUrl) return;
 
     const startedAt = card.dataset.startedAt ? Number(card.dataset.startedAt) : Date.now();
-    const elapsedTimer = setInterval(function () {
+    function tickElapsed() {
         const el = document.getElementById(elapsedElId || 'convert-elapsed');
         if (!el) { clearInterval(elapsedTimer); return; }
         const secs = Math.floor((Date.now() - startedAt) / 1000);
         el.textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
-    }, 1000);
+    }
+    tickElapsed(); // paint the real elapsed time immediately — setInterval's first tick is a
+                    // second away, and without this the static "0:00" placeholder from the
+                    // server-rendered HTML stays on screen (then visibly jumps) until it fires.
+    const elapsedTimer = setInterval(tickElapsed, 1000);
 
     const pollInterval = setInterval(function () {
         fetch(pollUrl, { headers: { Accept: 'application/json' } })
