@@ -90,7 +90,10 @@ class LoginController extends Controller
         Auth::login($user, $remember);
         $request->session()->regenerate();
 
-        return redirect()->intended(route('home'));
+        // Always land on the dashboard, never wherever a stale pre-login "intended" URL points
+        // (e.g. a page left open in another tab when the session expired) — simpler and more
+        // predictable than Laravel's default redirect()->intended() behavior.
+        return redirect()->route('home');
     }
 
     public function resendOtp(Request $request): RedirectResponse
