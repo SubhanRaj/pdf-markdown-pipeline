@@ -227,14 +227,19 @@
     {{-- ── Share + (if manager) edit/convert/delete — same row as the pills, right-aligned.
          Share is visible to everyone; it's the only thing here for a public visitor, since
          edit/delete only ever render for a signed-in manager. ──────────────────────────── --}}
-    <div class="flex items-center gap-2 flex-wrap">
-        <div class="relative">
+    {{-- flex-1 buttons (not a fixed grid-cols-4) so this still looks right when fewer than
+         four buttons render — e.g. a public visitor only ever sees Share. --}}
+    <div class="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:items-center">
+        <div class="relative flex-1 sm:flex-none min-w-[5rem] sm:min-w-0">
             <button type="button" id="share-menu-btn" title="Share"
-                    class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
+                    class="w-full inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
                 <i class="ti ti-share-2 text-base"></i>
                 <span class="hidden sm:inline">Share</span>
             </button>
-            <div id="share-menu-panel" class="hidden absolute right-0 top-full mt-2 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20">
+            {{-- Anchored left on mobile (button sits at the left edge of a full-width row, so a
+                 right-anchored panel would overflow past the left edge of the viewport) and
+                 right on desktop (button sits at the far right of the header row). --}}
+            <div id="share-menu-panel" class="hidden absolute left-0 sm:left-auto sm:right-0 top-full mt-2 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20">
                 <a href="https://wa.me/?text={{ urlencode($document->title . ' — ' . url()->current()) }}" target="_blank" rel="noopener"
                    class="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                     <i class="ti ti-brand-whatsapp text-base text-green-500"></i> WhatsApp
@@ -255,13 +260,13 @@
     @php $ruleIsLocked = $document->document_type === 'rule' && $document->amendments->isNotEmpty(); @endphp
         @if(! $ruleIsLocked)
         <a href="{{ $editRoute }}"
-           class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
+           class="flex-1 sm:flex-none min-w-[5rem] sm:min-w-0 inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-pencil text-base"></i>
             <span class="hidden sm:inline">Edit</span>
         </a>
         @else
         <span title="Cannot edit a rule document that has amendments"
-              class="inline-flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 text-slate-300 dark:text-slate-600 text-sm font-medium px-3 py-2 rounded-lg cursor-not-allowed">
+              class="flex-1 sm:flex-none min-w-[5rem] sm:min-w-0 inline-flex items-center justify-center gap-1.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 text-slate-300 dark:text-slate-600 text-sm font-medium px-3 py-2 rounded-lg cursor-not-allowed">
             <i class="ti ti-pencil text-base"></i>
             <span class="hidden sm:inline">Edit</span>
         </span>
@@ -270,7 +275,7 @@
         <button type="button" id="convert-doc-btn" data-convert-url="{{ route('documents.convert', $document->id) }}"
                 data-convert-status-url="{{ route('documents.convert-status', $document->id) }}"
                 @if($isConverting) disabled @endif
-                class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                class="flex-1 sm:flex-none min-w-[5rem] sm:min-w-0 inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
             <i class="ti {{ $isConverting ? 'ti-loader-2 animate-spin' : 'ti-markdown' }} text-base" id="convert-doc-btn-icon"></i>
             <span class="hidden sm:inline" id="convert-doc-btn-label">
                 @if($isConverting) Converting…
@@ -281,8 +286,9 @@
         </button>
         @endif
         <button type="button" id="delete-doc-btn" @if($isConverting) disabled title="Wait for conversion to finish" @endif
-                class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-red-400 dark:hover:border-red-500 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                class="flex-1 sm:flex-none min-w-[5rem] sm:min-w-0 inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-red-400 dark:hover:border-red-500 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
             <i class="ti ti-trash text-base"></i>
+            <span class="hidden sm:inline">Delete</span>
         </button>
         <form id="delete-doc-form" method="POST" action="{{ $destroyRoute }}">
             @csrf @method('DELETE')
@@ -314,7 +320,74 @@
 </div>
 @endauth
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+{{-- ── Main grid + Amendments, reordered on mobile only ────────────────────────
+     Desktop (lg+): unchanged — Amendments renders below the grid, same as before.
+     Mobile: the single-column stack would otherwise bury Amendments below the PDF
+     viewer and the Details/Status History sidebar; `order-*` puts it first instead,
+     without touching the desktop layout at all. ──────────────────────────────── --}}
+<div class="flex flex-col">
+
+@if($document->amendments->isNotEmpty())
+<div class="order-1 lg:order-2 mb-6 lg:mb-0 lg:mt-6 bg-white dark:bg-slate-800 rounded-xl border border-amber-200 dark:border-amber-700/50">
+    <div class="px-5 py-4 border-b border-amber-100 dark:border-amber-700/40 flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+            <i class="ti ti-git-merge text-amber-600 dark:text-amber-400 text-base"></i>
+        </div>
+        <div>
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Amendments
+                <span class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
+                    {{ $document->amendments->count() }}
+                </span>
+            </h3>
+            <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Documents that formally amend or supersede this version</p>
+        </div>
+    </div>
+    <div class="divide-y divide-amber-50 dark:divide-amber-900/20">
+        @foreach($document->amendments as $i => $amendment)
+        @php
+            $aSm = \App\Models\Document::STATUSES[$amendment->status] ?? ['label' => $amendment->status, 'color' => 'slate'];
+            $aSc = ['slate'=>'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400','blue'=>'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400','amber'=>'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400','indigo'=>'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400','green'=>'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400','red'=>'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'];
+        @endphp
+        <div class="flex items-center gap-3 px-5 py-3.5 hover:bg-amber-50/50 dark:hover:bg-amber-900/10 transition-colors group">
+            {{-- Sequence number --}}
+            <span class="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                {{ $i + 1 }}
+            </span>
+            {{-- Status icon --}}
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0
+                @if($amendment->status === 'verified') bg-green-500/10 dark:bg-green-500/20
+                @elseif($amendment->status === 'failed') bg-red-500/10 dark:bg-red-500/20
+                @else bg-slate-100 dark:bg-slate-700 @endif">
+                <i class="ti ti-file-text text-sm
+                    @if($amendment->status === 'verified') text-green-500 dark:text-green-400
+                    @elseif($amendment->status === 'failed') text-red-500 dark:text-red-400
+                    @else text-slate-400 dark:text-slate-500 @endif"></i>
+            </div>
+            {{-- Info --}}
+            <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $amendment->title }}</p>
+                <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+                    @auth
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium {{ $aSc[$aSm['color']] ?? $aSc['slate'] }}">
+                        {{ $aSm['label'] }}
+                    </span>
+                    @endauth
+                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $amendment->created_at->format('d M Y') }}</span>
+                </div>
+            </div>
+            {{-- View link --}}
+            <a href="{{ $linkForDoc($amendment) }}"
+               class="flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+                View <i class="ti ti-arrow-right text-xs"></i>
+            </a>
+        </div>
+        @endforeach
+    </div>
+</div>
+@endif
+
+<div class="order-2 lg:order-1 grid grid-cols-1 lg:grid-cols-3 gap-6">
 
     {{-- ── Main: swap-view PDF / Markdown ───────────────────────────────────── --}}
     <div class="lg:col-span-2 space-y-4">
@@ -575,10 +648,17 @@
 
         @auth
         @if($document->statusHistory->isNotEmpty())
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-            <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700">
-                <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Status History</span>
-            </div>
+        {{-- Native <details>/<summary> — collapsed by default on both desktop and mobile,
+             since the full history (every conversion/OCR/verify transition) is a lot to show
+             up front; expand on demand instead. No JS needed. --}}
+        <details class="group bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+            <summary class="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                    Status History
+                    <span class="ml-1 normal-case font-normal">({{ $document->statusHistory->count() }})</span>
+                </span>
+                <i class="ti ti-chevron-down text-sm text-slate-400 dark:text-slate-500 transition-transform group-open:rotate-180"></i>
+            </summary>
             <ol class="px-5 py-4 space-y-4">
                 @foreach($document->statusHistory->sortByDesc('created_at') as $entry)
                 <li class="flex gap-3">
@@ -602,73 +682,14 @@
                 </li>
                 @endforeach
             </ol>
-        </div>
+        </details>
         @endif
         @endauth
 
     </div>
 </div>
 
-{{-- ── Amendments section ───────────────────────────────────────────────────── --}}
-@if($document->amendments->isNotEmpty())
-<div class="mt-6 bg-white dark:bg-slate-800 rounded-xl border border-amber-200 dark:border-amber-700/50">
-    <div class="px-5 py-4 border-b border-amber-100 dark:border-amber-700/40 flex items-center gap-3">
-        <div class="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-            <i class="ti ti-git-merge text-amber-600 dark:text-amber-400 text-base"></i>
-        </div>
-        <div>
-            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Amendments
-                <span class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
-                    {{ $document->amendments->count() }}
-                </span>
-            </h3>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Documents that formally amend or supersede this version</p>
-        </div>
-    </div>
-    <div class="divide-y divide-amber-50 dark:divide-amber-900/20">
-        @foreach($document->amendments as $i => $amendment)
-        @php
-            $aSm = \App\Models\Document::STATUSES[$amendment->status] ?? ['label' => $amendment->status, 'color' => 'slate'];
-            $aSc = ['slate'=>'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400','blue'=>'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400','amber'=>'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400','indigo'=>'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400','green'=>'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400','red'=>'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'];
-        @endphp
-        <div class="flex items-center gap-3 px-5 py-3.5 hover:bg-amber-50/50 dark:hover:bg-amber-900/10 transition-colors group">
-            {{-- Sequence number --}}
-            <span class="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
-                {{ $i + 1 }}
-            </span>
-            {{-- Status icon --}}
-            <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0
-                @if($amendment->status === 'verified') bg-green-500/10 dark:bg-green-500/20
-                @elseif($amendment->status === 'failed') bg-red-500/10 dark:bg-red-500/20
-                @else bg-slate-100 dark:bg-slate-700 @endif">
-                <i class="ti ti-file-text text-sm
-                    @if($amendment->status === 'verified') text-green-500 dark:text-green-400
-                    @elseif($amendment->status === 'failed') text-red-500 dark:text-red-400
-                    @else text-slate-400 dark:text-slate-500 @endif"></i>
-            </div>
-            {{-- Info --}}
-            <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $amendment->title }}</p>
-                <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                    @auth
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium {{ $aSc[$aSm['color']] ?? $aSc['slate'] }}">
-                        {{ $aSm['label'] }}
-                    </span>
-                    @endauth
-                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $amendment->created_at->format('d M Y') }}</span>
-                </div>
-            </div>
-            {{-- View link --}}
-            <a href="{{ $linkForDoc($amendment) }}"
-               class="flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
-                View <i class="ti ti-arrow-right text-xs"></i>
-            </a>
-        </div>
-        @endforeach
-    </div>
 </div>
-@endif
 
 {{-- ── Compare & Verify modal — side-by-side original vs. extracted Markdown ──── --}}
 @auth

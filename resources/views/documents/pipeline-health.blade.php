@@ -144,6 +144,30 @@
     </div>
 </div>
 
+{{-- ── App signals — replaces Pulse's Exceptions/SlowQueries cards (removed 2026-07-26).
+     Same information (log-derived counts over the last hour), no separate package/dashboard. --}}
+@php
+    $errCount = $log_signals['errors_last_hour'] ?? 0;
+    $slowCount = $log_signals['slow_queries_last_hour'] ?? 0;
+    $errColor = $errCount === 0 ? 'emerald' : ($errCount < 5 ? 'amber' : 'red');
+    $slowColor = $slowCount === 0 ? 'emerald' : ($slowCount < 5 ? 'amber' : 'red');
+@endphp
+<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 mt-4">
+    <div class="px-5 py-3 border-b border-slate-100 dark:border-slate-700">
+        <span class="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">App signals (last hour)</span>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 px-5 py-4">
+        <div class="rounded-lg border px-4 py-3 {{ $colorClasses[$errColor] }}">
+            <p class="text-xs font-medium uppercase tracking-wide opacity-80">Errors</p>
+            <p class="text-xl font-bold mt-1">{{ number_format($errCount) }}</p>
+        </div>
+        <div class="rounded-lg border px-4 py-3 {{ $colorClasses[$slowColor] }}">
+            <p class="text-xs font-medium uppercase tracking-wide opacity-80">Slow queries (&gt;500ms/request)</p>
+            <p class="text-xl font-bold mt-1">{{ number_format($slowCount) }}</p>
+        </div>
+    </div>
+</div>
+
 <p class="text-xs text-slate-400 dark:text-slate-500 mt-4 text-center">
     Checked {{ $checked_at->format('d M Y, H:i:s') }} · auto-refreshes every 15s
 </p>

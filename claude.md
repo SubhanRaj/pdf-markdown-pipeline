@@ -34,7 +34,7 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Queue | Laravel **database** queue driver — deliberately no Redis, single-box local deployment |
 | Disk | Single local filesystem disk (`public`); logical separation enforced by path convention, not multiple disks |
 | Dev-only DB setup | [`subhanraj/laravel-db-provisioner`](https://github.com/SubhanRaj/laravel-db-provisioner) (`require-dev`) — `php artisan db:provision` generates a random per-project DB name/user/password rather than reusing a shared MariaDB admin account. Never used in production; see [DEPLOY.md](./DEPLOY.md#3-project-setup). |
-| App monitoring | [Laravel Pulse](https://pulse.laravel.com/) (`GET /pulse`, admin-gated) — slow queries/jobs/requests, exceptions, cache hit rate, queue throughput, live server CPU/memory/storage (via a dedicated `pulse:check` process, not through Apache — see below). Pulls in Livewire as a dependency (only page in the app using it; the rest is plain Blade/vanilla JS, unaffected). |
+| App monitoring | Custom `documents.pipeline.health` dashboard only (load/memory/CPU temp from `/proc`+`/sys`, queue counts, and native slow-query/exception log counts — see below). Laravel Pulse was tried 2026-07-25 and removed 2026-07-26 after repeated Livewire compatibility bugs; see the Pipeline / Server Health section. |
 
 ## PHP upload limits
 
@@ -574,29 +574,33 @@ when jobs are queued but nothing's moved in 15+ minutes, and a `server` block (`
 admin panel — much bigger attack surface than "check load and queue status" needs, especially
 exposed through a tunnel) precisely so there's no new exposed service.
 
-**Laravel Pulse (`GET /pulse`, 2026-07-25)** — installed after the health endpoint above, for
-ongoing app performance visibility the custom page doesn't cover (slow queries, exceptions, cache
-hit rate, per-job/per-request timing history, not just a point-in-time snapshot). Gated by a
-`viewPulse` Gate in `AppServiceProvider::configurePulseAccess()` (`fn (?User $user) =>
-$user?->isAdmin() ?? false`) — reuses the same Fortify-managed session and admin check as every
-other admin-only page in this app (Users, Activity Log, Pipeline Health), no separate login.
-Reachable through the same public tunnel as the rest of the app (no extra Cloudflare config
-needed — it's just another route). The **Servers** card (CPU/memory/storage) is recorded by a
-dedicated `php artisan pulse:check` process — `~/.config/systemd/user/pdf-pipeline-pulse.service`,
-same pattern as `pdf-pipeline-queue.service` — running as a normal CLI process, **not** through
-Apache, so it never hits the `ProcSubset` restriction the health endpoint above had to work around.
-Config at `config/pulse.php` (published, defaults mostly untouched); own migration
-(`2026_07_25_180203_create_pulse_tables`), same `mariadb` connection as everything else.
+**Laravel Pulse — installed 2026-07-25, removed 2026-07-26.** Installed for app performance
+visibility (slow queries, exceptions, cache hit rate, per-job/per-request timing), gated behind
+the same Fortify admin session as the rest of the app. Spent most of its life throwing errors
+instead of showing data: first a CSP/Alpine `unsafe-eval` incompatibility (fixable, but only by
+loosening the CSP on `/pulse` + Livewire's asset routes), then a genuine Livewire v4.3.3 bug —
+`unserialize()` "incomplete object" errors on `Illuminate\Support\Collection`/`stdClass` across
+every Pulse card, on reload or theme switch — which needed pinning Livewire down to `^3.6.4` to
+fix. That second fix worked, but at that point Pulse (plus Livewire, a dependency this app had no
+other use for) was two non-trivial compatibility patches deep for a monitoring tool, on an app
+with exactly one server and one queue worker to monitor. Removed entirely: `composer remove
+laravel/pulse livewire/livewire --with-all-dependencies`, dropped `config/pulse.php`,
+`config/livewire.php`, its migration (rolled back first), `resources/views/vendor/pulse/`, the
+`pdf-pipeline-pulse.service` systemd unit, the `viewPulse` Gate, the sidebar link, and the
+`unsafe-eval` CSP carve-out in `SecurityHeaders` (back to a plain, uniform CSP app-wide).
 
-**Pulse cards stuck on their loading skeleton forever, no server error** — `App\Http\Middleware\
-SecurityHeaders` sends a strict CSP (`script-src 'self' 'unsafe-inline' ...`, no `'unsafe-eval'`).
-Livewire (which Pulse's dashboard is built on) bundles Alpine.js for client-side reactivity, and
-Alpine's default build evaluates every `x-data`/directive via `new Function(...)` — silently
-blocked by that CSP, client-side only, so nothing shows up in `storage/logs/laravel.log`. Fixed by
-publishing `config/livewire.php` and setting `'csp_safe' => true` — this serves Livewire's
-`livewire.csp.min.js` bundle (an eval-free Alpine build) at the exact same asset URL instead of
-loosening the CSP app-wide for one page. If any *other* Livewire component is ever added to this
-app, it inherits this same fix automatically — nothing route-specific to remember.
+Of Pulse's cards, only two were ever actually useful for this app — Exceptions and SlowQueries.
+Both are now native, dependency-free additions to the Pipeline Health page instead of a separate
+dashboard: `AppServiceProvider::configureSlowQueryLogging()` registers
+`DB::whenQueryingForLongerThan(500, ...)` (built into Laravel since 8.x, no package needed) to log
+a `SLOW_QUERY` warning whenever a request/job's total query time crosses 500ms;
+`DocumentController::recentLogSignals()` tails the last 2MB of `storage/logs/laravel.log` and
+counts `.ERROR:` and `SLOW_QUERY` lines timestamped in the last hour. Shown as an "App signals"
+card on `documents.pipeline.health`, same traffic-light coloring as the existing server-vitals
+cards. Servers/Queues/Cache/Usage/SlowJobs/SlowRequests weren't worth keeping — server vitals and
+queue counts were already covered by the existing health page, and the rest (cache hit rate,
+per-user request timing, outgoing-request timing) don't apply to a single-server, admin-only,
+no-outgoing-HTTP app like this one.
 
 **Toolchain** (installed once; see `DEPLOY.md` for full reproducible setup):
 ```bash
@@ -1193,7 +1197,7 @@ Seeder is idempotent (`firstOrCreate` on email). Run with `php artisan db:seed -
 
 **Browse Vault is fully dynamic** — `sidebar.blade.php` queries all `Department` records ordered by level then name. Icon and color resolved from a `$deptMeta` slug → `[icon, color]` map; unknown slugs fall back to a cycling palette. Slug keys use underscores (matching DB slugs), e.g. `sugarcane_sugar`.
 
-**Pipeline / Bulk Upload nav links** — `Pipeline` (linking to `documents.pipeline`) sits under the main document nav with an unscoped live count badge (`Document::whereIn('status', [...])->count()`, all departments, matching the "viewing is never scoped" rule). `Bulk Upload & Convert` (linking to `documents.bulk-upload`) sits under "Tools", visible only when `auth()->user()->uploadScope() !== 'none'`; the header's "New Conversion" CTA button links to the same route under the same gate. Both replace what were previously placeholder/"Coming soon" entries. `Pipeline Health` (linking to `documents.pipeline.health`, 2026-07-25) sits under "Manage", admin-only (`@if(auth()->user()->isAdmin())`) alongside Users/Activity Log — matches the operational, not document-browsing, nature of the page. `Pulse` (linking to the unnamed-prefix `pulse` route, same day) sits right below it, same admin-only gate.
+**Pipeline / Bulk Upload nav links** — `Pipeline` (linking to `documents.pipeline`) sits under the main document nav with an unscoped live count badge (`Document::whereIn('status', [...])->count()`, all departments, matching the "viewing is never scoped" rule). `Bulk Upload & Convert` (linking to `documents.bulk-upload`) sits under "Tools", visible only when `auth()->user()->uploadScope() !== 'none'`; the header's "New Conversion" CTA button links to the same route under the same gate. Both replace what were previously placeholder/"Coming soon" entries. `Pipeline Health` (linking to `documents.pipeline.health`, 2026-07-25) sits under "Manage", admin-only (`@if(auth()->user()->isAdmin())`) alongside Users/Activity Log — matches the operational, not document-browsing, nature of the page. (A `Pulse` link sat below it briefly, 2026-07-25 to 2026-07-26; removed along with Pulse itself.)
 
 ### Rate limiting
 

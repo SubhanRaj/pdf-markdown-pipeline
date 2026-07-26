@@ -121,6 +121,7 @@ class DocumentController extends Controller
             'failed_jobs'       => $failedJobs,
             'documents'         => $counts,
             'server'            => $this->serverVitals(),
+            'log_signals'       => $this->recentLogSignals(),
         ];
 
         $wantsJson = $request->query('format') === 'json' || ($request->wantsJson() && $request->query('format') !== 'html');
@@ -178,6 +179,51 @@ class DocumentController extends Controller
             'memory_available_mb' => $memAvailableKb ? round($memAvailableKb / 1024) : null,
             'cpu_temp_c'          => $tempC,
         ];
+    }
+
+    /**
+     * Native replacement for two of Pulse's cards (Exceptions, SlowQueries) — removed
+     * 2026-07-26 along with the rest of Pulse/Livewire (see AppServiceProvider's
+     * configureSlowQueryLogging()). Rather than a package with its own storage tables and a
+     * Livewire dashboard, this just tails the existing log file (already written to on every
+     * exception and now on every slow query too) and counts recent lines — same information,
+     * no extra moving parts. Only reads the last 2MB so this stays cheap even once the log
+     * file itself is large.
+     */
+    private function recentLogSignals(): array
+    {
+        $path = storage_path('logs/laravel.log');
+        if (! is_file($path)) {
+            return ['errors_last_hour' => 0, 'slow_queries_last_hour' => 0];
+        }
+
+        $size = filesize($path);
+        $handle = fopen($path, 'r');
+        if ($size > 2_000_000) {
+            fseek($handle, -2_000_000, SEEK_END);
+        }
+        $tail = stream_get_contents($handle);
+        fclose($handle);
+
+        $cutoff = now()->subHour();
+        $errors = 0;
+        $slowQueries = 0;
+
+        foreach (explode("\n", $tail) as $line) {
+            if (! preg_match('/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/', $line, $m)) {
+                continue;
+            }
+            if (\Illuminate\Support\Carbon::parse($m[1])->lt($cutoff)) {
+                continue;
+            }
+            if (str_contains($line, '.ERROR:')) {
+                $errors++;
+            } elseif (str_contains($line, 'SLOW_QUERY')) {
+                $slowQueries++;
+            }
+        }
+
+        return ['errors_last_hour' => $errors, 'slow_queries_last_hour' => $slowQueries];
     }
 
     /**
