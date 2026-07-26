@@ -2787,3 +2787,44 @@ CSS rule) · `resources/views/documents/pipeline-health.blade.php` (full Alpine 
 `resources/views/documents/show.blade.php` (share dropdown → Alpine, elapsed-timer seed fix) ·
 `claude.md`, `README.md` (tech-stack rows, new "Frontend interactivity: Alpine, not Livewire"
 section).
+
+## M54 — Pipeline Health `x-data` quoting bug fixed; live status pills on rule-set pages; 7-day sliding sessions with remember-me; rule-set uploads no longer blocked after the root doc exists (COMPLETED 2026-07-26)
+
+**Pipeline Health rendering blank.** `x-data="pipelineHealthState(@json($healthData))"` used
+double quotes around an attribute whose value is JSON — `@json()`'s `JSON_HEX_*` flags only
+escape quote characters *inside* JSON string content, never the JSON syntax's own structural
+`"` delimiters, so the double-quoted HTML attribute broke at the very first key. Alpine failed
+to initialize silently (no `x-cloak`, no console-visible error — just inert, blank-looking
+bindings), which read as "the page doesn't load anything." Fixed by single-quoting the
+attribute (`x-data='pipelineHealthState(@json($healthData))'`) — JSON never contains a literal
+`'`. `resources/views/documents/pipeline-health.blade.php`.
+
+**Live status pills on rule-set/policy pages.** The main rule doc + its amendments on
+`rule_sets/show.blade.php` didn't reflect status changes (e.g. `processing` → `verified`)
+without a manual page refresh — `documents/pipeline.blade.php` had already solved this exact
+problem (poll `/documents/{id}/convert-status` every 5s for in-flight rows, patch two DOM
+elements, reload once nothing's left in-flight). Reused that plain-JS pattern verbatim rather
+than building a new Alpine component — copying an already-proven fix beats re-architecting a
+solved problem. New `data-poll`/`data-doc-row` attributes scoped to authenticated users only
+(guests never see the `@auth`-gated badge). `resources/views/rule_sets/_doc_row.blade.php`,
+`resources/views/rule_sets/show.blade.php`.
+
+**Sessions: 7-day sliding + remember-me, reversing A-04/A-05.** `SECURITY.md` A-04/A-05
+(2026-07-15) tightened sessions to 120-min + expire-on-close + no remember-me for a
+shared-government-workstation threat model. That model doesn't match the actual deployment —
+one PC per user, not a shared kiosk — so the friction of frequent forced re-login had no
+offsetting security benefit here. Set `SESSION_LIFETIME=10080` (7 days, sliding — resets on
+every request, expires only after 7 days idle), `SESSION_EXPIRE_ON_CLOSE=false`, and
+reintroduced a "Remember me" checkbox on the login form wired to Fortify's built-in
+`remember` handling (no controller code needed). `SECURITY.md` A-04/A-05 updated to
+"REVERTED" with the rationale and a note to re-apply the original fix if this app is ever
+deployed to a shared workstation. `.env`, `.env.example`, `resources/views/auth/login.blade.php`.
+
+**Rule-set uploads blocked after the root doc exists.** The "Upload Rule"/"Upload Policy
+Document" button was hard-disabled once a root `rule`/`policy` document existed for that rule
+set — blocking uploads of every other document type too, including `other` (e.g. a bar-rules
+checklist), which previously could only get attached some other way. Backend never actually
+enforced a one-root-doc cap; it was purely a disabled button. Fixed by always leaving the
+button enabled and only disabling the root `rule`/`policy` **option** inside the type dropdown
+once one exists — every other type (`other`, `notice`, `court_order`, etc.) stays uploadable
+through the same modal indefinitely. `resources/views/rule_sets/show.blade.php`.
