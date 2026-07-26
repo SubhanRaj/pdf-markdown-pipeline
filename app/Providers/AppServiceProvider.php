@@ -9,6 +9,7 @@ use App\Models\Folder;
 use App\Models\RuleSet;
 use App\Models\Section;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Connection;
 use Illuminate\Http\Request;
@@ -60,6 +61,16 @@ class AppServiceProvider extends ServiceProvider
             ActivityLog::record('auth.login', request(), [
                 'guard' => $event->guard,
             ]);
+        });
+
+        // Fired inside Auth::logout() after the guard has already cleared the authenticated
+        // user, so auth()->id() would be null by now — $event->user carries the actor instead.
+        // Also why LogMutation can't catch this itself: its post-response auth()->check() is
+        // always false for the logout route by the time it runs.
+        Event::listen(Logout::class, function (Logout $event) {
+            if ($event->user) {
+                ActivityLog::record('auth.logout', request(), [], $event->user->id);
+            }
         });
     }
 

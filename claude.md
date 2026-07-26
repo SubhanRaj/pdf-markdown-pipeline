@@ -264,6 +264,28 @@ All check `withTrashed()` and append `-2`, `-3` on collision. DB unique constrai
 
 Append-only audit table. Only authenticated users are logged (guests are never recorded). Read-only from the application layer — no update/delete routes exist.
 
+**Human-readable action labels (2026-07-26).** `Admin\ActivityLogController::ACTION_LABELS`/
+`ACTION_COLORS` map raw route names (`action` column) to short phrases ("Login", "Upload
+Document", "Convert to Markdown") and a Tailwind badge color — the same lookup-table-with-
+fallback-to-raw-string pattern the `~/Projects` sibling apps use for their own audit logs
+(checked directly before building this). **Whenever a new POST/PATCH/DELETE route is added,
+add its label here too** — an unmapped action still works (falls back to the raw route name)
+but defeats the point of this table. `LogMutation::SKIP_ROUTES` excludes routes that either
+already get a dedicated, more accurate entry via an event listener (`otp.verify`, `logout` —
+see below) or aren't a meaningful state change on their own (`otp.resend`, `login.attempt` —
+a password check, not a mutation).
+- **Login** is recorded via the `Illuminate\Auth\Events\Login` listener (`AppServiceProvider`),
+  not `LogMutation` — this fires exactly once per real login regardless of which controller
+  called `Auth::login()`, so the custom OTP-based `LoginController` needed no logging code of
+  its own to get this right.
+- **Logout** needed its own `Illuminate\Auth\Events\Logout` listener for a reason that isn't
+  obvious: by the time `LogMutation`'s post-response `auth()->check()` runs on the logout route,
+  the guard has already cleared the user, so it's always `false` there — `LogMutation` can
+  never see logout as "an authenticated request." The `Logout` event fires *during*
+  `Auth::logout()`, still carrying `$event->user` explicitly, which is why
+  `ActivityLog::record()` takes an optional `$userId` override parameter (defaults to
+  `auth()->id()`) — the only caller that ever needs it is this listener.
+
 **Timezone note (2026-07-25):** `document_status_histories.created_at`, `activity_logs.created_at`, and `failed_jobs.failed_at` all use a MariaDB-level `useCurrent()` column default rather than Eloquent's own timestamp assignment (the first two have `$timestamps = false` on their models). MariaDB's `CURRENT_TIMESTAMP` evaluates using the **server's system timezone** (this box is `Asia/Kolkata`/IST), not `config('app.timezone')` (`UTC`) — without the `'timezone' => '+00:00'` entry on the `mariadb` connection in `config/database.php`, these three columns silently stored IST wall-clock values that every other part of the app (Carbon casts, `now()`, `diffForHumans()`) treated as UTC, a consistent ~5.5h skew on any calculation against them (the raw printed digits via `format()` were never visibly wrong — only diffs/comparisons were). Fixed once at the connection level so any future `useCurrent()` column is automatically correct too — don't re-add a per-table fix. Existing historical rows in these three tables predate the fix and remain skewed.
 
 ### `users`
@@ -305,7 +327,7 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 | Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions, folder names/descriptions; guests see `visibility = 'public'` docs and folders only; results capped at 50 docs + 20 sections + 20 rule sets + 20 folders; `->publishable()` scope hides pending/rejected |
 | User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins; `division_id`, `uploads_require_approval` fields added; `documents.approve` privilege checkbox added |
 | Archive | `DocumentController` (existing methods) | Soft-deleted documents accessible to all authenticated users; "Archive" in all UI; counts split active vs archived; restore gated by `documents.restore` privilege; permanent delete gated by `documents.force-delete` + requires reason + letter PDF upload — letter stored on the **private `local` disk** (`storage/app/private/archive_letters/`), never on public disk; letter path stored in `document_status_histories.metadata` |
-| Activity Log | `Admin\ActivityLogController` | Admin-only audit view at `GET /admin/activity-logs`; filterable by user, action, and IP; paginates the `activity_logs` table (50/page); `LogMutation` middleware records all authenticated POST/PATCH/DELETE requests; `Login` event listener records every successful login with IP, UA, and guard |
+| Activity Log | `Admin\ActivityLogController` | Admin-only audit view at `GET /admin/activity-logs`; filterable by user, action, and IP; paginates the `activity_logs` table (50/page); `LogMutation` middleware records all authenticated POST/PATCH/DELETE requests (except a short skip-list — see "`activity_logs`" table notes); `Login`/`Logout` event listeners record every session start/end with IP, UA, and guard; raw route names shown as human-readable labels via `ACTION_LABELS` |
 | Approval Queue | `ApprovalController` | Maker-checker workflow at `GET /approvals`; three tabs (Pending / Rejected / My Submissions); approve, reject, reclassify, resubmit actions; scope-aware (approvers see only their org boundary); PDF preview via slide-over drawer; bulk approve/reject |
 | **Text Extraction / OCR / Structure** | **`DocumentController` (`convert`, `convertOcr`, `conversionStatus`, `structureJson`, `updateMarkdown`, `discardMarkdown`)** | **Button-triggered Markdown conversion (`ConvertDocumentToMarkdown` job, now also runs a Docling structure-detection Pass 0) + on-demand OCR re-extraction (`RunOcrExtraction` job); Compare & Verify split-pane modal on `documents/show`; see dedicated section below** |
 | **Bulk Upload** | **`DocumentController@bulkUploadForm`** | **`GET /documents/bulk-upload` — single page to upload multiple files to any department/section/division/folder/rule-set the user is scoped to, with optional auto-convert per file** |
@@ -1578,7 +1600,7 @@ This keeps Unicode letters + combining marks intact and collapses everything els
 
 ### General
 - Never log passwords, tokens, or full request bodies — always `$request->except(['password', 'password_confirmation'])`.
-- **Activity logging** — `LogMutation` middleware (registered globally) records every authenticated POST/PATCH/DELETE with user ID, IP, user agent, route name, and HTTP status into `activity_logs`. The `Login` event listener records every successful login. Guests are never logged. `ActivityLog::record()` is non-fatal — logging failures are caught and written to Laravel's application log, never propagated to the user. The `activity_logs` table is append-only; no application route deletes or updates these rows.
+- **Activity logging** — `LogMutation` middleware (registered globally) records every authenticated POST/PATCH/DELETE with user ID, IP, user agent, route name, and HTTP status into `activity_logs`, except `LogMutation::SKIP_ROUTES`. The `Login`/`Logout` event listeners record every session start/end. Guests are never logged. `ActivityLog::record()` is non-fatal — logging failures are caught and written to Laravel's application log, never propagated to the user. The `activity_logs` table is append-only; no application route deletes or updates these rows. Raw route-name actions are shown as human-readable labels in the admin UI via `ActivityLogController::ACTION_LABELS` — see the `activity_logs` schema section for the full explanation.
 - Sensitive config (DB credentials, mail passwords) belongs in `.env` only — never hardcoded.
 - `.env.example` must have blank values for all secrets.
 

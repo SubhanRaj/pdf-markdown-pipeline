@@ -2898,3 +2898,47 @@ loading a protected page. Test account deleted afterward.
 `resources/views/emails/{layout,onboarding,otp}.blade.php` (new),
 `resources/views/admin/users/{create,edit}.blade.php`, `.env`, `.env.example`,
 `composer.json`/`composer.lock`. Docs: `claude.md`, `README.md`, `SECURITY.md` (new Pass 5).
+
+## M56 — Activity log shows human-readable actions instead of raw routes (COMPLETED 2026-07-26)
+
+The admin activity log showed raw route names (`documents.convert`, `otp.verify`) and full
+URLs — technical, not what an admin scanning "who did what" wants. Checked how the two sibling
+`~/Projects` apps present their own audit logs first: both use the exact same pattern this app
+already had partially built (a raw-action → human-label lookup table with fallback to the raw
+string, plus separate columns rather than composed sentences) — so the fix was completing that
+table, not redesigning the approach.
+
+**Completed the label/color map.** `ActivityLogController::ACTION_LABELS`/`ACTION_COLORS` had
+~28 of the ~60 real mutation routes mapped; every unmapped one (`documents.convert`,
+`documents.markdown.update`, approvals, policy periods, folders, etc.) fell back to showing the
+raw route name — which is exactly what showed up in the screenshot that prompted this. Filled
+in the rest.
+
+**Fixed two real logging bugs found along the way, not just the missing labels:**
+- **Duplicate login entries.** `Auth::login()` (fired by the new OTP `LoginController`) triggers
+  the `Login` event, logged as a clean `auth.login` row — but by the time `LogMutation`
+  middleware's post-response check ran on the same `/login/otp/verify` request, the user was
+  *already* authenticated (the controller had called `Auth::login()` earlier in the same
+  request), so it logged a second, redundant `otp.verify` row for the identical action. Added
+  `LogMutation::SKIP_ROUTES` to exclude routes that already get a dedicated, more accurate entry
+  elsewhere.
+- **Logout wasn't logged at all.** The inverse problem: by the time `LogMutation` checks
+  `auth()->check()` on the logout route, the guard has *already* cleared the user (that's what
+  logout does), so the check is always false and logout silently never appeared in the log.
+  Added an `Illuminate\Auth\Events\Logout` listener (mirroring the existing `Login` one) —
+  `Logout` fires *during* `Auth::logout()`, still carrying `$event->user`, so
+  `ActivityLog::record()` gained an optional `$userId` override parameter for this one caller
+  that can't rely on `auth()->id()` being available.
+
+**Verified live**, not just linted: confirmed via tinker that a real login inserts a labeled
+`auth.login` row, and a real `Auth::guard('web')->logout()` call inserts a correctly-attributed
+`auth.logout` row (`user_id` present despite `Auth::check()` already being `false` at that
+point).
+
+**Small readability fix in the view**: the "URL" column showed the full
+`https://docsrepo.exciseup.in/...` — same domain every time, adding nothing. Now shows just the
+path (`parse_url($url, PHP_URL_PATH)`), renamed the column header to "Path" to match.
+
+**Files changed:** `app/Http/Controllers/Admin/ActivityLogController.php`,
+`app/Http/Middleware/LogMutation.php`, `app/Models/ActivityLog.php`,
+`app/Providers/AppServiceProvider.php`, `resources/views/admin/activity-logs/index.blade.php`.

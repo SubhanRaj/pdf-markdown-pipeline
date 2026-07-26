@@ -32,13 +32,16 @@ class ActivityLog extends Model
     /**
      * Append an activity row. Never throws — log failures are non-fatal.
      *
+     * $userId defaults to the current auth()->id(), but must be passed explicitly for events
+     * fired after the guard has already cleared the authenticated user — logout, most notably.
+     *
      * @param array<string,mixed> $meta
      */
-    public static function record(string $action, Request $request, array $meta = []): void
+    public static function record(string $action, Request $request, array $meta = [], ?int $userId = null): void
     {
         try {
             static::create([
-                'user_id'    => auth()->id(),
+                'user_id'    => $userId ?? auth()->id(),
                 'action'     => $action,
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent() ? substr($request->userAgent(), 0, 500) : null,
