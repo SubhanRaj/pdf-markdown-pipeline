@@ -194,3 +194,43 @@ exactly what this needed. This was a pure view/routing restructure:
 
 Nothing changed in `PolicyPeriodController`, period create/edit, the document/amendment view, or
 container create/edit/store/destroy — this only changed how a user *browses down* to a period.
+
+## 5. Per-state shape icons (2026-07-26, same day follow-up)
+
+The generic map-pin icon on every state card (§4) wasn't distinctive enough — asked for real
+per-state icons/shapes. Found `@svg-maps/india` (npm package, CC-BY-4.0, maintained by Victor
+Cazanave) — one SVG file with all 36 states/UTs as separate `<path id aria-label>` elements,
+accurate boundaries. Explicitly **not** installed via npm (this app has no Node/build step and
+that's staying true) — loaded client-side via a pinned-version jsDelivr CDN URL instead, same
+pattern already used for Alpine.js/Grid.js/Air Datepicker.
+
+**How it works** (`resources/views/rule_sets/_state_icon_loader.blade.php`): one `fetch()` of the
+map SVG, parsed client-side, then for every `[data-state-icon="State Name"]` element on the page
+(or `data-state-icon="__all__"` for the landing page's whole-India icon) — find the matching
+`<path>` by its `aria-label`, clone it into a temporary off-screen `<svg>`, call `getBBox()` to
+get its real bounding box, and build a small cropped `<svg viewBox="...">` from that box. Purely
+decorative and non-blocking: the `ti-map-pin` fallback icon already in the markup is left alone
+if the fetch fails (flaky office network) or a state has no matching path — unlike the app's
+global icon font (see claude.md's Tabler subsetting note), a missing icon here never breaks
+anything else on the page.
+
+**CSP had to be extended.** `connect-src 'self'` blocked the `fetch()` outright (script-src/
+style-src/font-src already trusted jsDelivr, but connect-src didn't) — silently failed with no
+visible error until checked via a real headless-browser console capture. Added
+`https://cdn.jsdelivr.net` to `connect-src` in `SecurityHeaders.php` — same origin already
+trusted for three other directives, just extended to `fetch()`.
+
+**Two boundary mismatches, handled gracefully, not bugs:** the map's data predates two changes
+`RuleSet::STATES` already reflects — Ladakh (split from Jammu and Kashmir, 2019) has no path at
+all in the source data, so it always shows the plain fallback icon. "Dadra and Nagar Haveli and
+Daman and Diu" (the two UTs merged in 2020) is reconstructed by combining the map's two separate
+old-UT paths into one icon.
+
+**Investigated as a possible bug, turned out to be correct:** Lakshadweep and Puducherry's icons
+initially looked like they'd fallen back to the plain pin too. Traced with a live headless-Chrome
+console capture (confirmed via `google-chrome --headless --dump-dom` — no CDP/Puppeteer install
+needed, Node 24's build already covers what was needed) all the way through matching → bbox →
+DOM injection, and the real `<path>` data genuinely was there in the final DOM. Both territories
+are real archipelagos/scattered enclaves (Lakshadweep = coral atolls; Puducherry = several
+non-contiguous enclaves across South India) — their *accurate* shape is a small cluster of dots,
+which just visually resembles the pin icon at small size. Correct behavior, not a defect.

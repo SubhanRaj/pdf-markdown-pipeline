@@ -45,7 +45,10 @@ class SecurityHeaders
             "font-src 'self' https://cdn.jsdelivr.net",
             "img-src 'self' data:",
             "frame-src 'self'",
-            "connect-src 'self'",
+            // cdn.jsdelivr.net added 2026-07-26 for the policy page's client-side state-shape
+            // icons (fetch() of @svg-maps/india's SVG) — same origin already trusted for
+            // script-src/style-src/font-src above, just extended to fetch().
+            "connect-src 'self' https://cdn.jsdelivr.net",
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",

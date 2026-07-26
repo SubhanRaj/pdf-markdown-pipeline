@@ -35,7 +35,7 @@
     <a href="{{ route('departments.policy.state', [$department->levelAlias(), $department, \App\Models\RuleSet::stateSlug(\App\Models\RuleSet::DEFAULT_STATE)]) }}"
        class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
         <div class="flex items-center gap-3">
-            <div class="stat-icon bg-emerald-50 dark:bg-emerald-900/30 flex-shrink-0">
+            <div class="stat-icon bg-emerald-50 dark:bg-emerald-900/30 flex-shrink-0 p-2" data-state-icon="{{ \App\Models\RuleSet::DEFAULT_STATE }}">
                 <i class="ti ti-map-pin text-emerald-500 dark:text-emerald-400"></i>
             </div>
             <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ $upCount }}</p>
@@ -47,7 +47,7 @@
     <a href="{{ route('departments.policy.other-states', [$department->levelAlias(), $department]) }}"
        class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
         <div class="flex items-center gap-3">
-            <div class="stat-icon bg-indigo-50 dark:bg-indigo-900/30 flex-shrink-0">
+            <div class="stat-icon bg-indigo-50 dark:bg-indigo-900/30 flex-shrink-0 p-2" data-state-icon="__all__">
                 <i class="ti ti-map-pin text-indigo-500 dark:text-indigo-400"></i>
             </div>
             <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ $otherStatesCount }}</p>
@@ -57,6 +57,10 @@
     </a>
 
 </div>
+
+@push('scripts')
+@include('rule_sets._state_icon_loader')
+@endpush
 
 @else
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
