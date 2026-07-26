@@ -27,7 +27,7 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Framework | Laravel 13, PHP 8.4 |
 | Database | MariaDB 12 |
 | Web server | Apache (mod_php or php-fpm via mod_proxy_fcgi) — **no Nginx** |
-| Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Parsedown (markdown render) — **no Node, no npm, no build step** |
+| Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Alpine.js (CDN, `defer`) for client-side interactivity/polling, Parsedown (markdown render) — **no Node, no npm, no build step**. Livewire evaluated 2026-07-26 and deliberately rejected — see "Frontend interactivity: Alpine, not Livewire" below. |
 | Text extraction | Python `markitdown` (Microsoft, MIT), via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
 | Structure detection | [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0), own venv (`storage/app/private/ocr-engines/docling/`) — layout/table-structure model, runs automatically as Pass 0 of every "Convert to Markdown" click, after the quick text-layer pass (reordered M34). Detects headings and table cells with bounding boxes; stored as a compact sibling `.structure.json` and spliced into the rendered Markdown wherever the geometric heuristic missed a table (M33) or heading (M34) — see `STRUCTURE_RESEARCH.md`. |
 | OCR | Selectable engine — Tesseract (Google/HP, `hin`+`eng`, default), EasyOCR (JaidedAI), PaddleOCR (Baidu), or Surya (VikParuchuri, open source) — invoked via `symfony/process`. Triggered either automatically (M34: when the text-layer pass looks unreadable, `RunOcrExtraction` is auto-dispatched with no click needed) or manually via "Run OCR-Based Extraction" (with an engine dropdown) from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below and `config/ocr.php`. |
@@ -344,6 +344,16 @@ endpoints now persist the real status (+ a `DocumentStatusHistory` entry) before
 another `reserved_at`'d job that isn't this document's), so the UI can show "waiting in queue —
 another document is currently processing" instead of looking stuck.
 
+**Fixed 2026-07-26 — elapsed timer reset to 0:00 on every page refresh.** `startConversionPolling()`
+always seeded its elapsed-time counter from `Date.now()` — correct right after clicking Convert
+(nothing has elapsed yet), wrong if the user reloads the page mid-conversion, since it then reads
+as the job having silently restarted. Fixed by seeding from the real conversion-start time instead:
+`show.blade.php` reads the latest `DocumentStatusHistory` row's `created_at` for the document into
+a `data-started-at` attribute on `#markdown-card`, and `startConversionPolling()` uses that when
+present, falling back to `Date.now()` only for the two cases where "now" is actually correct — the
+AJAX-triggered convert-button click and the OCR-compare panel, both of which start the timer at
+the moment the user just initiated the action.
+
 **Pass 0 — Docling structure detection, runs automatically before text extraction:**
 Every "Convert to Markdown" click also runs Docling (`storage/app/private/ocr-engines/docling/`
 venv) against the original PDF via its own CLI (`docling convert --to json`), before the
@@ -601,6 +611,48 @@ cards. Servers/Queues/Cache/Usage/SlowJobs/SlowRequests weren't worth keeping �
 queue counts were already covered by the existing health page, and the rest (cache hit rate,
 per-user request timing, outgoing-request timing) don't apply to a single-server, admin-only,
 no-outgoing-HTTP app like this one.
+
+### Frontend interactivity: Alpine, not Livewire (2026-07-26)
+
+Recurring complaint: several pages needed a manual refresh to show anything new — most visibly,
+the OCR elapsed-timer on `documents/show.blade.php` restarted from `0:00` every time the page was
+reloaded mid-conversion, even though the job had actually been running for minutes, and
+`documents.pipeline.health` used `<meta http-equiv="refresh" content="15">` (a full page reload
+every 15s, which reads as the whole page "rebooting" rather than updating). This prompted
+evaluating whether to adopt the TALL stack (Tailwind, **Alpine**, **Livewire**, Laravel).
+
+**Livewire — evaluated and rejected.** This app already tried Livewire once, as Pulse's dependency
+(see above), and hit two real compatibility bugs in the few days it was installed — a CSP/Alpine
+`unsafe-eval` conflict and a v4.3.3 `unserialize()` bug requiring a downgrade pin. Livewire also
+solves a different problem than what was actually broken here: every interaction becomes a
+server round-trip with component-state serialization/hydration, which is real architectural
+weight for what turned out to be plain bugs (a client-side timer seeded from the wrong value, a
+`<meta refresh>` instead of a targeted fetch) — not a case where reactivity itself was missing.
+
+**Alpine.js — adopted.** Single `<script defer>` CDN include in `head.blade.php`
+(`resources/views/components/head.blade.php`), no build step, no server round-trips — it only
+wires already-existing `fetch()` calls to reactive Blade-native markup (`x-data`, `x-show`,
+`x-text`, `:class`) instead of hand-rolled `document.getElementById`/`addEventListener` code.
+Used so far:
+- **`documents.pipeline.health`** — rewritten from `<meta http-equiv="refresh">` to an Alpine
+  component (`pipelineHealthState()`) that polls the page's own `?format=json` endpoint every 15s
+  and patches the DOM in place; the page still server-renders full initial values (works even
+  before Alpine loads), Alpine just keeps them current afterward.
+- **`documents/show.blade.php` share dropdown** — `x-data="{ shareOpen, copied }"` with
+  `@click.outside`/`@keydown.escape.window`, replacing ~30 lines of manual toggle/outside-click/
+  Escape-key/clipboard-icon-swap JS.
+- The OCR elapsed-timer reset itself was a plain one-line JS bug, not an Alpine job: it needed the
+  real conversion-start timestamp (from the latest `DocumentStatusHistory` row) rendered into a
+  `data-started-at` attribute and read by the existing `startConversionPolling()` function, instead
+  of Alpine — fixed directly, see "OCR elapsed timer" note near the conversion pipeline section.
+
+Global nav chrome (dark mode, mobile sidebar drawer, sidebar collapse, nav tooltips in
+`layout.blade.php`) was **left as plain JS** — it already works correctly, touches every page in
+the app, and converting it wouldn't fix anything that was actually reported broken; rewriting
+working, low-risk code for its own sake isn't worth the regression surface. Reach for Alpine on
+new interactive components or when touching code with this same class of bug (state that should
+be seeded from the server but isn't, or a full-page reload standing in for a targeted update) —
+don't retrofit it onto working code.
 
 **Toolchain** (installed once; see `DEPLOY.md` for full reproducible setup):
 ```bash

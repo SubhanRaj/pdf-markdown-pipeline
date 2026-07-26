@@ -80,6 +80,12 @@
          got smaller. See CLAUDE.md's "Icon font" note before adding a new ti-* class. --}}
     <link rel="stylesheet" href="{{ asset('vendor/tabler-icons/tabler-icons.min.css') }}">
 
+    {{-- Alpine.js: lightweight reactive layer for polling-driven UI (elapsed timers, live
+         pipeline stats) and small interactive components (dropdowns), replacing hand-rolled
+         querySelector/addEventListener code. No build step, no JS framework. Livewire was
+         evaluated 2026-07-26 and rejected — see CLAUDE.md "Frontend interactivity" section. --}}
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+
     {{-- Chart.js via jsDelivr --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
@@ -99,6 +105,10 @@
 
     <style type="text/tailwindcss">
         body { font-family: 'Inter', system-ui, sans-serif; }
+
+        /* Hide Alpine-controlled elements until Alpine has initialized them, so a dropdown/panel
+           doesn't flash open before x-show runs on first paint. */
+        [x-cloak] { display: none !important; }
 
         /* ── Sidebar nav ─────────────────────────────────────────────────── */
         .nav-link {

@@ -230,8 +230,8 @@
     {{-- flex-1 buttons (not a fixed grid-cols-4) so this still looks right when fewer than
          four buttons render — e.g. a public visitor only ever sees Share. --}}
     <div class="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:items-center">
-        <div class="relative flex-1 sm:flex-none min-w-[5rem] sm:min-w-0">
-            <button type="button" id="share-menu-btn" title="Share"
+        <div class="relative flex-1 sm:flex-none min-w-[5rem] sm:min-w-0" x-data="{ shareOpen: false, copied: false }" @keydown.escape.window="shareOpen = false">
+            <button type="button" title="Share" @click="shareOpen = !shareOpen"
                     class="w-full inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
                 <i class="ti ti-share-2 text-base"></i>
                 <span class="hidden sm:inline">Share</span>
@@ -239,7 +239,8 @@
             {{-- Anchored left on mobile (button sits at the left edge of a full-width row, so a
                  right-anchored panel would overflow past the left edge of the viewport) and
                  right on desktop (button sits at the far right of the header row). --}}
-            <div id="share-menu-panel" class="hidden absolute left-0 sm:left-auto sm:right-0 top-full mt-2 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20">
+            <div x-show="shareOpen" x-cloak @click.outside="shareOpen = false"
+                 class="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20">
                 <a href="https://wa.me/?text={{ urlencode($document->title . ' — ' . url()->current()) }}" target="_blank" rel="noopener"
                    class="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                     <i class="ti ti-brand-whatsapp text-base text-green-500"></i> WhatsApp
@@ -248,9 +249,15 @@
                    class="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                     <i class="ti ti-brand-x text-base"></i> X
                 </a>
-                <button type="button" id="share-copy-link-btn" data-share-url="{{ url()->current() }}"
+                <button type="button"
+                        @click="
+                            navigator.clipboard.writeText('{{ url()->current() }}');
+                            copied = true;
+                            setTimeout(() => { copied = false; shareOpen = false }, 1500);
+                        "
                         class="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                    <i class="ti ti-link text-base"></i> Copy link
+                    <i class="ti text-base" :class="copied ? 'ti-check' : 'ti-link'"></i>
+                    <span x-text="copied ? 'Copied!' : 'Copy link'"></span>
                 </button>
             </div>
         </div>
@@ -414,7 +421,13 @@
 
         {{-- ── Conversion status strip — sits above the viewer so it's the first thing seen ──── --}}
         @if($isConverting)
-        <div id="markdown-card" class="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl px-6 py-8 text-center" data-poll-status-url="{{ route('documents.convert-status', $document->id) }}">
+        @php
+            // The conversion may have started well before this page load (e.g. the user hit
+            // refresh mid-OCR) — seed the elapsed timer from the last status-change timestamp
+            // instead of "now", or it wrongly resets to 0:00 on every refresh.
+            $conversionStartedAt = $document->statusHistory->sortByDesc('created_at')->first()?->created_at ?? now();
+        @endphp
+        <div id="markdown-card" class="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl px-6 py-8 text-center" data-poll-status-url="{{ route('documents.convert-status', $document->id) }}" data-started-at="{{ $conversionStartedAt->timestamp * 1000 }}">
             <i class="ti ti-loader-2 animate-spin text-2xl text-indigo-500 dark:text-indigo-400"></i>
             <p class="mt-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">
                 {{ $document->status === 'ocr_pending' ? 'Running OCR (Hindi + English)…' : 'Converting to Markdown…' }}
@@ -774,7 +787,7 @@
             </div>
         </div>
 
-        <div class="flex items-center gap-3 px-6 py-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">
+        <div class="flex flex-wrap items-center gap-2 sm:gap-3 px-4 sm:px-6 py-3 sm:py-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">
             <button type="button" id="compare-save-draft-btn"
                     class="inline-flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
                 <i class="ti ti-device-floppy text-base"></i> Save Draft
@@ -987,39 +1000,6 @@ try {
                 setTimeout(function () {
                     icon.classList.remove('ti-check');
                     icon.classList.add('ti-copy');
-                }, 1500);
-            });
-        });
-    }
-
-    const shareMenuBtn   = document.getElementById('share-menu-btn');
-    const shareMenuPanel = document.getElementById('share-menu-panel');
-    if (shareMenuBtn && shareMenuPanel) {
-        shareMenuBtn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            shareMenuPanel.classList.toggle('hidden');
-        });
-        document.addEventListener('click', function (e) {
-            if (!shareMenuPanel.classList.contains('hidden') && !shareMenuPanel.contains(e.target)) {
-                shareMenuPanel.classList.add('hidden');
-            }
-        });
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape') shareMenuPanel.classList.add('hidden');
-        });
-    }
-
-    const shareCopyBtn = document.getElementById('share-copy-link-btn');
-    if (shareCopyBtn) {
-        shareCopyBtn.addEventListener('click', function () {
-            navigator.clipboard.writeText(shareCopyBtn.dataset.shareUrl).then(function () {
-                const icon = shareCopyBtn.querySelector('i');
-                icon.classList.remove('ti-link');
-                icon.classList.add('ti-check');
-                setTimeout(function () {
-                    icon.classList.remove('ti-check');
-                    icon.classList.add('ti-link');
-                    shareMenuPanel?.classList.add('hidden');
                 }, 1500);
             });
         });
@@ -1353,7 +1333,7 @@ function startConversionPolling(card, elapsedElId) {
     const pollUrl = card?.dataset.pollStatusUrl;
     if (!pollUrl) return;
 
-    const startedAt = Date.now();
+    const startedAt = card.dataset.startedAt ? Number(card.dataset.startedAt) : Date.now();
     const elapsedTimer = setInterval(function () {
         const el = document.getElementById(elapsedElId || 'convert-elapsed');
         if (!el) { clearInterval(elapsedTimer); return; }
