@@ -4,7 +4,6 @@ namespace App\Http\Requests\Admin;
 
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rules\Password;
 
 class StoreUserRequest extends FormRequest
 {
@@ -21,7 +20,8 @@ class StoreUserRequest extends FormRequest
             'email'         => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
             'mobile'        => ['nullable', 'digits:10'],
             'landline'      => ['nullable', 'string', 'max:20', 'regex:/^[\d\s\-\+\(\)]{7,20}$/'],
-            'password'      => ['required', 'confirmed', Password::min(8)->mixedCase()->numbers()->symbols()],
+            // No password field — the account is passwordless until the officer completes
+            // onboarding via their emailed signed link (see OnboardingController).
             'post'          => ['nullable', 'string', 'max:100', 'regex:/^[\p{L}\s\'\-\.&\/\(\)]+$/u'],
             'role'                     => ['required', 'in:admin,operator,viewer'],
             'uploads_require_approval' => ['nullable', 'boolean'],

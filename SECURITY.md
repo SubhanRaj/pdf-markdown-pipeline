@@ -905,6 +905,49 @@ APP_DEBUG=true   # PRODUCTION: must be 'false' — true leaks stack traces
 
 ---
 
+## Pass 5 (2026-07-26) — Passwordless Onboarding + Email-OTP Login
+
+Not an audit finding — a requested feature change with real security implications, logged here
+for the same reason A-04/A-05's reversal was: future audits need the *current* state, not just
+what earlier passes fixed.
+
+**Removed: admin-chosen passwords at account creation.** `UserManagementController::store()`
+previously took a plaintext password straight from the admin's create-user form — meaning
+password strength/uniqueness/secrecy depended on whatever the admin typed or improvised, and
+that password had to be communicated to the officer out-of-band (verbally, chat, etc — an
+unlogged secret-sharing channel). Now the account is created with an unusable random placeholder
+and `email_verified_at = null`; the officer receives a signed, single-use, 72h-expiry link
+(`URL::temporarySignedRoute`) and sets their own password directly. No token table, no
+out-of-band secret ever exists to leak.
+
+**Added: email OTP as a genuine second factor.** Password-only login previously meant a leaked/
+guessed password was sufficient for account takeover. Now `POST /login` validates credentials
+without granting a session (`Auth::guard('web')->validate()`, not `Auth::login()`), and a session
+is only issued after a 6-digit code emailed to that same address is verified
+(`POST /login/otp/verify`, `hash_equals()`, 10-min expiry). Reuses the pre-existing `two-factor`
+rate limiter (`AppServiceProvider`, 5/min keyed by `session('login.id')|ip`) rather than
+introducing a new one. A 45s resend cooldown additionally caps email volume.
+
+**Interaction with A-04/A-05's reversal:** the 7-day sliding session + remember-me (reinstated
+2026-07-26, see above) means OTP fires only on a genuine fresh login — Laravel's remember-me
+cookie re-authenticates via `Auth::viaRemember()` without ever touching `/login` again. This was
+a deliberate design choice, not an oversight: frequent OTP emails would both be poor UX and
+burn whatever email-sending quota is in play.
+
+**Files changed:** `app/Http/Controllers/Admin/UserManagementController.php`,
+`app/Http/Requests/Admin/StoreUserRequest.php`,
+`app/Http/Controllers/Auth/OnboardingController.php` (new),
+`app/Http/Controllers/Auth/LoginController.php` (new), `app/Mail/AccountOnboarding.php` (new),
+`app/Mail/LoginOtp.php` (new), `app/Providers/FortifyServiceProvider.php` (`Fortify::ignoreRoutes()`),
+`routes/web.php`, `resources/views/auth/{onboarding,otp}.blade.php` (new),
+`resources/views/emails/*` (new), `resources/views/admin/users/{create,edit}.blade.php`.
+
+Verified end-to-end against a live throwaway account: activation link single-use enforcement,
+correct-password → OTP → correct-code → authenticated session, wrong-link-reuse → redirect to
+login rather than reopening the set-password form.
+
+---
+
 ## Passing Checks — Confirmed Pre-Existing (No Remediation Required)
 
 These are not vulnerabilities in the current state but should be addressed before the application handles sensitive classified data.
@@ -923,4 +966,4 @@ These are not vulnerabilities in the current state but should be addressed befor
 
 ---
 
-*Audit and remediation completed 2026-06-24. Pass 3 (M29 Folders) added 2026-07-04, with H-03 left open. Pass 4 (M30 Text Extraction & Markdown Conversion Pipeline) added 2026-07-13, with L-04 left open. Re-audit recommended after any significant change to upload, authentication, or access-control logic.*
+*Audit and remediation completed 2026-06-24. Pass 3 (M29 Folders) added 2026-07-04, with H-03 left open. Pass 4 (M30 Text Extraction & Markdown Conversion Pipeline) added 2026-07-13, with L-04 left open. Pass 5 (passwordless onboarding + email-OTP login) added 2026-07-26. Re-audit recommended after any significant change to upload, authentication, or access-control logic.*

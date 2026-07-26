@@ -2828,3 +2828,70 @@ enforced a one-root-doc cap; it was purely a disabled button. Fixed by always le
 button enabled and only disabling the root `rule`/`policy` **option** inside the type dropdown
 once one exists — every other type (`other`, `notice`, `court_order`, etc.) stays uploadable
 through the same modal indefinitely. `resources/views/rule_sets/show.blade.php`.
+
+## M55 — Passwordless onboarding + email-OTP login (COMPLETED 2026-07-26)
+
+Two auth changes shipped together: admin-created accounts no longer get admin-set passwords
+(the officer sets their own via a one-time emailed link), and login now requires a 6-digit email
+code after password — modeled on `github.com/SubhanRaj/pla`'s email-OTP flow, rebuilt in this
+app's own Tailwind/Alpine style. Both were evaluated first against real reference implementations
+(the ~/Projects sibling apps for magic-link onboarding, `pla` for OTP) before building, per this
+session's established "reuse over rewrite" approach.
+
+**Onboarding.** `UserManagementController::store()` no longer takes a password —
+`StoreUserRequest` dropped the field entirely. The user is created with an unusable placeholder
+password and `email_verified_at = null`, then `URL::temporarySignedRoute('onboarding.show',
+now()->addHours(72), ['user' => $id])` is mailed via `App\Mail\AccountOnboarding`. No new DB
+table: `email_verified_at` doubles as the single-use gate — `OnboardingController::show()`/
+`store()` redirect straight to `/login` once it's non-null, so a re-visited link can't reopen the
+set-password form. This is simpler than both sibling `~/Projects` apps, which hand-rolled DB
+token tables purely because Next.js/Cloudflare has no equivalent of Laravel's signed URLs.
+`resources/views/admin/users/create.blade.php` dropped its password fields and strength meter;
+`edit.blade.php` gained a "Resend activation link" button, visible only while unactivated.
+
+**Login + OTP.** Fortify's own login routes are now disabled (`Fortify::ignoreRoutes()` in
+`FortifyServiceProvider`) — its `AttemptToAuthenticate` pipeline calls `Auth::login()` straight
+off a valid password, which is exactly the step OTP needs to sit in front of. New
+`App\Http\Controllers\Auth\LoginController`: `POST /login` validates credentials via
+`Auth::guard('web')->validate()` without logging in, stashes a 6-digit code + pending-user ID in
+the session, and emails it via `App\Mail\LoginOtp`. `POST /login/otp/verify` is the only place
+`Auth::login()` gets called. Because no session is ever authenticated before OTP succeeds, there's
+no "authenticated but unverified" window to guard — existing `middleware('auth')` on every
+protected route already covers it, unlike `pla`'s design which needs a dedicated
+`EnsureOtpVerified` middleware precisely because it logs in *before* OTP. Reused the pre-existing
+`two-factor` rate limiter (`AppServiceProvider`, keyed by `session('login.id')|ip` — Fortify's own
+convention) verbatim rather than inventing a new one; added a 45s resend cooldown on top,
+specifically to protect email-send volume.
+
+**Interaction with M54's session work.** OTP only fires on a genuine fresh login — Laravel's
+remember-me cookie re-authenticates via `Auth::viaRemember()` without ever touching `/login`
+again, so a remembered user skips both the password screen and OTP until the 7-day session or
+remember cookie actually lapses. This was the explicit point of doing OTP now, right after the
+session change: infrequent OTP sends keep email volume low.
+
+**Mail infra, built from scratch.** This app had zero email infrastructure before this
+(`MAIL_MAILER=log`, no `app/Mail`, no `resources/views/emails`). New shared
+`resources/views/emails/layout.blade.php` (inline-CSS wrapper — email clients don't render
+Tailwind) styled after the two sibling `~/Projects` apps' email template shape (slate background,
+560px white card, colored header band with a "Government of Uttar Pradesh" eyebrow line, footer
+attribution), recolored to this app's indigo-600 instead of their blue-700. `composer require
+symfony/resend-mailer` installed for the `resend` transport Laravel's `config/mail.php` already
+stubbed. Deliberately transport-agnostic — `MAIL_MAILER=resend` (needs `RESEND_API_KEY`) or
+`MAIL_MAILER=smtp` (NIC/Gmail/etc) both work with zero code changes, documented inline in
+`.env.example`.
+
+**Verified live**, not just linted: created a real throwaway account, walked the full chain via
+curl against the production domain — onboarding link renders → password set → link single-use
+confirmed (second visit redirects to login, not the form) → password login redirects to OTP →
+correct 6-digit code (pulled from the session table via `Crypt::decrypt`, since `MAIL_MAILER=log`
+silently no-ops under this app's `LOG_LEVEL=error`) → real authenticated session confirmed by
+loading a protected page. Test account deleted afterward.
+
+**Files changed:** `app/Http/Controllers/Admin/UserManagementController.php`,
+`app/Http/Requests/Admin/StoreUserRequest.php`,
+`app/Http/Controllers/Auth/{OnboardingController,LoginController}.php` (new),
+`app/Mail/{AccountOnboarding,LoginOtp}.php` (new), `app/Providers/FortifyServiceProvider.php`,
+`routes/web.php`, `resources/views/auth/{login,onboarding,otp}.blade.php`,
+`resources/views/emails/{layout,onboarding,otp}.blade.php` (new),
+`resources/views/admin/users/{create,edit}.blade.php`, `.env`, `.env.example`,
+`composer.json`/`composer.lock`. Docs: `claude.md`, `README.md`, `SECURITY.md` (new Pass 5).

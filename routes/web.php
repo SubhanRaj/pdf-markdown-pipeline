@@ -3,6 +3,8 @@
 use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\ApprovalController;
+use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\Auth\OnboardingController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DivisionController;
 use App\Http\Controllers\DocumentController;
@@ -20,6 +22,21 @@ use Illuminate\Support\Facades\Route;
 Route::get('/admin', function () {
     return redirect()->route('admin.users.index');
 })->middleware('auth')->name('admin');
+
+// ── Login (custom — replaces Fortify's own login routes, see FortifyServiceProvider) ──────────
+// Password step never calls Auth::login() directly; it only ever unlocks the OTP step. No user
+// is authenticated until POST /login/otp/verify succeeds, so no extra "half-logged-in" gate is
+// needed on protected routes — plain `auth` middleware already covers this gap by construction.
+Route::get('/login',              [LoginController::class, 'showLogin'])->middleware('guest')->name('login');
+Route::post('/login',             [LoginController::class, 'login'])->middleware(['guest', 'throttle:login'])->name('login.attempt');
+Route::get('/login/otp',          [LoginController::class, 'showOtp'])->middleware('guest')->name('otp.show');
+Route::post('/login/otp/verify',  [LoginController::class, 'verifyOtp'])->middleware(['guest', 'throttle:two-factor'])->name('otp.verify');
+Route::post('/login/otp/resend',  [LoginController::class, 'resendOtp'])->middleware(['guest', 'throttle:two-factor'])->name('otp.resend');
+Route::post('/logout',            [LoginController::class, 'logout'])->middleware('auth')->name('logout');
+
+// ── Onboarding (signed, single-use link mailed on admin-created accounts) ─────────────────────
+Route::get('/onboarding/{user}',  [OnboardingController::class, 'show'])->middleware('signed')->name('onboarding.show');
+Route::post('/onboarding/{user}', [OnboardingController::class, 'store'])->middleware(['signed', 'throttle:login'])->name('onboarding.store');
 
 // ── Public ────────────────────────────────────────────────────────────────────
 
@@ -281,6 +298,7 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'is_admin', 'throttl
         Route::get('/{user}/edit', [UserManagementController::class, 'edit'])->name('edit');
         Route::patch('/{user}',    [UserManagementController::class, 'update'])->name('update');
         Route::delete('/{user}',   [UserManagementController::class, 'destroy'])->name('destroy');
+        Route::post('/{user}/resend-activation', [UserManagementController::class, 'resendActivation'])->name('resend-activation');
     });
 });
 
