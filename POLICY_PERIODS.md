@@ -245,3 +245,45 @@ relying on array position — safer if `STATES`'s order ever changes) and split
 `RuleSetController::policyOtherStates()`'s single collection into `$states`/`$unionTerritories`.
 Extracted the card markup into `rule_sets/_state_card.blade.php` so both sections render from
 one source instead of duplicating the card markup twice.
+
+## 7. Breadcrumb consistency across every policy page (2026-07-26, same day)
+
+Each policy page built its `<x-breadcrumb>` items array independently, hand-written per view.
+After §2–§6 added several new pages (state page, other-states page, the shared periods grid),
+these had drifted into three different, sometimes-broken chains reported live: one page correctly
+showed `Policies > Uttar Pradesh`, another skipped straight from the department to the container
+name with no `Policies`/state hop at all, and the document page showed the period name twice in a
+row (`Excise Policy Uttar Pradesh 2025-26 > Excise Policy Uttar Pradesh 2025-26`) because it
+appended the document title after the context name without checking whether they were the same
+string — true for every seeded policy document, whose title always equals its period's name.
+
+**Fix — one shared prefix, reused everywhere.** Added `RuleSet::policyBreadcrumb(Department
+$department, string $state): array`, returning the `Policies > {state}` pair (`Policies` links to
+`departments.policy.index`, `{state}` links to `departments.policy.state` via `stateSlug()`).
+Every policy view now spreads this into its breadcrumb array instead of re-deriving its own
+partial chain:
+
+- `rule_sets/policy_container.blade.php` (container show)
+- `rule_sets/create.blade.php` / `edit.blade.php` (container create/edit — `edit` only, since
+  `create` doesn't have a state yet; both also gained the missing `Policies`/`Rules & Regulations`
+  index hop that neither had before, for parity with `rules`)
+- `rule_sets/periods/create.blade.php` / `edit.blade.php`
+- `rule_sets/show.blade.php` (a period's own document-list page, reached via
+  `PolicyPeriodController::show()`)
+- `documents/show.blade.php` (the actual document page)
+
+The full chain everywhere is now:
+`Home > Departments > {level} > {department} > Policies > {state} > {container name} > {period name} > {document title, only if different}`.
+
+**A second, unrelated bug was found and fixed along the way.** `documents/show.blade.php`'s
+"context" link for a policy document used `route('departments.policy.show', [..., $ruleSet])` —
+correct for a `rules`-kind document, but wrong for policy: `$ruleSet` there is the *period*
+(`container_id` set), not a container, and `departments.policy.show` renders
+`policy_container.blade.php`, which calls `$ruleSet->periods()` — empty for a period object, since
+only containers hold periods. The link silently led to an empty-looking page. Fixed to route to
+`departments.policy.periods.show` (with `$ruleSet->container` as the parent) whenever the rule set
+is a period, leaving the `rules`-kind and container-document cases untouched.
+
+**Duplicate trailing crumb fix:** the context crumb and the document-title crumb are now compared
+before both are added — if `$document->title === $contextName` (true for every root policy
+document today), only one crumb is rendered, as plain (non-link) text.

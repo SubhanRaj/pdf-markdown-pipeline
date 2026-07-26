@@ -3052,3 +3052,27 @@ icons, counts, and links as before, just grouped.
 **Files changed:** `app/Models/RuleSet.php`, `app/Http/Controllers/RuleSetController.php`,
 `resources/views/rule_sets/policy_other_states.blade.php`,
 `resources/views/rule_sets/_state_card.blade.php` (new). Docs: `POLICY_PERIODS.md` §6, `claude.md`.
+
+## M60 — Policy breadcrumbs unified + period-card text wrap (COMPLETED 2026-07-26)
+
+Live-testing M57–M59 surfaced two bugs: previous-year period cards on the state page truncated to
+one line, hiding the year suffix on narrow screens (fixed — natural wrapping, no `line-clamp`,
+since Tailwind Play CDN didn't apply it as expected here); and breadcrumbs across the policy pages
+had drifted into three inconsistent chains — one correct, one missing the `Policies`/state hop
+entirely, and one on the document page duplicating the same name twice in a row.
+
+Root cause of the duplicate: each policy view built its own breadcrumb array by hand, so nothing
+enforced consistency as new pages were added across M57–M59. Fixed by adding
+`RuleSet::policyBreadcrumb()` — a shared `Policies > {state}` prefix — reused by every policy view
+(container show/create/edit, period create/edit/show, the period's document-list page, and the
+document page itself). Also fixed a real second bug found along the way:
+`documents/show.blade.php`'s context link for a policy document pointed at
+`departments.policy.show` with the *period* as the param, which the controller treats as a
+container and renders an empty periods list — fixed to route to `departments.policy.periods.show`
+under the period's real container. Full details, including which page had which broken chain: see
+POLICY_PERIODS.md §7.
+
+**Files changed:** `app/Models/RuleSet.php` (`policyBreadcrumb()`),
+`resources/views/documents/show.blade.php`,
+`resources/views/rule_sets/{show,create,edit,policy_container,policy_state,_policy_periods_grid}.blade.php`,
+`resources/views/rule_sets/periods/{create,edit}.blade.php`. Docs: `POLICY_PERIODS.md` §7, `claude.md`.
