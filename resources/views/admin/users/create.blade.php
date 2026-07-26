@@ -103,17 +103,6 @@
             </div>
         </div>
 
-        {{-- ── Section: Account activation ── --}}
-        <div class="px-6 py-5">
-            <div class="flex items-start gap-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/50 rounded-lg px-4 py-3">
-                <i class="ti ti-mail-forward text-indigo-500 dark:text-indigo-400 text-lg flex-shrink-0 mt-0.5"></i>
-                <p class="text-sm text-indigo-700 dark:text-indigo-300">
-                    No password to set here — once created, an activation email is sent to this
-                    address with a one-time link. The officer sets their own password from it.
-                </p>
-            </div>
-        </div>
-
         {{-- ── Section: Role & Assignment ── --}}
         <div class="px-6 py-5">
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
