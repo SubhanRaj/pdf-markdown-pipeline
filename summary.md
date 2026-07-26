@@ -2736,3 +2736,54 @@ app like this one.
 `config/livewire.php`, `database/migrations/2026_07_25_180203_create_pulse_tables.php`,
 `resources/views/vendor/pulse/` · deleted `~/.config/systemd/user/pdf-pipeline-pulse.service`
 (outside repo) · `claude.md`.
+
+## M53 — Alpine.js adopted for live UI updates; Livewire evaluated and rejected (COMPLETED 2026-07-26)
+
+Recurring complaint: pages needed a manual refresh to show anything current. Most concretely,
+the OCR elapsed-timer on `documents/show.blade.php` reset to `0:00` on every page reload mid
+conversion — even though the job had genuinely been running for minutes — making it look like
+the job had silently restarted. Raised the question of adopting the TALL stack (Tailwind,
+Alpine, Livewire, Laravel) to fix this class of problem properly.
+
+**Livewire — evaluated, rejected.** This app already tried Livewire once this week, as Laravel
+Pulse's dependency (M52), and hit two real compatibility bugs in a few days: a CSP/Alpine
+`unsafe-eval` conflict and a Livewire v4.3.3 `unserialize()` bug forcing a version pin. It also
+solves the wrong problem here — every interaction becomes a server round-trip with component
+state serialization, which is real architectural weight for what turned out to be plain bugs
+(a client-side timer seeded from the wrong value, a `<meta http-equiv="refresh">` standing in
+for a targeted update), not a case where server-driven reactivity was actually missing.
+
+**Alpine.js — adopted.** One `<script defer>` CDN include in `resources/views/components/head.blade.php`
+(pinned `alpinejs@3.14.9`), no build step, no server round-trips — it wires already-existing
+`fetch()` calls to reactive Blade-native markup instead of hand-rolled DOM-query JS:
+- **`documents.pipeline.health`** — rewritten from a 15s full-page `<meta refresh>` (felt like
+  the page "rebooting" just to show updated numbers) to an Alpine component
+  (`pipelineHealthState()`) that polls the page's own `?format=json` endpoint every 15s and
+  patches values/colors in place. Still fully server-rendered on first paint (works even before
+  Alpine finishes loading); Alpine only keeps it current afterward. Root cause of the `@json()`
+  compile failure hit while building this: Blade's `@json()` directive does a naive
+  `explode(',', ...)` on its argument, so an inline multi-key array literal silently truncates —
+  fixed by building the array as its own `$healthData` variable first and passing a bare
+  reference to `@json()`.
+- **`documents/show.blade.php` share dropdown** — `x-data="{ shareOpen, copied }"` with
+  `@click.outside` / `@keydown.escape.window`, replacing ~30 lines of manual toggle/outside-click/
+  Escape-key/clipboard-icon-swap JS with declarative bindings.
+- **OCR elapsed-timer reset** — turned out to be a plain one-line JS bug, not something Alpine
+  needed to solve: `startConversionPolling()` always seeded its counter from `Date.now()`, right
+  for a just-clicked Convert button but wrong on page reload mid-conversion. Fixed by rendering
+  the real conversion-start time (latest `DocumentStatusHistory.created_at` for the document)
+  into a `data-started-at` attribute on `#markdown-card`, which the polling function now reads
+  when present.
+
+**Deliberately left as plain JS:** the global nav chrome in `layout.blade.php` (dark mode,
+mobile sidebar drawer, sidebar collapse, nav tooltips) — it already works correctly, touches
+every page in the app, and nothing about it was actually reported broken. Converting working,
+low-risk, whole-app code to Alpine for its own sake would just be regression surface with no
+functional gain. Same call on `documents/pipeline.blade.php`'s per-row status polling — it
+already updates rows in place via `fetch()` without a full reload, so there was nothing to fix.
+
+**Files changed:** `resources/views/components/head.blade.php` (Alpine CDN include, `[x-cloak]`
+CSS rule) · `resources/views/documents/pipeline-health.blade.php` (full Alpine rewrite) ·
+`resources/views/documents/show.blade.php` (share dropdown → Alpine, elapsed-timer seed fix) ·
+`claude.md`, `README.md` (tech-stack rows, new "Frontend interactivity: Alpine, not Livewire"
+section).
