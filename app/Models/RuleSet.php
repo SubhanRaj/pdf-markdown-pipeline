@@ -43,6 +43,12 @@ class RuleSet extends Model
 
     public const DEFAULT_STATE = 'Uttar Pradesh';
 
+    /** The 8 union territories within STATES — everything else in STATES is a state. */
+    public const UNION_TERRITORIES = [
+        'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
+        'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
+    ];
+
     /** URL-safe slug for a state name (e.g. "Uttar Pradesh" -> "uttar-pradesh"). */
     public static function stateSlug(string $state): string
     {

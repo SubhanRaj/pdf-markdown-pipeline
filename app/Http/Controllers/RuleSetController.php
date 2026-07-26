@@ -88,12 +88,15 @@ class RuleSetController extends Controller
             ->groupBy('state')
             ->pluck('c', 'state');
 
-        $states = collect(RuleSet::STATES)
-            ->reject(fn ($s) => $s === RuleSet::DEFAULT_STATE)
-            ->map(fn ($s) => ['name' => $s, 'count' => $counts[$s] ?? 0])
-            ->values();
+        $toCard = fn ($s) => ['name' => $s, 'count' => $counts[$s] ?? 0];
 
-        return view('rule_sets.policy_other_states', compact('department', 'states'));
+        $states = collect(RuleSet::STATES)
+            ->reject(fn ($s) => $s === RuleSet::DEFAULT_STATE || in_array($s, RuleSet::UNION_TERRITORIES, true))
+            ->map($toCard)->values();
+
+        $unionTerritories = collect(RuleSet::UNION_TERRITORIES)->map($toCard)->values();
+
+        return view('rule_sets.policy_other_states', compact('department', 'states', 'unionTerritories'));
     }
 
     public function create(string $level, Department $department, string $kind = 'rules'): View
