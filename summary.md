@@ -2676,3 +2676,63 @@ renders, and don't switch back to loading the full set for one new icon.
 `public/vendor/tabler-icons/fonts/tabler-icons-subset.{woff,woff2}` (new; old
 `tabler-icons.{woff,woff2,ttf}` removed) · `resources/views/documents/bulk-upload.blade.php` ·
 `resources/views/components/head.blade.php` · `claude.md`.
+
+## M52 — document.show mobile polish; Laravel Pulse removed, its two useful cards ported natively (COMPLETED 2026-07-26)
+
+**Mobile fixes on `documents/show.blade.php`, following on from M47/M48's mobile pass:**
+- The Share/Edit/Convert/Delete action row was icon-only and left-cramped on mobile once it
+  wrapped below the title (the parent's `justify-between` only works across two items on one
+  line — a single wrapped row just lands at the start). Rebuilt as `flex-1` buttons that share
+  the row's width evenly and grow to a normal inline row again at `sm:`. Delete also gained a
+  visible label (was the only button with none, even on desktop).
+- The Share dropdown's `right-0` anchor overflowed off the left edge of the viewport once the
+  button itself sat near the screen's left edge (the mobile-wrapped row case above) — a
+  right-anchored panel extends *leftward* from the button, so a narrow left-side button pushed
+  it into negative X. Fixed with `left-0 sm:left-auto sm:right-0` — anchors left on mobile,
+  right on desktop, matching wherever the button actually ends up.
+- Amendments section reordered to appear right after the header/vault path **on mobile only**
+  (`order-1`), instead of at the very bottom of the page below the Details/Status History
+  sidebar — the single-column mobile stack was burying it below a 75vh PDF viewer. Desktop
+  explicitly untouched (`lg:order-2`, same position as before) per direct instruction partway
+  through this change (an earlier version of the fix moved it for all screen sizes; corrected
+  once flagged).
+- Status History converted to a native `<details>/<summary>` accordion (collapsed by default,
+  both desktop and mobile) — the full transition history is useful but was always fully
+  expanded taking up sidebar space nobody asked to see by default. No JS needed.
+
+**Laravel Pulse removed** — see `claude.md`'s Pulse section for the full history (CSP/Alpine
+incompatibility, then a genuine Livewire v4.3.3 `unserialize()` bug, both fixed in the previous
+session) and the reasoning for removing it anyway: two non-trivial compatibility patches deep
+for a monitoring package, on an app with exactly one server and one queue worker to watch, was
+more maintenance burden than the dashboard was worth. `composer remove laravel/pulse
+livewire/livewire --with-all-dependencies`; rolled back and deleted its migration; deleted
+`config/pulse.php`, `config/livewire.php`, `resources/views/vendor/pulse/`; removed the
+`pdf-pipeline-pulse.service` systemd unit; removed the `viewPulse` Gate from
+`AppServiceProvider`, the sidebar link, and the `unsafe-eval` CSP carve-out from
+`SecurityHeaders` (CSP is back to one uniform policy app-wide, no route-specific branching).
+
+Before removing, checked which of Pulse's cards were actually worth keeping — only two:
+**Exceptions** and **SlowQueries**. Both ported as native additions to the existing Pipeline
+Health page rather than reinstalling a dashboard for them:
+- `AppServiceProvider::configureSlowQueryLogging()` — `DB::whenQueryingForLongerThan(500, ...)`,
+  built into Laravel core since 8.x, no package needed. Logs a `SLOW_QUERY` warning whenever a
+  single request or job's *total* query time crosses 500ms.
+- `DocumentController::recentLogSignals()` — tails the last 2MB of `storage/logs/laravel.log`
+  (bounded read, stays cheap regardless of how large the log grows) and counts `.ERROR:` and
+  `SLOW_QUERY` lines timestamped within the last hour.
+- Surfaced as a new "App signals (last hour)" card on `documents.pipeline.health`, same
+  traffic-light color coding (green/amber/red by count) as the existing server-vitals cards.
+
+Servers/Queues/Cache/Usage/SlowJobs/SlowRequests/SlowOutgoingRequests weren't ported — server
+vitals and queue backlog counts were already covered by the existing health page before Pulse
+was ever installed, and the rest don't apply to a single-server, admin-only, no-outgoing-HTTP
+app like this one.
+
+**Files changed:** `resources/views/documents/show.blade.php` ·
+`resources/views/documents/pipeline-health.blade.php` ·
+`app/Http/Controllers/DocumentController.php` · `app/Providers/AppServiceProvider.php` ·
+`app/Http/Middleware/SecurityHeaders.php` · `resources/views/components/sidebar.blade.php` ·
+`composer.json`/`composer.lock` (Pulse + Livewire removed) · deleted `config/pulse.php`,
+`config/livewire.php`, `database/migrations/2026_07_25_180203_create_pulse_tables.php`,
+`resources/views/vendor/pulse/` · deleted `~/.config/systemd/user/pdf-pipeline-pulse.service`
+(outside repo) · `claude.md`.

@@ -8,12 +8,13 @@ use App\Models\Division;
 use App\Models\Folder;
 use App\Models\RuleSet;
 use App\Models\Section;
-use App\Models\User;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Database\Connection;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -34,18 +35,23 @@ class AppServiceProvider extends ServiceProvider
         $this->configureRateLimiters();
         $this->configureRouteBindings();
         $this->configureActivityLogging();
-        $this->configurePulseAccess();
+        $this->configureSlowQueryLogging();
     }
 
     /**
-     * Gates Pulse's own /pulse route — no separate login, same Fortify-managed session and
-     * admin check every other admin-only page in this app uses (Users, Activity Log, Pipeline
-     * Health). Nullable typehint so a guest request (no authenticated user) denies cleanly
-     * instead of throwing a type error.
+     * Native replacement for Pulse's SlowQueries recorder (removed 2026-07-26 — Pulse's
+     * Livewire dependency kept breaking; this one native hook plus a log-grep on the health
+     * dashboard covers the one card from it that was actually worth keeping). Fires once per
+     * request/job whose *total* query time crosses the threshold, logging a warning the
+     * Pipeline Health dashboard counts up over the last hour.
      */
-    private function configurePulseAccess(): void
+    private function configureSlowQueryLogging(): void
     {
-        Gate::define('viewPulse', fn (?User $user) => $user?->isAdmin() ?? false);
+        DB::whenQueryingForLongerThan(500, function (Connection $connection, $event) {
+            Log::warning('SLOW_QUERY total query time exceeded 500ms', [
+                'connection' => $connection->getName(),
+            ]);
+        });
     }
 
     private function configureActivityLogging(): void
