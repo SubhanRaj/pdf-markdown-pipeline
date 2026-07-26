@@ -10,18 +10,18 @@
     ['name' => 'Departments',             'url' => route('departments.index')],
     ['name' => $department->levelLabel(), 'url' => null],
     ['name' => $department->name,         'url' => route('departments.show', [$department->levelAlias(), $department])],
-    ['name' => 'Policies',                'url' => route('departments.policy.index', [$department->levelAlias(), $department])],
+    ...\App\Models\RuleSet::policyBreadcrumb($department, $ruleSet->state),
     ['name' => $ruleSet->name,            'url' => null],
 ]" />
 
 {{-- ── Policy header ────────────────────────────────────────────────────────── --}}
-<div class="flex items-start justify-between gap-4 mb-6">
-    <div class="flex items-center gap-4">
+<div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+    <div class="flex items-center gap-4 min-w-0">
         <div class="w-12 h-12 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
             <i class="ti ti-file-certificate text-emerald-500 dark:text-emerald-400 text-xl"></i>
         </div>
-        <div>
-            <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">{{ $ruleSet->name }}</h2>
+        <div class="min-w-0">
+            <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">{{ $ruleSet->name }}</h2>
             <div class="flex items-center gap-2 mt-0.5 flex-wrap">
                 <span class="text-xs text-slate-500 dark:text-slate-400">{{ $ruleSet->state }}</span>
                 <span class="text-slate-300 dark:text-slate-600">·</span>
