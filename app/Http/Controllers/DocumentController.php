@@ -1526,11 +1526,20 @@ class DocumentController extends Controller
             // the `jobs` table waiting its turn, another document's job may currently be
             // `reserved_at`'d (actively running). Surface that so the UI can say "waiting in
             // queue" instead of looking like conversion silently stalled.
-            $needle = '"documentId";i:'.$document->id.';';
-            $queuedElsewhere = DB::table('jobs')
-                ->whereNotNull('reserved_at')
-                ->where('payload', 'not like', '%'.$needle.'%')
-                ->exists();
+            //
+            // Fixed 2026-07-26 — this used to build a `LIKE '%"documentId";i:{id};%'` pattern
+            // and match it against the raw payload in SQL, which produced a false positive
+            // (flagged "waiting in queue" even when this document's own reserved job was the
+            // only row in the table). Parsing the payload properly in PHP instead of pattern
+            // matching serialized bytes in SQL is both more correct and easier to reason about
+            // — there's normally at most one reserved row anyway.
+            $queuedElsewhere = DB::table('jobs')->whereNotNull('reserved_at')->pluck('payload')
+                ->contains(function (string $payload) use ($document) {
+                    $command = json_decode($payload, true)['data']['command'] ?? '';
+                    preg_match('/"documentId";i:(\d+);/', $command, $m);
+
+                    return isset($m[1]) && (int) $m[1] !== $document->id;
+                });
         }
 
         return response()->json([

@@ -26,9 +26,17 @@ class SecurityHeaders
 
         // Content Security Policy
         // unsafe-inline is required for Tailwind Play CDN and inline Blade scripts.
+        // unsafe-eval is required for Alpine.js (2026-07-26) — its directive expressions
+        // (x-show, @click, etc.) are evaluated via `new Function()` internally, which CSP
+        // blocks without this. Alpine ships a separate eval-free CSP build, but it forces
+        // every x-data to be a globally pre-registered Alpine.data() component with a
+        // restricted expression syntax — a real rewrite, not a drop-in swap. Given this app
+        // already grants unsafe-inline (which permits arbitrary injected <script> content and
+        // is the larger of the two holes), unsafe-eval is a comparatively small addition, not
+        // a new category of risk. Revisit only if this app's CSP posture needs to get stricter.
         // Sources are locked to self + known CDNs (jsDelivr, Tailwind CDN).
         // object-src and base-uri are fully locked down.
-        $scriptSrc = "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net";
+        $scriptSrc = "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net";
 
         $csp = implode('; ', [
             "default-src 'self'",
