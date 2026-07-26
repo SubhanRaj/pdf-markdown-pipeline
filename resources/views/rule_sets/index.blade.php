@@ -48,7 +48,7 @@
        class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
         <div class="flex items-center gap-3">
             <div class="stat-icon bg-indigo-50 dark:bg-indigo-900/30 flex-shrink-0">
-                <i class="ti ti-map-2 text-indigo-500 dark:text-indigo-400"></i>
+                <i class="ti ti-map-pin text-indigo-500 dark:text-indigo-400"></i>
             </div>
             <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ $otherStatesCount }}</p>
         </div>
