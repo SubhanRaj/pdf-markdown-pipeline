@@ -2942,3 +2942,59 @@ path (`parse_url($url, PHP_URL_PATH)`), renamed the column header to "Path" to m
 **Files changed:** `app/Http/Controllers/Admin/ActivityLogController.php`,
 `app/Http/Middleware/LogMutation.php`, `app/Models/ActivityLog.php`,
 `app/Providers/AppServiceProvider.php`, `resources/views/admin/activity-logs/index.blade.php`.
+
+## M57 — Policy page redesigned: UP vs Other-States grid browsing (COMPLETED 2026-07-26)
+
+`/departments/dept/excise/policy` was a flat, state-grouped list (divide-y rows, small header
+bar per state) of every policy container in the department. Requested redesign: two top-level
+boxes separating "our own state's policy" from "every other state's policy," each a grid of
+cards rather than list rows, matching `department/show.blade.php`'s existing 3-card visual
+pattern.
+
+**Confirmed before building, not assumed: this was a UI restructuring, not a new data concept.**
+`RuleSet` already had full state-scoping — `RuleSet::STATES` (28 states + 8 UTs), the
+`state`/`policy_type` columns, the container/period split (`container_id NULL` = container,
+created once per state+policy_type; `container_id` set = a yearly period, with its own
+documents/amendments exactly like a rule set), `policy_status` (`current`/`superseded`). Real
+data already existed for 12+ states (`policies:seed` command, `STATE_POLICIES_CONVERSION_REPORT.md`)
+— Uttar Pradesh itself has two containers (Excise Policy, Export Policy). Checked this directly
+via a research pass before designing anything, so the plan built on what existed instead of
+duplicating it.
+
+**What shipped:**
+- `/policy` is now a 2-card landing page (Uttar Pradesh Policy / Other States' Policy), reusing
+  the department page's card markup verbatim.
+- New `GET /policy/state/{state}` (`RuleSetController::policyState()`) — **one page serving both**
+  the UP card's destination and every other-state card's destination, filtered by state, no
+  UP-specific code path. Shows each of that state's containers (loops if more than one — UP has
+  two) with its current period featured and previous years in a grid below.
+- New `GET /policy/other-states` (`RuleSetController::policyOtherStates()`) — grid of every
+  state/UT except UP, each with a current-policy count (0 still shown and clickable, so there's
+  somewhere to land before uploading a state's first policy).
+- New shared partial `rule_sets/_policy_periods_grid.blade.php` (current period featured card +
+  previous-years grid) — extracted from the old container-show page's list markup and reused by
+  both that existing page (visual consistency, zero route changes to it) and the new state page.
+- `{state}` in the URL is a slug (`RuleSet::stateSlug()`/`stateFromSlug()`, two new static
+  helpers — plain `Str::slug()` + reverse lookup against the existing `STATES` constant, no new
+  column). Both new routes registered **before** `/policy/{rule_set}` in `routes/web.php` —
+  otherwise route-model-binding would try to resolve `other-states`/`state` as a container slug
+  and 404.
+
+**Untouched, by design:** `PolicyPeriodController`, period create/edit forms, the document/
+amendment view, container create/edit/store/destroy, and the `kind=rules` index — this only
+changed how a user browses *down to* a period, not how anything is created or managed.
+
+**Verified live** against the real production data, not just linted: landing page counts, UP
+state page (both real containers + current-period highlighting), a populated other-state
+(Punjab) and an empty one (Karnataka, correct "no policy yet" + Add Policy CTA), the direct
+container deep-link (still works, now visually matching via the shared partial), route-order
+(`/other-states`/`/state/{state}` correctly not swallowed by `/{rule_set}`), and the `kind=rules`
+index confirmed unaffected.
+
+**Files changed:** `app/Http/Controllers/RuleSetController.php`, `app/Models/RuleSet.php`,
+`routes/web.php`, `resources/views/rule_sets/index.blade.php`,
+`resources/views/rule_sets/policy_container.blade.php`,
+`resources/views/rule_sets/_policy_periods_grid.blade.php` (new),
+`resources/views/rule_sets/policy_state.blade.php` (new),
+`resources/views/rule_sets/policy_other_states.blade.php` (new). Docs: `POLICY_PERIODS.md` §4,
+`claude.md`, `README.md`.

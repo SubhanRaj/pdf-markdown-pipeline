@@ -57,47 +57,9 @@
         <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">One per year/cycle — each holds its own document and amendments.</p>
     </div>
 
-    @if($periods->isEmpty())
-    <div class="flex flex-col items-center justify-center py-14 text-center">
-        <i class="ti ti-calendar-time text-3xl text-slate-200 dark:text-slate-600 mb-3"></i>
-        <p class="text-sm text-slate-500 dark:text-slate-400">No periods yet</p>
-        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Add the first period (e.g. "2024-25") to start uploading documents.</p>
+    <div class="p-5">
+        @include('rule_sets._policy_periods_grid', ['periods' => $periods])
     </div>
-    @else
-    <div class="divide-y divide-slate-100 dark:divide-slate-700">
-        @foreach($periods as $period)
-        <div class="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-            <div class="flex items-center gap-3 min-w-0">
-                <i class="ti {{ $period->policy_status === 'current' ? 'ti-circle-check text-green-500' : 'ti-clock-pause text-slate-400 dark:text-slate-500' }} flex-shrink-0"></i>
-                <div class="min-w-0">
-                    <div class="flex items-center gap-2 flex-wrap">
-                        <p class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{{ $period->name }}</p>
-                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0
-                            {{ $period->policy_status === 'current' ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400' }}">
-                            {{ $period->policy_status === 'current' ? 'Current' : 'Superseded' }}
-                        </span>
-                    </div>
-                    @if($period->effective_start_date || $period->effective_end_date)
-                    <p class="text-xs text-slate-400 dark:text-slate-500">
-                        {{ $period->effective_start_date?->format('d M Y') }}
-                        @if($period->effective_end_date) – {{ $period->effective_end_date->format('d M Y') }} @endif
-                    </p>
-                    @endif
-                </div>
-            </div>
-            <div class="flex items-center gap-4 flex-shrink-0">
-                <span class="text-xs text-slate-400 dark:text-slate-500">
-                    {{ $period->documents_count }} {{ Str::plural('doc', $period->documents_count) }}
-                </span>
-                <a href="{{ route('departments.policy.periods.show', [$department->levelAlias(), $department, $ruleSet, $period]) }}"
-                   class="text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
-                    <i class="ti ti-arrow-right text-base"></i>
-                </a>
-            </div>
-        </div>
-        @endforeach
-    </div>
-    @endif
 </div>
 
 </x-layout>

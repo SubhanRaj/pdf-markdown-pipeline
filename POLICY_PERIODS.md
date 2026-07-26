@@ -155,3 +155,42 @@ exact kind of "filter a list" UI, so no new client-side request pattern was intr
   but the radio group is only rendered when `$isPolicy`, since that's the only confirmed need.
 - No merge/reconciliation UI between an English and Hindi version of the same document — they're
   fully independent documents, linked only by `sibling_document_id` for cross-navigation.
+
+## 4. Browsing redesign: UP vs Other States grid (2026-07-26)
+
+The `/policy` index used to be a single flat, state-grouped **list** of every container in the
+department — functional, but "technical" (a raw list of container rows) rather than something
+that matched how an officer actually thinks about this: "our own state's policy" vs "every other
+state's policy," browsed as cards, not scanned as rows.
+
+**No data model change** — `state`/`policy_type`/the container-period split above were already
+exactly what this needed. This was a pure view/routing restructure:
+
+- `/policy` is now a 2-card landing page ("Uttar Pradesh Policy" / "Other States' Policy"),
+  reusing the exact card markup already established on `department/show.blade.php`'s
+  Sections/Rules/Policies cards.
+- New `GET /policy/state/{state}` (`departments.policy.state`, `RuleSetController::policyState()`)
+  — one page, filtered by state, serving **both** the UP card's destination and every other-state
+  card's destination (no UP-specific code path). Shows each of that state's containers (usually
+  one; loops if more — Uttar Pradesh itself has two: Excise Policy and Export Policy) with its
+  current period featured and previous years in a grid below.
+- New `GET /policy/other-states` (`departments.policy.other-states`) — a grid of every
+  `RuleSet::STATES` entry except Uttar Pradesh, each showing a current-policy count (0 for states
+  with nothing uploaded yet — still clickable, so an admin has somewhere to land before adding
+  the first container for that state via the existing, unchanged create flow).
+- `{state}` in the URL is a slug (`RuleSet::stateSlug()`/`stateFromSlug()`, new static helpers —
+  plain `Str::slug()` + reverse lookup against the `STATES` constant, no new column), not the
+  raw name, since state names contain spaces.
+- **Route order matters**: `/policy/state/{state}` and `/policy/other-states` are registered
+  *before* `/policy/{rule_set}` in `routes/web.php` — otherwise Laravel's route-model-binding
+  would try to resolve `other-states` as a policy container slug and 404.
+- The old container-show page (`departments.policy.show`, `rule_sets/policy_container.blade.php`)
+  is untouched at the route/controller level (still reachable directly, e.g. from Edit flows) —
+  only its periods list was extracted into a new shared partial,
+  `rule_sets/_policy_periods_grid.blade.php` (current period featured, previous years as a grid),
+  which the new state page also includes. One visual source of truth for "periods under a
+  container," reused by both the direct container page and the new state page.
+- `kind=rules` (Rules & Regulations) is untouched — this redesign is policy-only.
+
+Nothing changed in `PolicyPeriodController`, period create/edit, the document/amendment view, or
+container create/edit/store/destroy — this only changed how a user *browses down* to a period.
