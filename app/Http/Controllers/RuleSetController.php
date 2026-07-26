@@ -43,19 +43,57 @@ class RuleSetController extends Controller
         $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
 
         if ($kind === 'policy') {
-            // Containers (one per state + policy_type, created once) grouped by state for display.
-            $ruleSets = $department->ruleSets()->policyContainers()
-                ->withCount(['periods'])
-                ->with(['periods' => fn ($q) => $q->where('policy_status', 'current')->withCount(['documents' => $visibilityScope])])
-                ->orderBy('state')->orderBy('name')->get();
-            $historicalPolicies = collect();
-        } else {
-            $ruleSets = $department->ruleSets()->rules()
-                ->withCount(['documents' => $visibilityScope])->orderBy('name')->get();
-            $historicalPolicies = collect();
+            // Landing page is just two counts now — browsing itself moved to policyState()/
+            // policyOtherStates(). See RuleSet::STATES for why "Uttar Pradesh vs everyone else"
+            // is a plain string comparison, not a real state/tenant model.
+            $upCount = $department->ruleSets()->currentPolicy()->where('state', RuleSet::DEFAULT_STATE)->count();
+            $otherStatesCount = $department->ruleSets()->currentPolicy()
+                ->where('state', '!=', RuleSet::DEFAULT_STATE)
+                ->distinct('state')->count('state');
+
+            return view('rule_sets.index', compact('department', 'kind', 'upCount', 'otherStatesCount'));
         }
 
-        return view('rule_sets.index', compact('department', 'kind', 'ruleSets', 'historicalPolicies'));
+        $ruleSets = $department->ruleSets()->rules()
+            ->withCount(['documents' => $visibilityScope])->orderBy('name')->get();
+
+        return view('rule_sets.index', compact('department', 'kind', 'ruleSets'));
+    }
+
+    /**
+     * One state's policy containers + their periods, rendered as a grid. Serves both the "Uttar
+     * Pradesh Policy" landing card and every "Other States' Policy" card — same view, filtered
+     * by state, no UP-specific code path.
+     */
+    public function policyState(string $level, Department $department, string $state): View
+    {
+        $stateName = RuleSet::stateFromSlug($state);
+        abort_if($stateName === null, 404);
+
+        $containers = $department->ruleSets()->policyContainers()
+            ->where('state', $stateName)
+            ->with(['periods' => fn ($q) => $q->withCount('documents')])
+            ->orderBy('name')
+            ->get();
+
+        return view('rule_sets.policy_state', compact('department', 'stateName', 'containers'));
+    }
+
+    /** Grid of every state/UT except Uttar Pradesh, with a current-policy count per state. */
+    public function policyOtherStates(string $level, Department $department): View
+    {
+        $counts = $department->ruleSets()->currentPolicy()
+            ->where('state', '!=', RuleSet::DEFAULT_STATE)
+            ->selectRaw('state, count(*) as c')
+            ->groupBy('state')
+            ->pluck('c', 'state');
+
+        $states = collect(RuleSet::STATES)
+            ->reject(fn ($s) => $s === RuleSet::DEFAULT_STATE)
+            ->map(fn ($s) => ['name' => $s, 'count' => $counts[$s] ?? 0])
+            ->values();
+
+        return view('rule_sets.policy_other_states', compact('department', 'states'));
     }
 
     public function create(string $level, Department $department, string $kind = 'rules'): View

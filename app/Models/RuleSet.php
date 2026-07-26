@@ -43,6 +43,24 @@ class RuleSet extends Model
 
     public const DEFAULT_STATE = 'Uttar Pradesh';
 
+    /** URL-safe slug for a state name (e.g. "Uttar Pradesh" -> "uttar-pradesh"). */
+    public static function stateSlug(string $state): string
+    {
+        return \Illuminate\Support\Str::slug($state);
+    }
+
+    /** Reverse of stateSlug() — looks up the real state name from STATES by slug match. */
+    public static function stateFromSlug(string $slug): ?string
+    {
+        foreach (self::STATES as $state) {
+            if (self::stateSlug($state) === $slug) {
+                return $state;
+            }
+        }
+
+        return null;
+    }
+
     protected $fillable = [
         'department_id', 'name', 'slug', 'description', 'metadata', 'requires_approval',
         'kind', 'state', 'policy_type', 'effective_start_date', 'effective_end_date',

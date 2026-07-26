@@ -123,6 +123,10 @@ Route::prefix('departments')->name('departments.')->group(function () {
     Route::prefix('/{level}/{department}/policy')->name('policy.')->group(function () {
         Route::get('/',            [RuleSetController::class, 'index'])->name('index')->defaults('kind', 'policy');
         Route::get('/create',     [RuleSetController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations'])->defaults('kind', 'policy');
+        // Must be registered before /{rule_set} — otherwise route-model-binding would try to
+        // resolve "state"/"other-states" as a policy container slug and 404.
+        Route::get('/other-states',    [RuleSetController::class, 'policyOtherStates'])->name('other-states');
+        Route::get('/state/{state}',   [RuleSetController::class, 'policyState'])->name('state');
         Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show')->defaults('kind', 'policy');
     });
     // Policy periods (e.g. 2024-25, 2025-26) — yearly documents under a policy container
