@@ -452,7 +452,13 @@
         </div>
         @elseif(! $isVerified)
         {{-- Single consolidated banner — OCR is offered inside the Compare & Verify modal
-             itself rather than as a second competing button here. --}}
+             itself rather than as a second competing button here.
+             Auth-gated entirely (not just the button) — this is internal review-pipeline
+             status (extraction quality, structure-detection results) with no value to a guest,
+             and a public document can still be unverified, so a guest can genuinely land here.
+             Fixed 2026-07-26 — only the button used to be gated, the status text wasn't. --}}
+        @auth
+        @if($canManageDoc)
         <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-5 py-3.5 flex items-center justify-between gap-3 flex-wrap">
             <p class="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
                 <i class="ti ti-clock text-base flex-shrink-0"></i>
@@ -468,13 +474,13 @@
                 </span>
                 @endif
             </p>
-            @auth @if($canManageDoc)
             <button type="button" id="open-compare-modal-btn"
                     class="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0">
                 <i class="ti ti-columns text-sm"></i> Compare &amp; Verify
             </button>
-            @endif @endauth
         </div>
+        @endif
+        @endauth
         @endif
 
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
