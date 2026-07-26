@@ -26,7 +26,7 @@
             </div>
             <div class="min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
-                    <p class="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{{ $currentPeriod->name }}</p>
+                    <p class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $currentPeriod->name }}</p>
                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 flex-shrink-0">Current</span>
                 </div>
                 @if($currentPeriod->effective_start_date || $currentPeriod->effective_end_date)
@@ -51,9 +51,9 @@
     @foreach($previousPeriods as $period)
     <a href="{{ route('departments.policy.periods.show', [$department->levelAlias(), $department, $ruleSet, $period]) }}"
        class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-3.5 flex flex-col gap-1.5 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
-        <div class="flex items-center gap-2">
-            <i class="ti ti-clock-pause text-slate-400 dark:text-slate-500 text-sm flex-shrink-0"></i>
-            <p class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{{ $period->name }}</p>
+        <div class="flex items-start gap-2">
+            <i class="ti ti-clock-pause text-slate-400 dark:text-slate-500 text-sm flex-shrink-0 mt-0.5"></i>
+            <p class="text-sm font-medium text-slate-700 dark:text-slate-200 leading-snug break-words min-w-0">{{ $period->name }}</p>
         </div>
         <p class="text-xs text-slate-400 dark:text-slate-500">
             {{ $period->documents_count }} {{ Str::plural('doc', $period->documents_count) }}

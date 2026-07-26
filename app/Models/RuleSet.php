@@ -67,6 +67,19 @@ class RuleSet extends Model
         return null;
     }
 
+    /**
+     * Shared "Policies > {state}" breadcrumb prefix used by every policy page below the
+     * landing index (container, period create/edit/show, document show) — keeps that hop
+     * consistent everywhere instead of each view re-deriving its own partial chain.
+     */
+    public static function policyBreadcrumb(\App\Models\Department $department, string $state): array
+    {
+        return [
+            ['name' => 'Policies', 'url' => route('departments.policy.index', [$department->levelAlias(), $department])],
+            ['name' => $state,     'url' => route('departments.policy.state', [$department->levelAlias(), $department, self::stateSlug($state)])],
+        ];
+    }
+
     protected $fillable = [
         'department_id', 'name', 'slug', 'description', 'metadata', 'requires_approval',
         'kind', 'state', 'policy_type', 'effective_start_date', 'effective_end_date',

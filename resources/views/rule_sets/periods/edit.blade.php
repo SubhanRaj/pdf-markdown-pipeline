@@ -9,6 +9,7 @@
     ['name' => 'Departments',             'url' => route('departments.index')],
     ['name' => $department->levelLabel(), 'url' => null],
     ['name' => $department->name,         'url' => route('departments.show', [$department->levelAlias(), $department])],
+    ...\App\Models\RuleSet::policyBreadcrumb($department, $policy->state),
     ['name' => $policy->name,             'url' => route('departments.policy.show', [$department->levelAlias(), $department, $policy])],
     ['name' => $period->name,             'url' => route('departments.policy.periods.show', [$department->levelAlias(), $department, $policy, $period])],
     ['name' => 'Edit',                    'url' => null],

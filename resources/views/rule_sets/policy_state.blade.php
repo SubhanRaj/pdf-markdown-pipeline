@@ -30,7 +30,7 @@
 <div class="flex flex-col gap-6">
     @foreach($containers as $ruleSet)
     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-        <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+        <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between flex-wrap gap-2">
             <div class="flex items-center gap-2 flex-wrap">
                 <a href="{{ route('departments.policy.show', [$department->levelAlias(), $department, $ruleSet]) }}"
                    class="text-sm font-semibold text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">

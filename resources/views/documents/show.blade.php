@@ -43,7 +43,12 @@
 
     if ($isRuleSetDoc) {
         $contextName    = $ruleSet->name;
-        $contextUrl     = route("departments.{$ruleSet->kind}.show",   [$department->levelAlias(), $department, $ruleSet]);
+        // A policy period (container_id set) isn't itself a container — its "show" page is
+        // the nested periods.show route, not departments.policy.show (that would 404/render
+        // an empty container page since a period has no periods of its own).
+        $contextUrl     = ($ruleSet->kind === 'policy' && $ruleSet->container_id)
+            ? route('departments.policy.periods.show', [$department->levelAlias(), $department, $ruleSet->container, $ruleSet])
+            : route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]);
         $pdfRoute       = route("documents.{$ruleSet->kind}.pdf",      [$department->levelAlias(), $department, $ruleSet, $document]);
         $editRoute      = route("documents.{$ruleSet->kind}.edit",     [$department->levelAlias(), $department, $ruleSet, $document]);
         $updateRoute    = route("documents.{$ruleSet->kind}.update",   [$department->levelAlias(), $department, $ruleSet, $document]);
@@ -128,13 +133,22 @@
         $breadcrumbItems[] = ['name' => $division->name, 'url' => route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division])];
     }
     if ($isRuleSetDoc) {
-        $breadcrumbItems[] = [
-            'name' => $ruleSet->kind === 'policy' ? 'Policies' : 'Rules & Regulations',
-            'url'  => route("departments.{$ruleSet->kind}.index", [$department->levelAlias(), $department]),
-        ];
+        if ($ruleSet->kind === 'policy') {
+            $breadcrumbItems = array_merge($breadcrumbItems, \App\Models\RuleSet::policyBreadcrumb($department, $ruleSet->state));
+            if ($ruleSet->container_id) {
+                $breadcrumbItems[] = [
+                    'name' => $ruleSet->container->name,
+                    'url'  => route('departments.policy.show', [$department->levelAlias(), $department, $ruleSet->container]),
+                ];
+            }
+        } else {
+            $breadcrumbItems[] = ['name' => 'Rules & Regulations', 'url' => route('departments.rules.index', [$department->levelAlias(), $department])];
+        }
     }
-    $breadcrumbItems[] = ['name' => $contextName, 'url' => $contextUrl];
-    $breadcrumbItems[] = ['name' => $document->title, 'url' => null];
+    $breadcrumbItems[] = ['name' => $contextName, 'url' => $document->title === $contextName ? null : $contextUrl];
+    if ($document->title !== $contextName) {
+        $breadcrumbItems[] = ['name' => $document->title, 'url' => null];
+    }
 @endphp
 <x-breadcrumb :items="$breadcrumbItems" />
 
