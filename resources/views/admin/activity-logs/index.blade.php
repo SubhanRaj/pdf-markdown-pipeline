@@ -80,7 +80,7 @@
                     <th class="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">User</th>
                     <th class="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Action</th>
                     <th class="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">IP Address</th>
-                    <th class="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">URL</th>
+                    <th class="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Path</th>
                     <th class="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide w-16 text-center">Status</th>
                 </tr>
             </thead>
@@ -88,7 +88,7 @@
                 @foreach($logs as $log)
                 @php
                     $meta   = $log->metadata ?? [];
-                    $url    = $meta['url'] ?? '—';
+                    $url    = isset($meta['url']) ? (parse_url($meta['url'], PHP_URL_PATH) ?: $meta['url']) : '—';
                     $status = $meta['status'] ?? null;
                     $color  = $colors[$log->action] ?? $defaultColor;
                     $label  = $labels[$log->action] ?? $log->action;
