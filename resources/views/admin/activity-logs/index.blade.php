@@ -127,9 +127,6 @@
                         <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ $color }}">
                             {{ $label }}
                         </span>
-                        @if($log->action === 'auth.login' && isset($meta['guard']))
-                            <span class="block text-xs text-slate-400 mt-0.5">guard: {{ $meta['guard'] }}</span>
-                        @endif
                     </td>
                     {{-- IP --}}
                     <td class="px-4 py-3 whitespace-nowrap">
