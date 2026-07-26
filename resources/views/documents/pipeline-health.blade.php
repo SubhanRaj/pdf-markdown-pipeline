@@ -40,7 +40,11 @@
      before Alpine finishes loading) and then kept live by Alpine polling this same page's own
      ?format=json endpoint every 15s — replaces the old <meta http-equiv="refresh"> which did a
      full page reload (felt like a "reboot") just to show updated numbers. --}}
-<div x-data="pipelineHealthState(@json($healthData))" x-init="start()">
+{{-- @json()'s JSON_HEX_QUOT only escapes quote characters *inside* string values, not the
+     JSON object's own structural " delimiters for keys — a double-quoted HTML attribute
+     breaks at the first key. Single-quote the attribute instead (standard Blade/Alpine
+     convention for @json() in x-data). --}}
+<div x-data='pipelineHealthState(@json($healthData))' x-init="start()">
 
 {{-- ── Overall status banner ─────────────────────────────────────────────────── --}}
 <div class="mb-6 flex items-center gap-3 px-5 py-4 rounded-xl border" :class="isHealthy ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'">
