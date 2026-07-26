@@ -2875,9 +2875,12 @@ session change: infrequent OTP sends keep email volume low.
 Tailwind) styled after the two sibling `~/Projects` apps' email template shape (slate background,
 560px white card, colored header band with a "Government of Uttar Pradesh" eyebrow line, footer
 attribution), recolored to this app's indigo-600 instead of their blue-700. `composer require
-symfony/resend-mailer` installed for the `resend` transport Laravel's `config/mail.php` already
-stubbed. Deliberately transport-agnostic — `MAIL_MAILER=resend` (needs `RESEND_API_KEY`) or
-`MAIL_MAILER=smtp` (NIC/Gmail/etc) both work with zero code changes, documented inline in
+resend/resend-php` installed for Laravel's native `resend` transport (`symfony/resend-mailer`
+was tried first — looks like the right package, isn't; Laravel's own `MailManager` wants
+`Resend\Contracts\Client`, only `resend/resend-php` provides it — swapped after a live test
+threw "Class Resend not found"). Deliberately transport-agnostic — `MAIL_MAILER=resend` (needs
+`RESEND_API_KEY`, now set with a real key) or `MAIL_MAILER=smtp` (NIC/Gmail/etc) both work with
+zero code changes, documented inline in
 `.env.example`.
 
 **Verified live**, not just linted: created a real throwaway account, walked the full chain via
