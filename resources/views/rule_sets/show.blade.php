@@ -72,16 +72,14 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
     <div class="flex items-center gap-2 flex-wrap justify-end">
         @auth
         @if($isPolicy ? auth()->user()->canManagePolicy($ruleSet) : auth()->user()->canUploadTo($ruleSet))
-        {{-- Upload root document — disabled once one exists --}}
+        {{-- Upload a document — the root rule/policy type is capped at one (dropdown hides it
+             once taken), but other types (checklist, notice, etc.) stay open indefinitely. --}}
         <button type="button"
-                @if($canUploadRule) onclick="document.getElementById('modal-rule').style.display='block'" @endif
-                @if(! $canUploadRule) disabled title="{{ $isPolicy ? 'A policy document already exists. Delete it first to re-upload.' : 'A rule document already exists. Delete it first to re-upload.' }}" @endif
+                onclick="document.getElementById('modal-rule').style.display='block'"
                 class="inline-flex items-center gap-1.5 border text-sm font-medium px-3 py-2 rounded-lg transition-all
-                       {{ $canUploadRule
-                          ? 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer'
-                          : 'bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-700/50 text-slate-300 dark:text-slate-600 cursor-not-allowed' }}">
+                       bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer">
             <i class="ti ti-file-plus text-base"></i>
-            <span class="hidden sm:inline">{{ $isPolicy ? 'Upload Policy Document' : 'Upload Rule' }}</span>
+            <span class="hidden sm:inline">Upload Document</span>
         </button>
 
         {{-- Upload Amendment — disabled until a root document exists --}}
@@ -125,7 +123,7 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
         <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
             <div class="flex items-center gap-3">
                 <i class="ti ti-file-plus text-indigo-500 text-lg"></i>
-                <span class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $isPolicy ? 'Upload Policy Document' : 'Upload Rule Document' }}</span>
+                <span class="text-sm font-semibold text-slate-800 dark:text-slate-100">Upload Document</span>
                 <span class="text-xs text-slate-400 dark:text-slate-500">— {{ $ruleSet->name }}</span>
             </div>
             <button type="button" onclick="document.getElementById('modal-rule').style.display='none'"
@@ -165,9 +163,13 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
                         <label for="rule-type" class="field-label">Document Type <span class="text-red-500">*</span></label>
                         <select id="rule-type" name="document_type" class="field-input">
                             @foreach(\App\Models\Document::DOCUMENT_TYPES as $key => $label)
-                                @if($key !== 'rule_amendment')
-                                <option value="{{ $key }}" @selected($key === ($isPolicy ? 'policy' : 'rule'))>{{ $label }}</option>
-                                @endif
+                                @continue($key === 'rule_amendment')
+                                @php $isRootType = $key === ($isPolicy ? 'policy' : 'rule'); @endphp
+                                <option value="{{ $key }}"
+                                        @selected($canUploadRule ? $isRootType : $key === 'other')
+                                        @disabled($isRootType && ! $canUploadRule)>
+                                    {{ $label }}{{ $isRootType && ! $canUploadRule ? ' (already uploaded)' : '' }}
+                                </option>
                             @endforeach
                         </select>
                         <p id="rule-err-type" class="field-err-msg" style="display:none"></p>
