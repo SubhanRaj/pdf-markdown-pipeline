@@ -83,8 +83,11 @@
     {{-- Alpine.js: lightweight reactive layer for polling-driven UI (elapsed timers, live
          pipeline stats) and small interactive components (dropdowns), replacing hand-rolled
          querySelector/addEventListener code. No build step, no JS framework. Livewire was
-         evaluated 2026-07-26 and rejected — see CLAUDE.md "Frontend interactivity" section. --}}
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+         evaluated 2026-07-26 and rejected — see CLAUDE.md "Frontend interactivity" section.
+         Self-hosted (public/vendor/alpinejs/), not jsDelivr — same reasoning as Tabler Icons
+         above: avoid a third-party network hop on a flaky/restrictive connection. Version pin
+         (3.14.9) lives in the filename's absence; check CLAUDE.md before upgrading in place. --}}
+    <script defer src="{{ asset('vendor/alpinejs/alpine.min.js') }}"></script>
 
     {{-- Chart.js via jsDelivr --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>

@@ -27,7 +27,7 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Framework | Laravel 13, PHP 8.4 |
 | Database | MariaDB 12 |
 | Web server | Apache (mod_php or php-fpm via mod_proxy_fcgi) — **no Nginx** |
-| Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Alpine.js (CDN, `defer`) for client-side interactivity/polling, Parsedown (markdown render) — **no Node, no npm, no build step**. Livewire evaluated 2026-07-26 and deliberately rejected — see "Frontend interactivity: Alpine, not Livewire" below. |
+| Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Alpine.js (self-hosted, `public/vendor/alpinejs/`, `defer`) for client-side interactivity/polling, Parsedown (markdown render) — **no Node, no npm, no build step**. Livewire evaluated 2026-07-26 and deliberately rejected — see "Frontend interactivity: Alpine, not Livewire" below. |
 | Text extraction | Python `markitdown` (Microsoft, MIT), via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
 | Structure detection | [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0), own venv (`storage/app/private/ocr-engines/docling/`) — layout/table-structure model, runs automatically as Pass 0 of every "Convert to Markdown" click, after the quick text-layer pass (reordered M34). Detects headings and table cells with bounding boxes; stored as a compact sibling `.structure.json` and spliced into the rendered Markdown wherever the geometric heuristic missed a table (M33) or heading (M34) — see `STRUCTURE_RESEARCH.md`. |
 | OCR | Selectable engine — Tesseract (Google/HP, `hin`+`eng`, default), EasyOCR (JaidedAI), PaddleOCR (Baidu), or Surya (VikParuchuri, open source) — invoked via `symfony/process`. Triggered either automatically (M34: when the text-layer pass looks unreadable, `RunOcrExtraction` is auto-dispatched with no click needed) or manually via "Run OCR-Based Extraction" (with an engine dropdown) from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below and `config/ocr.php`. |
@@ -629,10 +629,26 @@ server round-trip with component-state serialization/hydration, which is real ar
 weight for what turned out to be plain bugs (a client-side timer seeded from the wrong value, a
 `<meta refresh>` instead of a targeted fetch) — not a case where reactivity itself was missing.
 
-**Alpine.js — adopted.** Single `<script defer>` CDN include in `head.blade.php`
-(`resources/views/components/head.blade.php`), no build step, no server round-trips — it only
-wires already-existing `fetch()` calls to reactive Blade-native markup (`x-data`, `x-show`,
+**Alpine.js — adopted.** Self-hosted (`public/vendor/alpinejs/alpine.min.js`, currently pinned to
+3.14.9 — check this note before upgrading in place), `<script defer>` include in
+`resources/views/components/head.blade.php`, same reasoning as Tabler Icons (avoid a third-party
+network dependency on a flaky/restrictive connection). No build step, no server round-trips — it
+only wires already-existing `fetch()` calls to reactive Blade-native markup (`x-data`, `x-show`,
 `x-text`, `:class`) instead of hand-rolled `document.getElementById`/`addEventListener` code.
+
+**CSP note:** Alpine's directive expressions evaluate via `new Function()` internally, which
+requires `'unsafe-eval'` in `script-src` — without it Alpine's own script loads fine but every
+reactive binding is silently inert (this was hit for real: the share dropdown got stuck visible,
+unaffected by clicks, because CSP was blocking the `x-show` evaluation, not because of any cache
+or hover bug). Added to `SecurityHeaders`'s CSP alongside the existing `'unsafe-inline'` grant
+(needed for Tailwind's Play CDN) — self-hosting the script doesn't change this requirement, since
+it's about what the code inside the file is allowed to *do* at runtime, not where the file was
+served from. The CSP-free alternative is Alpine's separate `@alpinejs/csp` build, which avoids
+`new Function()` entirely but requires every `x-data` to be a pre-registered named
+`Alpine.data()` component with more restricted expression syntax — a real rewrite, not a
+drop-in swap. Deliberately not adopted; revisit only if this app's CSP posture needs to tighten
+further.
+
 Used so far:
 - **`documents.pipeline.health`** — rewritten from `<meta http-equiv="refresh">` to an Alpine
   component (`pipelineHealthState()`) that polls the page's own `?format=json` endpoint every 15s
