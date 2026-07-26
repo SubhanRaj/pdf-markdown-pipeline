@@ -14,7 +14,7 @@
     ['name' => 'Add Policy',              'url' => null],
 ]" />
 
-<form id="periodForm" method="POST"
+<form id="policyDocForm" method="POST"
       action="{{ route('departments.policy.periods.store', [$department->levelAlias(), $department, $policy]) }}"
       novalidate enctype="multipart/form-data" class="max-w-2xl">
     @csrf
@@ -24,7 +24,7 @@
         <div class="px-6 py-5">
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
                 <i class="ti ti-calendar-time text-slate-400 dark:text-slate-500"></i>
-                Policy Period Details
+                Policy Details
             </h3>
 
             <div class="mb-4 px-3 py-2.5 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
@@ -36,7 +36,7 @@
 
             <div class="space-y-4">
                 <div>
-                    <label for="name" class="field-label">Period Name <span class="text-red-500">*</span></label>
+                    <label for="name" class="field-label">Policy Name <span class="text-red-500">*</span></label>
                     <input id="name" name="name" type="text"
                         value="{{ old('name') }}"
                         placeholder="e.g. 2025-26"
@@ -78,7 +78,7 @@
                     <input id="file" name="file" type="file"
                         accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif"
                         class="field-input @error('file') field-error @enderror">
-                    <p class="field-hint">Optional — upload the policy document now, or add it later from the period's page.</p>
+                    <p class="field-hint">Optional — upload the policy document now, or add it later from the policy's page.</p>
                     @error('file') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
 
@@ -206,13 +206,13 @@
         }
         document.getElementById('name').addEventListener('blur', validateName);
 
-        document.getElementById('periodForm').addEventListener('submit', function (e) {
+        document.getElementById('policyDocForm').addEventListener('submit', function (e) {
             if (!validateName()) {
                 e.preventDefault();
                 document.querySelector('.field-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         });
-    } catch (err) { console.error('Period form init failed', err); }
+    } catch (err) { console.error('Policy form init failed', err); }
 })();
 </script>
 @endpush

@@ -287,3 +287,68 @@ is a period, leaving the `rules`-kind and container-document cases untouched.
 **Duplicate trailing crumb fix:** the context crumb and the document-title crumb are now compared
 before both are added — if `$document->title === $contextName` (true for every root policy
 document today), only one crumb is rendered, as plain (non-link) text.
+
+## 8. Three live bugs fixed + "period" renamed to "policy document" throughout (2026-07-26)
+
+### Bug: viewing an old year showed the wrong "current" policy
+
+`RuleSet::supersededBy()` (`hasOne(RuleSet::class, 'previous_policy_id')`) only walks **one hop**
+of the `previous_policy_id` chain — it returns whoever superseded *this specific* row, not the
+container's actual current one. Viewing 2021-22 showed "Current period: 2022-23" (its immediate
+successor) instead of the real current year (e.g. 2026-27), because nothing walked the chain to
+the end. Fixed in `ListsRuleSetDocuments::loadRuleSetDocuments()` — instead of
+`$ruleSet->supersededBy`, it now looks up the container's current row directly:
+`RuleSet::currentPolicy()->where('container_id', $ruleSet->container_id)->first()`. One query,
+no chain-walking, always correct regardless of how many superseded years sit in between.
+
+### Bug: `edit.blade.php` 500'd with a Blade/PHP parse error
+
+Four spots in `rule_sets/edit.blade.php` had stray backslash-escaped quotes inside `{{ }}` —
+`route(\"departments.{$ruleSet->kind}.show\", ...)` — left over from an edit that generated the
+string as if it were already inside an outer PHP string literal. `\"` is not valid syntax on its
+own inside a Blade echo, and threw `ParseError: syntax error, unexpected token "\"` on the compiled
+view, 500-ing the whole edit page. Fixed by removing the stray backslashes; `php artisan
+view:clear` needed afterward since the broken compiled view was cached.
+
+### Bug: delete-container guard text printed a stray number
+
+`{{ $periodsCount = $ruleSet->periods()->count() }}` (now `{{ $policyDocsCount = ... }}` before the
+rename) is a Blade echo, and `{{ }}` always prints its expression's result — including a plain PHP
+assignment's value. So the line silently rendered "6" on the page before the "Cannot be deleted…"
+sentence even started, producing "6 Cannot be deleted while it still has 6 policies…". Fixed by
+switching to `@php($policyDocsCount = ...)`, which assigns without echoing.
+
+### Terminology fix: "period" no longer names the entity, only its timeframe
+
+Everywhere above (§1–§7), the yearly `RuleSet` row (e.g. "Excise Policy 2025-26") was called "a
+period" — in class names, variables, comments, log keys, and validation/flash messages. That
+was backwards: for this department, "policy" is the record itself (a specific dated document,
+e.g. "Excise Policy 2026-27"); "period" should only ever describe its **timeframe** ("2026-27"),
+never be the name of the entity. Renamed throughout, in one pass:
+
+| Old | New |
+|---|---|
+| `PolicyPeriodController` | `PolicyDocumentController` |
+| `StorePolicyPeriodRequest` / `UpdatePolicyPeriodRequest` | `StorePolicyDocumentRequest` / `UpdatePolicyDocumentRequest` |
+| `SeedUpExcisePolicyPeriods` | `SeedUpExcisePolicyDocuments` (signature: `policies:seed-up-policy-documents`) |
+| `RuleSet::periods()` relation | `RuleSet::policyDocuments()` |
+| `rule_sets/periods/{create,edit}.blade.php` | `rule_sets/policy_documents/{create,edit}.blade.php` |
+| `rule_sets/_policy_periods_grid.blade.php` | `rule_sets/_policy_documents_grid.blade.php` |
+| `$period`/`$newPeriod`/`$currentPeriod`/`$previousPeriods`/`$periodsCount` | `$policyDoc`/`$newPolicyDoc`/`$currentPolicyDoc`/`$previousPolicyDocs`/`$policyDocsCount` |
+| Log context `period_id` | `policy_document_id` |
+| UI copy: "Period Details", "Add Period", "Current period", "Delete Period?", "N periods" | "Policy Details", "Add Policy", "Current policy", "Delete Policy?", "N policies" |
+
+**Deliberately left unchanged** (confirmed with the user before doing the rename, given this is a
+production deployment with real users on `docsrepo.exciseup.in`):
+
+- **The `/periods/` URL path segment and the `policy.periods.*` route names.** Changing either
+  breaks every bookmarked/shared link to an existing policy document's page. "Periods" is a
+  defensible name for this route group regardless of the entity-naming fix — it's naming the
+  timeframe-scoped sub-resource path, not asserting the row itself is "a period."
+- **`ActivityLogController::ACTION_LABELS`** for the `policy.periods.*` routes now say "Create/
+  Update/Delete Policy Document" (not just "Policy") — deliberately more specific than the rest of
+  the UI, since the container's own routes already claim "Create/Update/Delete Policy" and an audit
+  trail needs the two distinguishable.
+- **`database/migrations/2026_07_23_162100_add_container_id_to_rule_sets_table.php`** — already run
+  against production; its docblock still says "period," left as a historical record rather than
+  edited after the fact.

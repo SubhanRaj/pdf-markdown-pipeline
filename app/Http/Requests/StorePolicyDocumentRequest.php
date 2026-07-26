@@ -4,7 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class StorePolicyPeriodRequest extends FormRequest
+class StorePolicyDocumentRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -30,9 +30,9 @@ class StorePolicyPeriodRequest extends FormRequest
             'name'                  => ['required', 'string', 'min:2', 'max:150', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
             'effective_start_date'  => ['nullable', 'date'],
             'effective_end_date'    => ['nullable', 'date', 'after_or_equal:effective_start_date'],
-            // The original policy PDF for this period — optional so a period can still be
+            // The original policy PDF for this policy document — optional so it can still be
             // created ahead of the document being ready, but the form now offers it in the
-            // same step instead of forcing a second visit to the period's own page.
+            // same step instead of forcing a second visit to its own page.
             'file'                  => ['nullable', 'file', "mimetypes:{$acceptedMimes}", 'max:307200'],
             'language'              => ['nullable', 'string', 'in:english,hindi,both'],
             'visibility'            => ['nullable', 'string', 'in:public,authenticated'],
@@ -42,7 +42,7 @@ class StorePolicyPeriodRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'name.required'                     => 'Period name is required.',
+            'name.required'                     => 'Policy name is required.',
             'name.regex'                         => 'Name contains invalid characters.',
             'effective_end_date.after_or_equal'  => 'End date must be on or after the start date.',
         ];

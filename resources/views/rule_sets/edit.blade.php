@@ -16,12 +16,12 @@ $canManage  = auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canMana
     ...($ruleSet->kind === 'policy'
         ? \App\Models\RuleSet::policyBreadcrumb($department, $ruleSet->state)
         : [['name' => 'Rules & Regulations', 'url' => route('departments.rules.index', [$department->levelAlias(), $department])]]),
-    ['name' => $ruleSet->name,            'url' => route(\"departments.{$ruleSet->kind}.show\", [$department->levelAlias(), $department, $ruleSet])],
+    ['name' => $ruleSet->name,            'url' => route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet])],
     ['name' => 'Edit',                    'url' => null],
 ]" />
 
 <form id="ruleSetForm" method="POST"
-      action="{{ route(\"departments.{$ruleSet->kind}.update\", [$department->levelAlias(), $department, $ruleSet]) }}"
+      action="{{ route("departments.{$ruleSet->kind}.update", [$department->levelAlias(), $department, $ruleSet]) }}"
       novalidate class="max-w-2xl">
     @csrf
     @method('PATCH')
@@ -134,7 +134,7 @@ $canManage  = auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canMana
         </div>
 
         <div class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 rounded-b-xl flex items-center justify-between">
-            <a href="{{ route(\"departments.{$ruleSet->kind}.show\", [$department->levelAlias(), $department, $ruleSet]) }}"
+            <a href="{{ route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]) }}"
                class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1">
                 <i class="ti ti-arrow-left"></i> Cancel
             </a>
@@ -158,10 +158,10 @@ $canManage  = auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canMana
         <div>
             <p class="text-sm font-medium text-slate-700 dark:text-slate-200">Delete this {{ $isPolicy ? 'policy' : 'rule set' }}</p>
             @if($isPolicy && $ruleSet->container_id === null)
+            @php($policyDocsCount = $ruleSet->policyDocuments()->count())
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {{ $periodsCount = $ruleSet->periods()->count() }}
-                @if($periodsCount > 0)
-                    Cannot be deleted while it still has {{ $periodsCount }} {{ Str::plural('period', $periodsCount) }}. Delete those first.
+                @if($policyDocsCount > 0)
+                    Cannot be deleted while it still has {{ $policyDocsCount }} {{ Str::plural('policy', $policyDocsCount) }}. Delete those first.
                 @else
                     Permanently removes this policy. This action cannot be easily undone.
                 @endif
@@ -181,7 +181,7 @@ $canManage  = auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canMana
 </div>
 
 <form id="delete-ruleset-form" method="POST"
-      action="{{ route(\"departments.{$ruleSet->kind}.destroy\", [$department->levelAlias(), $department, $ruleSet]) }}"
+      action="{{ route("departments.{$ruleSet->kind}.destroy", [$department->levelAlias(), $department, $ruleSet]) }}"
       style="display:none">
     @csrf @method('DELETE')
 </form>

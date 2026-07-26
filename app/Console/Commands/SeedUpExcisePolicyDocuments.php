@@ -12,19 +12,19 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * One-off import: seeds previous-year policy periods (RuleSet container_id set + Document)
+ * One-off import: seeds previous-year policy documents (RuleSet container_id set + Document)
  * under the existing "Excise Policy Uttar Pradesh" container from a folder of yearly PDFs
- * named "..._2021-22_...pdf" etc. Mirrors policies:seed but for periods under a container
- * instead of top-level containers, reusing PolicyPeriodController's chronological-supersession
- * logic so this never overwrites the real current period.
+ * named "..._2021-22_...pdf" etc. Mirrors policies:seed but for policy documents under a
+ * container instead of top-level containers, reusing PolicyDocumentController's
+ * chronological-supersession logic so this never overwrites the real current document.
  */
-class SeedUpExcisePolicyPeriods extends Command
+class SeedUpExcisePolicyDocuments extends Command
 {
-    protected $signature = 'policies:seed-up-periods
+    protected $signature = 'policies:seed-up-policy-documents
         {--path=~/Old UP Excise Policies : Directory of PDF files to import}
         {--dept=excise : Department slug (must have level=department_level)}';
 
-    protected $description = 'Seed previous-year UP Excise Policy PDFs as periods under the existing UP Excise Policy container';
+    protected $description = 'Seed previous-year UP Excise Policy PDFs as policy documents under the existing UP Excise Policy container';
 
     public function handle(): int
     {
@@ -78,7 +78,7 @@ class SeedUpExcisePolicyPeriods extends Command
             ->values();
 
         if ($files->isEmpty()) {
-            $this->warn('No PDF files with a recognizable "YYYY-YY" period in the filename found.');
+            $this->warn('No PDF files with a recognizable "YYYY-YY" timeframe in the filename found.');
 
             return self::SUCCESS;
         }
@@ -89,11 +89,11 @@ class SeedUpExcisePolicyPeriods extends Command
             $previousId = $this->importOne($entry['file'], $entry['startYear'], $department, $container, $user, $previousId);
         }
 
-        // Chain the real current period back to the newest imported year, completing the
-        // supersession history (it was created independently, before this import).
-        $currentPeriod = RuleSet::currentPolicy()->where('container_id', $container->id)->first();
-        if ($currentPeriod && ! $currentPeriod->previous_policy_id && $previousId) {
-            $currentPeriod->update(['previous_policy_id' => $previousId]);
+        // Chain the real current policy document back to the newest imported year,
+        // completing the supersession history (it was created independently, before this import).
+        $currentPolicyDoc = RuleSet::currentPolicy()->where('container_id', $container->id)->first();
+        if ($currentPolicyDoc && ! $currentPolicyDoc->previous_policy_id && $previousId) {
+            $currentPolicyDoc->update(['previous_policy_id' => $previousId]);
         }
 
         return self::SUCCESS;
@@ -119,7 +119,7 @@ class SeedUpExcisePolicyPeriods extends Command
         ) {
             $slug = RuleSet::uniqueSlugForDepartment($name, $department->id);
 
-            $period = RuleSet::create([
+            $policyDoc = RuleSet::create([
                 'department_id'        => $department->id,
                 'name'                 => $name,
                 'slug'                 => $slug,
@@ -134,16 +134,16 @@ class SeedUpExcisePolicyPeriods extends Command
             ]);
 
             $vaultDir = implode('/', [
-                'document_vault', $department->level, $department->slug, 'rules', $period->slug,
+                'document_vault', $department->level, $department->slug, 'rules', $policyDoc->slug,
             ]);
-            $docSlug   = Document::uniqueSlugForRuleSet($name, $period->id);
+            $docSlug   = Document::uniqueSlugForRuleSet($name, $policyDoc->id);
             $storedAs  = "{$vaultDir}/{$docSlug}_".now()->format('YmdHis').'.pdf';
 
             Storage::disk('public')->put($storedAs, file_get_contents($file));
 
             $document = Document::create([
                 'department_id'      => $department->id,
-                'rule_set_id'        => $period->id,
+                'rule_set_id'        => $policyDoc->id,
                 'user_id'            => $user->id,
                 'title'              => $name,
                 'slug'               => $docSlug,
@@ -160,10 +160,10 @@ class SeedUpExcisePolicyPeriods extends Command
                 'actor_id'    => $user->id,
                 'from_status' => null,
                 'to_status'   => 'uploaded',
-                'note'        => 'Seeded from local UP Excise Policy batch import (policies:seed-up-periods).',
+                'note'        => 'Seeded from local UP Excise Policy batch import (policies:seed-up-policy-documents).',
             ]);
 
-            $newId = $period->id;
+            $newId = $policyDoc->id;
         });
 
         $this->info("Imported: {$filename} → {$name}");

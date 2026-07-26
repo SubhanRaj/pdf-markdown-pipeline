@@ -44,13 +44,13 @@
             @if(auth()->user()->canManagePolicy($ruleSet))
             <a href="{{ route('departments.policy.periods.create', [$department->levelAlias(), $department, $ruleSet]) }}"
                class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
-                <i class="ti ti-plus text-sm"></i> Add Period
+                <i class="ti ti-plus text-sm"></i> Add Policy
             </a>
             @endif
             @endauth
         </div>
         <div class="p-5">
-            @include('rule_sets._policy_periods_grid', ['periods' => $ruleSet->periods])
+            @include('rule_sets._policy_documents_grid', ['policyDocuments' => $ruleSet->policyDocuments])
         </div>
     </div>
     @endforeach

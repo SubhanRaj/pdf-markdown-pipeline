@@ -69,7 +69,7 @@ class RuleSet extends Model
 
     /**
      * Shared "Policies > {state}" breadcrumb prefix used by every policy page below the
-     * landing index (container, period create/edit/show, document show) — keeps that hop
+     * landing index (container, policy document create/edit/show) — keeps that hop
      * consistent everywhere instead of each view re-deriving its own partial chain.
      */
     public static function policyBreadcrumb(\App\Models\Department $department, string $state): array
@@ -107,26 +107,26 @@ class RuleSet extends Model
         return $this->hasMany(Document::class)->orderBy('created_at');
     }
 
-    /** The policy period this one was superseded by, if any (reverse of previous_policy_id). */
+    /** The policy document this one was superseded by, if any (reverse of previous_policy_id). */
     public function supersededBy(): HasOne
     {
         return $this->hasOne(RuleSet::class, 'previous_policy_id');
     }
 
-    /** The policy period this one supersedes, if any. */
+    /** The policy document this one supersedes, if any. */
     public function previousPolicy(): BelongsTo
     {
         return $this->belongsTo(RuleSet::class, 'previous_policy_id');
     }
 
-    /** The policy container (state + policy_type, created once) this period lives under. */
+    /** The policy container (state + policy_type, created once) this policy document lives under. */
     public function container(): BelongsTo
     {
         return $this->belongsTo(RuleSet::class, 'container_id');
     }
 
-    /** All periods (e.g. one per year) created under this policy container. */
-    public function periods(): HasMany
+    /** All policy documents (e.g. one per year) created under this policy container. */
+    public function policyDocuments(): HasMany
     {
         return $this->hasMany(RuleSet::class, 'container_id')->orderByDesc('effective_start_date');
     }
@@ -141,13 +141,13 @@ class RuleSet extends Model
         return $query->where('kind', 'policy');
     }
 
-    /** Policy containers — state + policy_type "lines", created once, holding many periods. */
+    /** Policy containers — state + policy_type "lines", created once, holding many policy documents. */
     public function scopePolicyContainers($query)
     {
         return $query->where('kind', 'policy')->whereNull('container_id');
     }
 
-    /** Current (non-superseded) policy periods — excludes containers themselves. */
+    /** Current (non-superseded) policy documents — excludes containers themselves. */
     public function scopeCurrentPolicy($query)
     {
         return $query->where('kind', 'policy')->whereNotNull('container_id')->where('policy_status', 'current');

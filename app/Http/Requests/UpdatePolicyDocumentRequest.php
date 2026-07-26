@@ -4,7 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class UpdatePolicyPeriodRequest extends FormRequest
+class UpdatePolicyDocumentRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -34,7 +34,7 @@ class UpdatePolicyPeriodRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'name.required'                     => 'Period name is required.',
+            'name.required'                     => 'Policy name is required.',
             'name.regex'                         => 'Name contains invalid characters.',
             'effective_end_date.after_or_equal'  => 'End date must be on or after the start date.',
         ];

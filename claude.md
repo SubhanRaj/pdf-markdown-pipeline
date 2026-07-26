@@ -185,20 +185,20 @@ Both check `withTrashed()` and append `-2`, `-3` on collision. **Folder slug is 
 |---|---|---|
 | `id` | bigint PK | |
 | `department_id` | FK → departments | `restrictOnDelete` |
-| `name` | string | Full name of the Act/Rule, the policy container's name (e.g. *UP Excise Policy* — no year), or a period's name (e.g. *2025-26*) |
+| `name` | string | Full name of the Act/Rule, the policy container's name (e.g. *UP Excise Policy* — no year), or a policy document's name (e.g. *Excise Policy 2025-26*) |
 | `slug` | string | Auto-generated from name; unique per department |
 | `description` | text nullable | Optional summary (max 500 chars) |
-| `kind` | enum | `rules` (default) \| `policy` — discriminates Acts/Rules containers from Policy rows (containers AND periods are both `kind=policy`); see "Policy Taxonomy" below |
-| `state` | string nullable | Only meaningful when `kind=policy` — e.g. `Uttar Pradesh`, `Odisha`; dropdown-controlled (`RuleSet::STATES`), with a sanitized free-text fallback for `other`. Copied from container to period at period-creation time |
-| `policy_type` | string nullable | Only meaningful when `kind=policy` — dropdown-controlled (`RuleSet::POLICY_TYPES`: `excise_policy`, `cane_policy`, `sugar_policy`, `import_policy`, `export_policy`, `other`), same free-text fallback. Copied from container to period |
-| `container_id` | FK → rule_sets nullable | `restrictOnDelete` — self-referencing. `null` = this row **is** a policy container (state + policy_type, created once); set = this row is a **period** underneath that container. Never set for `kind=rules` |
-| `effective_start_date` / `effective_end_date` | date nullable | Only meaningful on a **period** row — descriptive only; does **not** drive whether a period is "current" (see `policy_status` below) |
-| `policy_status` | enum | Only meaningful on a **period** row — `current` (default) \| `superseded` |
-| `previous_policy_id` | FK → rule_sets nullable | `nullOnDelete` — self-referencing; set on the *new* period when it supersedes an older one under the same container |
+| `kind` | enum | `rules` (default) \| `policy` — discriminates Acts/Rules containers from Policy rows (containers AND policy documents are both `kind=policy`); see "Policy Taxonomy" below |
+| `state` | string nullable | Only meaningful when `kind=policy` — e.g. `Uttar Pradesh`, `Odisha`; dropdown-controlled (`RuleSet::STATES`), with a sanitized free-text fallback for `other`. Copied from container to policy document at creation time |
+| `policy_type` | string nullable | Only meaningful when `kind=policy` — dropdown-controlled (`RuleSet::POLICY_TYPES`: `excise_policy`, `cane_policy`, `sugar_policy`, `import_policy`, `export_policy`, `other`), same free-text fallback. Copied from container to policy document |
+| `container_id` | FK → rule_sets nullable | `restrictOnDelete` — self-referencing. `null` = this row **is** a policy container (state + policy_type, created once); set = this row is a **policy document** underneath that container — "period" refers only to its timeframe (e.g. "2025-26"), never to the row itself. Never set for `kind=rules` |
+| `effective_start_date` / `effective_end_date` | date nullable | Only meaningful on a **policy document** row — descriptive only; does **not** drive whether it is "current" (see `policy_status` below) |
+| `policy_status` | enum | Only meaningful on a **policy document** row — `current` (default) \| `superseded` |
+| `previous_policy_id` | FK → rule_sets nullable | `nullOnDelete` — self-referencing; set on the *new* policy document when it supersedes an older one under the same container |
 | `metadata` | json nullable | Category, origin year, etc. |
 | `timestamps` + `softDeletes` | | |
 
-Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueSlugForDepartment($name, $departmentId)` — checks `withTrashed()` to avoid reusing slugs of soft-deleted rule sets. Composite index `(department_id, kind, state, policy_type, policy_status)` backs the supersession lookup in `PolicyPeriodController::store()`.
+Unique constraint: `(department_id, slug)`. Slug generated via `RuleSet::uniqueSlugForDepartment($name, $departmentId)` — checks `withTrashed()` to avoid reusing slugs of soft-deleted rule sets. Composite index `(department_id, kind, state, policy_type, policy_status)` backs the supersession lookup in `PolicyDocumentController::store()`.
 
 ### `documents`
 | Column | Type | Notes |
@@ -320,11 +320,11 @@ No `division.head` — division is the smallest unit; operators are scoped to a 
 | Departments | `DepartmentController` | Full CRUD; slug-based route model binding; show page is 3 summary cards (Sections/Rules & Regulations/Policies, each with a count) linking out to each category's own index page — no longer renders the full lists inline |
 | Sections | `SectionController` | Nested under departments; wing-aware; `index()` is the full sections list page (linked from the department show cards); show page is the file browser + multi-file upload modal + folder cards; `requires_approval` toggle on edit page |
 | Rule Sets | `RuleSetController` | Full CRUD; admin-only mutations; `index()` is the full list page (linked from the department show cards); multi-file upload modal on show page pre-selects `rule_amendment` type; `requires_approval` toggle on edit page |
-| **Policy (container)** | **`RuleSetController` (same class, `kind='policy'`, `container_id=null`)** | **Created once per department+state+policy_type. `show()` lists its periods (`rule_sets.policy_container` view) instead of documents. Mutations gated to admin or the owning department's `department.head` via `User::canManagePolicyForDepartment()`/`canManagePolicy()`; see [POLICY_PERIODS.md](POLICY_PERIODS.md)** |
+| **Policy (container)** | **`RuleSetController` (same class, `kind='policy'`, `container_id=null`)** | **Created once per department+state+policy_type. `show()` lists its policy documents (`rule_sets.policy_container` view) instead of documents. Mutations gated to admin or the owning department's `department.head` via `User::canManagePolicyForDepartment()`/`canManagePolicy()`; see [POLICY_PERIODS.md](POLICY_PERIODS.md)** |
 | **Policy browsing (2026-07-26)** | **`RuleSetController::policyState()`/`policyOtherStates()`** | **`/policy` is a 2-card landing (Uttar Pradesh / Other States), `/policy/state/{state}` is one page shared by both (filtered by state — no UP-specific code path), `/policy/other-states` lists every `RuleSet::STATES` entry as a card, split into two labeled
 sections (States / Union Territories via `RuleSet::UNION_TERRITORIES`, see POLICY_PERIODS.md §6).
-`{state}` is a slug (`RuleSet::stateSlug()`/`stateFromSlug()`), and both new routes are registered before `/policy/{rule_set}` — route order matters, see POLICY_PERIODS.md §4. State cards get a real per-state shape icon, client-side via `@svg-maps/india` over jsDelivr (CDN, CC-BY-4.0, pinned version) — `resources/views/rule_sets/_state_icon_loader.blade.php`, requires `cdn.jsdelivr.net` in `connect-src` (see SecurityHeaders CSP note), see POLICY_PERIODS.md §5. Every policy page shares one breadcrumb chain via `RuleSet::policyBreadcrumb()` (`Policies > {state}` prefix, reused by container/period create/edit/show and the document page) — see POLICY_PERIODS.md §7** |
-| **Policy (period)** | **`PolicyPeriodController` (nested under a container)** | **One per year/cycle (e.g. "2025-26"); holds its own root document + amendments exactly like a rule set does, via the shared `ListsRuleSetDocuments` trait; year-over-year supersession (`policy_status`, `previous_policy_id`) scoped to `container_id`; see [POLICY_PERIODS.md](POLICY_PERIODS.md)** |
+`{state}` is a slug (`RuleSet::stateSlug()`/`stateFromSlug()`), and both new routes are registered before `/policy/{rule_set}` — route order matters, see POLICY_PERIODS.md §4. State cards get a real per-state shape icon, client-side via `@svg-maps/india` over jsDelivr (CDN, CC-BY-4.0, pinned version) — `resources/views/rule_sets/_state_icon_loader.blade.php`, requires `cdn.jsdelivr.net` in `connect-src` (see SecurityHeaders CSP note), see POLICY_PERIODS.md §5. Every policy page shares one breadcrumb chain via `RuleSet::policyBreadcrumb()` (`Policies > {state}` prefix, reused by container/policy document create/edit/show and the document page) — see POLICY_PERIODS.md §7** |
+| **Policy (document)** | **`PolicyDocumentController` (nested under a container; URL/route-name segment stays `/periods/` — that names the timeframe scoping, not the entity, see POLICY_PERIODS.md §8)** | **One per year/cycle (e.g. "Excise Policy 2025-26"); holds its own root document + amendments exactly like a rule set does, via the shared `ListsRuleSetDocuments` trait; year-over-year supersession (`policy_status`, `previous_policy_id`) scoped to `container_id`; see [POLICY_PERIODS.md](POLICY_PERIODS.md)** |
 | Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal, amendment hierarchy, and folder cards; `requires_approval` toggle on edit page |
 | **Folders** | **`FolderController`** | **Full CRUD under sections (and optionally divisions); show page is a hub with upload modal + document list (amendment chain supported via `parent_id`); `requires_approval` toggle; archive cascades to all contained docs; visibility gate on folder page** |
 | Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions, folder names/descriptions; guests see `visibility = 'public'` docs and folders only; results capped at 50 docs + 20 sections + 20 rule sets + 20 folders; `->publishable()` scope hides pending/rejected |
@@ -1057,7 +1057,7 @@ Deletion is a two-stage process — soft-delete to trash, then optional permanen
 
 ### Rule set views
 
-- **Auto kind-suffix on name (2026-07-25)**: `RuleSet::withKindSuffix($name, $kind)` appends " Rules" (kind=rules) or " Policy" (kind=policy) to a user-typed name, unless that word already appears (case-insensitive `\b` match) — so "Bar" → "Bar Rules" but "Bar Rules" stays as-is. Applied in `RuleSetController@store` (both kinds) and `@update` (only when `name` actually changed, so re-saving an edited record doesn't double-suffix). Policy *periods* (`PolicyPeriodController`, e.g. "2024-25") are a different concept — not suffixed.
+- **Auto kind-suffix on name (2026-07-25)**: `RuleSet::withKindSuffix($name, $kind)` appends " Rules" (kind=rules) or " Policy" (kind=policy) to a user-typed name, unless that word already appears (case-insensitive `\b` match) — so "Bar" → "Bar Rules" but "Bar Rules" stays as-is. Applied in `RuleSetController@store` (both kinds) and `@update` (only when `name` actually changed, so re-saving an edited record doesn't double-suffix). Policy *documents* (`PolicyDocumentController`, e.g. "2024-25") are a different concept — not suffixed.
 - **`rule_sets/create`** — name + description form with JS validation; slug is auto-generated server-side from name.
 - **`rule_sets/edit`** — same, pre-populated; slug is read-only (set at creation, never changed).
 - **`rule_sets/show`** — header + two state-aware upload buttons + two independent modals + hierarchy document list.
@@ -1075,25 +1075,27 @@ Both modals share a `makeQueue(ids)` JS factory function that handles multi-file
 
 ### Policy Taxonomy (kind=policy RuleSets)
 
-**Implemented 2026-07-15, restructured into containers + periods 2026-07-23.** Reuses the `RuleSet`
-model/controller/views with a `kind` discriminator (`rules` | `policy`) rather than a parallel
-model. Full detail (schema, controllers, routes, views, migration/backfill strategy) lives in
-[POLICY_PERIODS.md](POLICY_PERIODS.md) — this section is a summary.
+**Implemented 2026-07-15, restructured into containers + policy documents 2026-07-23, terminology
+fixed 2026-07-26 (see POLICY_PERIODS.md §8 — "period" now names only the timeframe, never the
+entity).** Reuses the `RuleSet` model/controller/views with a `kind` discriminator (`rules` |
+`policy`) rather than a parallel model. Full detail (schema, controllers, routes, views,
+migration/backfill strategy) lives in [POLICY_PERIODS.md](POLICY_PERIODS.md) — this section is a
+summary.
 
 **Two-level structure:** a Policy **container** (state + policy_type, e.g. "UP Excise Policy") is
 created once via `RuleSetController` (`kind=policy`, `container_id=null`). Each year/cycle's actual
-policy document is a **period** (e.g. "2025-26") created underneath it via the new
-`PolicyPeriodController` (`container_id` set to the container's id) — a period is still just a plain
-`RuleSet` row, so it holds its own root document + amendments exactly like a Rule Set does, reusing
-the same document-listing logic via the `ListsRuleSetDocuments` trait (shared by both controllers).
-This replaced the original one-row-per-period design, where creating a new year meant re-filling
-the whole "Add Policy" form (state, policy type, name) every time.
+policy document (e.g. "Excise Policy 2025-26") is created underneath it via
+`PolicyDocumentController` (`container_id` set to the container's id) — a policy document is still
+just a plain `RuleSet` row, so it holds its own root document + amendments exactly like a Rule Set
+does, reusing the same document-listing logic via the `ListsRuleSetDocuments` trait (shared by both
+controllers). This replaced the original one-row-per-year design, where creating a new year meant
+re-filling the whole "Add Policy" form (state, policy type, name) every time.
 
-**Supersession** happens at the period level (`PolicyPeriodController::store()`): creating a new
-period under the same container automatically flips the previously-current period to `superseded`
-and sets `previous_policy_id` on the new one. Containers themselves are never superseded — they're
-permanent once created, and cannot be deleted while they still have periods (`container_id`'s
-`restrictOnDelete` FK enforces this at the DB layer).
+**Supersession** happens at the policy-document level (`PolicyDocumentController::store()`):
+creating a new policy document under the same container automatically flips the previously-current
+one to `superseded` and sets `previous_policy_id` on the new one. Containers themselves are never
+superseded — they're permanent once created, and cannot be deleted while they still have policy
+documents (`container_id`'s `restrictOnDelete` FK enforces this at the DB layer).
 
 **Controlled vocabularies** — `policy_type` and `state` are dropdown-only on the container (never
 free text by default), preventing "Excise Policy" / "excise policy" fragmenting search/filtering:
@@ -1111,13 +1113,13 @@ document uploads (`rule_sets/show.blade.php`'s upload modals, gated `@if($isPoli
 badges on `documents/show.blade.php` are links to `search.index` with `?document_type=`/`?state=`
 query params — `SearchController::index()` applies them as exact `where()` filters, independent of
 and combinable with the free-text `q` search, consistent with the `?sort=&year=` query-param
-convention already used by `RuleSetController`/`PolicyPeriodController::show()`.
+convention already used by `RuleSetController`/`PolicyDocumentController::show()`.
 
 **Permissions** unchanged from before the restructure — `User::canManagePolicy(RuleSet $policySet)`
 / `canManagePolicyForDepartment(Department $department)` remain department-scoped (not
-state-scoped): a department's `department.head` manages every state/policy_type/period under their
-department. Both containers and periods are `RuleSet` rows with the same `department_id`, so no
-authorization changes were needed.
+state-scoped): a department's `department.head` manages every state/policy_type/policy document
+under their department. Both containers and policy documents are `RuleSet` rows with the same
+`department_id`, so no authorization changes were needed.
 
 ### Maker-Checker Approval Workflow
 
@@ -1362,7 +1364,7 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 
 31. **Policy reuses `RuleSet` with a `kind` discriminator — not a parallel model** — `RuleSet.kind` (`rules` | `policy`) drives the same controller (`RuleSetController`), the same five `DocumentController` rule-set-document methods, and the same Blade views, branching only where the two genuinely differ: permission (`canManagePolicy()` vs the generic `canUploadTo()`/admin-only rules), and policy-only columns (`state`, `policy_type`, `effective_start_date`/`effective_end_date`, `policy_status`, `previous_policy_id`). Route names mirror this exactly — `departments.policy.*`/`documents.policy.*` sit next to `departments.rules.*`/`documents.rules.*`, both resolved via a `kind` route default applied **per-route** (`Route::get(...)->name(...)->defaults('kind', ...)`), never on the `Route::prefix()->name()->group()` chain itself — `RouteRegistrar::group()` does not return a chainable `Route` instance, so `->defaults()` on it throws `BadMethodCallException`. Do not introduce a separate `Policy` model/controller/view set; extend the `kind`-aware branches in the existing ones instead.
 
-32. **A policy period is valid until superseded, not until its stated end date** — `policy_status` (`current` | `superseded`) is the only field the app trusts to answer "is this the policy to cite." `effective_start_date`/`effective_end_date` are descriptive only. Creating a new policy for the same `department_id` + `state` + `policy_type` as an existing `current` one automatically flips the old row to `superseded` and links it via `previous_policy_id` — this happens inside `RuleSetController::store()` (no separate "new period" endpoint; the two cases — first policy ever vs. new year replacing the current one — share every field, so a parallel endpoint would just duplicate this one). Superseded policies are never deleted or hidden — they stay fully browsable and citable at their original URL forever (old case references must keep resolving), and amendments may still be uploaded to them.
+32. **A policy document is valid until superseded, not until its stated end date** — `policy_status` (`current` | `superseded`) is the only field the app trusts to answer "is this the policy to cite." `effective_start_date`/`effective_end_date` are descriptive only. Creating a new policy document under the same container as an existing `current` one automatically flips the old row to `superseded` and links it via `previous_policy_id` — this happens inside `PolicyDocumentController::store()` (a separate endpoint from container creation, `RuleSetController::store()`, since 2026-07-23's container/policy-document split; see POLICY_PERIODS.md §1). Superseded policy documents are never deleted or hidden — they stay fully browsable and citable at their original URL forever (old case references must keep resolving), and amendments may still be uploaded to them.
 
 ## Frontend architecture
 

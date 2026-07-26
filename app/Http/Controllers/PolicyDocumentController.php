@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ListsRuleSetDocuments;
 use App\Http\Controllers\Concerns\ManagesDocumentFiles;
-use App\Http\Requests\StorePolicyPeriodRequest;
-use App\Http\Requests\UpdatePolicyPeriodRequest;
+use App\Http\Requests\StorePolicyDocumentRequest;
+use App\Http\Requests\UpdatePolicyDocumentRequest;
 use App\Models\Department;
 use App\Models\Document;
 use App\Models\DocumentStatusHistory;
@@ -18,28 +18,30 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 /**
- * A "period" is a yearly/cyclical policy document (e.g. "2024-25", "2025-26") added
- * underneath a policy container (state + policy_type, created once via RuleSetController).
- * Periods are plain RuleSet rows with container_id set — everything about how a period
- * holds its own root document + amendments is identical to today's rule-sets behavior,
- * reused via the ListsRuleSetDocuments trait.
+ * A policy document is a specific yearly/cyclical policy (e.g. "Excise Policy 2024-25")
+ * added underneath a policy container (state + policy_type, created once via
+ * RuleSetController) — "period" refers only to its timeframe (e.g. "2024-25"), never to
+ * the document itself. The /periods/ URL and route-name segment describe that timeframe
+ * scoping, not the entity type. Policy documents are plain RuleSet rows with container_id set —
+ * everything about how one holds its own root document + amendments is identical to
+ * today's rule-sets behavior, reused via the ListsRuleSetDocuments trait.
  */
-class PolicyPeriodController extends Controller
+class PolicyDocumentController extends Controller
 {
     use ListsRuleSetDocuments, ManagesDocumentFiles;
 
-    /** Aborts 404 if $period doesn't actually belong to $policy — guards the nested URL. */
-    private function assertBelongsTo(RuleSet $policy, RuleSet $period): void
+    /** Aborts 404 if $policyDoc doesn't actually belong to $policy — guards the nested URL. */
+    private function assertBelongsTo(RuleSet $policy, RuleSet $policyDoc): void
     {
-        abort_unless($period->container_id === $policy->id, 404);
+        abort_unless($policyDoc->container_id === $policy->id, 404);
     }
 
     /**
-     * Whether a newly-added period should take over "current" from the existing current
-     * period. Only true when both effective_start_dates are known and the new one is on or
-     * after the existing current one — an unknown or earlier date means the new period is
-     * being backfilled (e.g. an old year added after a newer one already exists) and must
-     * not silently supersede the real current period.
+     * Whether a newly-added policy document should take over "current" from the existing
+     * current one. Only true when both effective_start_dates are known and the new one is
+     * on or after the existing current one — an unknown or earlier date means the new
+     * document is being backfilled (e.g. an old year added after a newer one already
+     * exists) and must not silently supersede the real current document.
      */
     public static function isChronologicallyLater(?\Illuminate\Support\Carbon $newStart, ?\Illuminate\Support\Carbon $previousStart): bool
     {
@@ -50,17 +52,17 @@ class PolicyPeriodController extends Controller
     {
         abort_unless(auth()->user()->canManagePolicy($policy), 403);
 
-        return view('rule_sets.periods.create', compact('department', 'policy'));
+        return view('rule_sets.policy_documents.create', compact('department', 'policy'));
     }
 
-    public function store(StorePolicyPeriodRequest $request, string $level, Department $department, RuleSet $policy): RedirectResponse
+    public function store(StorePolicyDocumentRequest $request, string $level, Department $department, RuleSet $policy): RedirectResponse
     {
         $validated = $request->validated();
         $slug      = RuleSet::uniqueSlugForDepartment($validated['name'], $department->id);
 
         // Uploaded up front (outside the transaction, same convention as
         // DocumentController@store) so a failed DB write never leaves an orphaned file
-        // and a failed file write never leaves a period without one.
+        // and a failed file write never leaves a policy document without one.
         $pdfPath  = null;
         $vaultDir = null;
 
@@ -76,7 +78,7 @@ class PolicyPeriodController extends Controller
 
         try {
             DB::transaction(function () use ($request, $department, $policy, $validated, $pdfPath, $vaultDir, $slug) {
-                $newPeriod = $department->ruleSets()->create([
+                $newPolicyDoc = $department->ruleSets()->create([
                     'name'                 => $validated['name'],
                     'effective_start_date' => $validated['effective_start_date'] ?? null,
                     'effective_end_date'   => $validated['effective_end_date'] ?? null,
@@ -87,27 +89,28 @@ class PolicyPeriodController extends Controller
                     'container_id'         => $policy->id,
                 ]);
 
-                // A new period only supersedes the current one under this same container when
-                // it's chronologically later — comparing effective_start_date stops a backfilled
-                // older period (e.g. adding "2021-22" after "2024-25" already exists) from wrongly
-                // taking over "current". Without both dates to compare, the new period is created
-                // as superseded rather than guessing; it can be promoted later via the edit form.
+                // A new policy document only supersedes the current one under this same
+                // container when it's chronologically later — comparing effective_start_date
+                // stops a backfilled older document (e.g. adding "2021-22" after "2024-25"
+                // already exists) from wrongly taking over "current". Without both dates to
+                // compare, the new document is created as superseded rather than guessing;
+                // it can be promoted later via the edit form.
                 $previousCurrent = RuleSet::currentPolicy()
                     ->where('container_id', $policy->id)
-                    ->where('id', '!=', $newPeriod->id)
+                    ->where('id', '!=', $newPolicyDoc->id)
                     ->first();
 
                 if ($previousCurrent) {
-                    if (self::isChronologicallyLater($newPeriod->effective_start_date, $previousCurrent->effective_start_date)) {
+                    if (self::isChronologicallyLater($newPolicyDoc->effective_start_date, $previousCurrent->effective_start_date)) {
                         $previousCurrent->update(['policy_status' => 'superseded']);
-                        $newPeriod->update(['previous_policy_id' => $previousCurrent->id]);
+                        $newPolicyDoc->update(['previous_policy_id' => $previousCurrent->id]);
                     } else {
-                        $newPeriod->update(['policy_status' => 'superseded']);
+                        $newPolicyDoc->update(['policy_status' => 'superseded']);
                     }
                 }
 
                 if ($pdfPath) {
-                    $this->storePolicyDocument($request, $department, $newPeriod, $validated, $pdfPath, $vaultDir);
+                    $this->storePolicyDocument($request, $department, $newPolicyDoc, $validated, $pdfPath, $vaultDir);
                 }
             });
 
@@ -118,7 +121,7 @@ class PolicyPeriodController extends Controller
                 Storage::disk('public')->delete($pdfPath);
             }
 
-            Log::error('PolicyPeriodController@store failed', [
+            Log::error('PolicyDocumentController@store failed', [
                 'policy_id' => $policy->id,
                 'error'     => $e->getMessage(),
             ]);
@@ -127,10 +130,10 @@ class PolicyPeriodController extends Controller
         }
     }
 
-    /** Creates the period's root policy Document(s) from the file uploaded alongside it. */
-    private function storePolicyDocument(Request $request, Department $department, RuleSet $period, array $validated, string $pdfPath, string $vaultDir): void
+    /** Creates the policy document's root Document(s) from the file uploaded alongside it. */
+    private function storePolicyDocument(Request $request, Department $department, RuleSet $policyDoc, array $validated, string $pdfPath, string $vaultDir): void
     {
-        $requireApproval = $request->user()->shouldRequireApproval($period);
+        $requireApproval = $request->user()->shouldRequireApproval($policyDoc);
         $initialStatus   = $requireApproval ? 'pending_approval' : 'uploaded';
         $languages       = ($validated['language'] ?? 'english') === 'both' ? ['english', 'hindi'] : [$validated['language'] ?? 'english'];
 
@@ -138,19 +141,19 @@ class PolicyPeriodController extends Controller
 
         foreach ($languages as $i => $language) {
             if ($i === 0) {
-                $langSlug = $period->slug;
+                $langSlug = $policyDoc->slug;
                 $langPath = $pdfPath;
             } else {
-                $langSlug = $period->slug . '-' . $language;
+                $langSlug = $policyDoc->slug . '-' . $language;
                 $langPath = $vaultDir . '/' . $langSlug . '_' . now()->format('YmdHis') . '.pdf';
                 Storage::disk('public')->copy($pdfPath, $langPath);
             }
 
             $doc = Document::create([
                 'department_id'     => $department->id,
-                'rule_set_id'       => $period->id,
+                'rule_set_id'       => $policyDoc->id,
                 'user_id'           => $request->user()->id,
-                'title'             => $period->name,
+                'title'             => $policyDoc->name,
                 'slug'              => $langSlug,
                 'document_type'     => 'policy',
                 'language'          => $language,
@@ -180,94 +183,94 @@ class PolicyPeriodController extends Controller
         }
     }
 
-    public function show(Request $request, string $level, Department $department, RuleSet $policy, RuleSet $period): View
+    public function show(Request $request, string $level, Department $department, RuleSet $policy, RuleSet $policyDoc): View
     {
-        $this->assertBelongsTo($policy, $period);
+        $this->assertBelongsTo($policy, $policyDoc);
 
         return view('rule_sets.show', array_merge(
             compact('department', 'policy'),
-            ['ruleSet' => $period],
-            $this->loadRuleSetDocuments($period, $request)
+            ['ruleSet' => $policyDoc],
+            $this->loadRuleSetDocuments($policyDoc, $request)
         ));
     }
 
-    public function edit(string $level, Department $department, RuleSet $policy, RuleSet $period): View
+    public function edit(string $level, Department $department, RuleSet $policy, RuleSet $policyDoc): View
     {
-        $this->assertBelongsTo($policy, $period);
-        abort_unless(auth()->user()->canManagePolicy($period), 403);
+        $this->assertBelongsTo($policy, $policyDoc);
+        abort_unless(auth()->user()->canManagePolicy($policyDoc), 403);
 
-        return view('rule_sets.periods.edit', compact('department', 'policy', 'period'));
+        return view('rule_sets.policy_documents.edit', compact('department', 'policy', 'policyDoc'));
     }
 
-    public function update(UpdatePolicyPeriodRequest $request, string $level, Department $department, RuleSet $policy, RuleSet $period): RedirectResponse
+    public function update(UpdatePolicyDocumentRequest $request, string $level, Department $department, RuleSet $policy, RuleSet $policyDoc): RedirectResponse
     {
-        $this->assertBelongsTo($policy, $period);
+        $this->assertBelongsTo($policy, $policyDoc);
         $validated = $request->validated();
         $markCurrent = (bool) ($validated['mark_as_current'] ?? false);
         unset($validated['mark_as_current']);
 
         try {
-            DB::transaction(function () use ($period, $policy, $validated, $markCurrent) {
-                $period->update($validated);
+            DB::transaction(function () use ($policyDoc, $policy, $validated, $markCurrent) {
+                $policyDoc->update($validated);
 
-                if ($markCurrent && $period->policy_status !== 'current') {
+                if ($markCurrent && $policyDoc->policy_status !== 'current') {
                     RuleSet::currentPolicy()
                         ->where('container_id', $policy->id)
-                        ->where('id', '!=', $period->id)
+                        ->where('id', '!=', $policyDoc->id)
                         ->update(['policy_status' => 'superseded']);
 
-                    $period->update(['policy_status' => 'current']);
+                    $policyDoc->update(['policy_status' => 'current']);
                 }
             });
 
-            flash()->success("Policy period \"{$period->name}\" updated.");
-            return redirect()->route('departments.policy.periods.show', [$department->levelAlias(), $department, $policy, $period]);
+            flash()->success("Policy \"{$policyDoc->name}\" updated.");
+            return redirect()->route('departments.policy.periods.show', [$department->levelAlias(), $department, $policy, $policyDoc]);
         } catch (\Throwable $e) {
-            Log::error('PolicyPeriodController@update failed', [
-                'period_id' => $period->id,
-                'error'     => $e->getMessage(),
+            Log::error('PolicyDocumentController@update failed', [
+                'policy_document_id' => $policyDoc->id,
+                'error'              => $e->getMessage(),
             ]);
-            flash()->error('Failed to update policy period. Please try again.');
+            flash()->error('Failed to update policy. Please try again.');
             return back()->withInput();
         }
     }
 
-    public function destroy(string $level, Department $department, RuleSet $policy, RuleSet $period): RedirectResponse
+    public function destroy(string $level, Department $department, RuleSet $policy, RuleSet $policyDoc): RedirectResponse
     {
-        $this->assertBelongsTo($policy, $period);
-        abort_unless(auth()->user()->canManagePolicy($period), 403);
+        $this->assertBelongsTo($policy, $policyDoc);
+        abort_unless(auth()->user()->canManagePolicy($policyDoc), 403);
 
         $docsToArchive = [];
 
         try {
-            DB::transaction(function () use ($period, &$docsToArchive) {
-                $period->documents()->each(function (Document $doc) use (&$docsToArchive) {
+            DB::transaction(function () use ($policyDoc, &$docsToArchive) {
+                $policyDoc->documents()->each(function (Document $doc) use (&$docsToArchive) {
                     DocumentStatusHistory::create([
                         'document_id' => $doc->id,
                         'actor_id'    => auth()->id(),
                         'from_status' => $doc->status,
                         'to_status'   => 'deleted',
-                        'note'        => 'Deleted with parent policy period.',
+                        'note'        => 'Deleted with parent policy.',
                     ]);
                     $doc->delete();
                     $docsToArchive[] = $doc;
                 });
 
-                $period->delete();
+                $policyDoc->delete();
             });
 
             foreach ($docsToArchive as $doc) {
                 $this->archiveFiles($doc);
             }
 
-            flash()->success("Policy period \"{$period->name}\" and all its documents deleted.");
+            flash()->success("Policy \"{$policyDoc->name}\" and all its documents deleted.");
             return redirect()->route('departments.policy.show', [$department->levelAlias(), $department, $policy]);
         } catch (\Throwable $e) {
-            Log::error('PolicyPeriodController@destroy failed', [
-                'period_id' => $period->id,
-                'error'     => $e->getMessage(),
+            Log::error('PolicyDocumentController@destroy failed', [
+                'policy_document_id' => $policyDoc->id,
+                'error'              => $e->getMessage(),
             ]);
-            flash()->error('Failed to delete policy period. Please try again.');
+            flash()->error('Failed to delete policy. Please try again.');
             return back();
         }
     }

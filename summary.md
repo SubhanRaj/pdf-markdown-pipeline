@@ -3076,3 +3076,55 @@ POLICY_PERIODS.md §7.
 `resources/views/documents/show.blade.php`,
 `resources/views/rule_sets/{show,create,edit,policy_container,policy_state,_policy_periods_grid}.blade.php`,
 `resources/views/rule_sets/periods/{create,edit}.blade.php`. Docs: `POLICY_PERIODS.md` §7, `claude.md`.
+
+## M61 — Three live bugs fixed + "period" renamed to "policy document" throughout (COMPLETED 2026-07-26)
+
+User reported three live issues while using the policy pages, plus asked for a terminology
+cleanup once the last one exposed how deep the wrong wording had spread:
+
+1. **Viewing an old year showed the wrong "current" policy.** `RuleSet::supersededBy()` only
+   walks one hop of the `previous_policy_id` chain — viewing 2021-22 showed "Current: 2022-23"
+   (its immediate successor), not the real current year (2026-27). Fixed by looking up the
+   container's actual current row directly (`RuleSet::currentPolicy()->where('container_id', ...)`)
+   instead of walking the chain — one query, correct regardless of how many superseded years sit
+   between.
+2. **`rule_sets/edit.blade.php` 500'd** with `ParseError: syntax error, unexpected token "\""` —
+   four spots had stray backslash-escaped quotes inside `{{ }}` (`route(\"departments...\")`),
+   invalid outside an actual PHP string literal. Removed the stray backslashes;
+   `php artisan view:clear` needed since the broken compiled view was cached.
+3. **The delete-container guard printed a stray leading number** — "6 Cannot be deleted while it
+   still has 6 policies…". Cause: `{{ $periodsCount = $ruleSet->periods()->count() }}` is a Blade
+   *echo*, and `{{ }}` always prints its expression's result, including a plain assignment's value.
+   Fixed by switching to `@php(...)`, which assigns without echoing.
+
+While fixing #3, the user pointed out the deeper problem: the yearly `RuleSet` row (e.g. "Excise
+Policy 2025-26") had been called "a period" everywhere in code since M1 of this feature — class
+names, variables, comments, log keys, messages — when the correct model (confirmed with the user)
+is the reverse: the row **is** a policy (a specific dated document); "period" should only ever
+describe its *timeframe*, never be the entity's name. Renamed throughout in one pass:
+`PolicyPeriodController` → `PolicyDocumentController`, `Store/UpdatePolicyPeriodRequest` →
+`Store/UpdatePolicyDocumentRequest`, `SeedUpExcisePolicyPeriods` → `SeedUpExcisePolicyDocuments`,
+`RuleSet::periods()` → `RuleSet::policyDocuments()`, `rule_sets/periods/` view folder →
+`rule_sets/policy_documents/`, `_policy_periods_grid.blade.php` → `_policy_documents_grid.blade.php`,
+plus every `$period`-family variable, log context key, and UI string. Full before/after table and
+what was deliberately left alone (the `/periods/` URL and route-name segment, to avoid breaking
+live bookmarked links; the `ActivityLogController` labels, kept as "Policy Document" for audit-trail
+precision; the already-run migration's docblock, left as historical record) — see
+`POLICY_PERIODS.md` §8.
+
+Verified: `php -l` clean on every touched file, `composer dump-autoload` + `route:clear` +
+`view:clear` (both needed — stale classmap/route cache referenced the old controller class name
+and broke `route:list` until cleared), `route:list` resolves with unchanged URIs, full test suite
+passes (`PolicyDocumentSupersedeTest`, renamed from `PolicyPeriodSupersedeTest`).
+
+**Files changed:** `app/Http/Controllers/PolicyDocumentController.php` (renamed),
+`app/Http/Requests/{Store,Update}PolicyDocumentRequest.php` (renamed),
+`app/Console/Commands/SeedUpExcisePolicyDocuments.php` (renamed), `app/Models/RuleSet.php`,
+`app/Models/User.php`, `app/Http/Controllers/RuleSetController.php`,
+`app/Http/Controllers/Concerns/ListsRuleSetDocuments.php`,
+`app/Http/Controllers/Admin/ActivityLogController.php`, `routes/web.php`,
+`resources/views/rule_sets/{create,edit,show,policy_container,policy_state}.blade.php`,
+`resources/views/rule_sets/_policy_documents_grid.blade.php` (renamed),
+`resources/views/rule_sets/policy_documents/{create,edit}.blade.php` (renamed),
+`resources/views/documents/show.blade.php`, `tests/Unit/PolicyDocumentSupersedeTest.php` (renamed).
+Docs: `POLICY_PERIODS.md` §8, `claude.md`.

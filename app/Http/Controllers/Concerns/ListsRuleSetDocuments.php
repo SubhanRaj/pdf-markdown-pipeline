@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 /**
  * Shared root-document + amendment listing/sort/year-filter logic for a single RuleSet
  * row's document view — used identically by RuleSetController (kind=rules) and
- * PolicyPeriodController (a policy period, which is also just a RuleSet row).
+ * PolicyDocumentController (a policy document, which is also just a RuleSet row).
  */
 trait ListsRuleSetDocuments
 {
@@ -75,7 +75,13 @@ trait ListsRuleSetDocuments
                 ->values()
             : collect();
 
-        $supersededBy = $ruleSet->policy_status === 'superseded' ? $ruleSet->supersededBy : null;
+        // Not $ruleSet->supersededBy — that's only the immediate next link in the
+        // previous_policy_id chain (e.g. viewing 2021-22 would show 2022-23, not the
+        // actual current policy document). The container's current policy document is
+        // always the one flagged policy_status='current', regardless of how many sit between.
+        $supersededBy = $ruleSet->policy_status === 'superseded'
+            ? RuleSet::currentPolicy()->where('container_id', $ruleSet->container_id)->first()
+            : null;
 
         return compact('rootDocuments', 'totalCount', 'parentOptions', 'sort', 'filterYear', 'availableYears', 'supersededBy');
     }

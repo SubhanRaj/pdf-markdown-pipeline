@@ -61,9 +61,9 @@ class RuleSetController extends Controller
     }
 
     /**
-     * One state's policy containers + their periods, rendered as a grid. Serves both the "Uttar
-     * Pradesh Policy" landing card and every "Other States' Policy" card — same view, filtered
-     * by state, no UP-specific code path.
+     * One state's policy containers + their policy documents, rendered as a grid. Serves both
+     * the "Uttar Pradesh Policy" landing card and every "Other States' Policy" card — same
+     * view, filtered by state, no UP-specific code path.
      */
     public function policyState(string $level, Department $department, string $state): View
     {
@@ -72,7 +72,7 @@ class RuleSetController extends Controller
 
         $containers = $department->ruleSets()->policyContainers()
             ->where('state', $stateName)
-            ->with(['periods' => fn ($q) => $q->withCount('documents')])
+            ->with(['policyDocuments' => fn ($q) => $q->withCount('documents')])
             ->orderBy('name')
             ->get();
 
@@ -123,8 +123,8 @@ class RuleSetController extends Controller
                 $slug = RuleSet::uniqueSlugForDepartment($validated['name'], $department->id);
 
                 // For kind=policy this creates a container only (state + policy_type,
-                // container_id left null) — created once. Yearly/periodic policy
-                // documents are added underneath it via PolicyPeriodController.
+                // container_id left null) — created once. Yearly policy documents are
+                // added underneath it via PolicyDocumentController.
                 $department->ruleSets()->create([
                     ...$validated,
                     'slug' => $slug,
@@ -149,12 +149,12 @@ class RuleSetController extends Controller
     public function show(Request $request, string $level, Department $department, RuleSet $ruleSet): View
     {
         // A kind=policy RuleSet reached here is always a container (state + policy_type,
-        // created once) — its yearly/periodic documents live on periods underneath it,
-        // handled by PolicyPeriodController. Containers never hold documents directly.
+        // created once) — its yearly policy documents live underneath it, handled by
+        // PolicyDocumentController. Containers never hold documents directly.
         if ($ruleSet->kind === 'policy') {
-            $periods = $ruleSet->periods()->withCount('documents')->get();
+            $policyDocuments = $ruleSet->policyDocuments()->withCount('documents')->get();
 
-            return view('rule_sets.policy_container', compact('department', 'ruleSet', 'periods'));
+            return view('rule_sets.policy_container', compact('department', 'ruleSet', 'policyDocuments'));
         }
 
         return view('rule_sets.show', array_merge(
