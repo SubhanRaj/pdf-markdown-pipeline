@@ -37,8 +37,8 @@
 | A-01 | `FortifyServiceProvider` overwrote the dual-key login rate limiter, killing the per-IP cap | HIGH | **FIXED** |
 | A-02 | `Password::defaults()` not configured — Fortify actions used bare min-8 rule | MEDIUM | **FIXED** |
 | A-03 | `SESSION_SECURE_COOKIE` missing from `.env` — session cookie transmitted over HTTP | MEDIUM | **FIXED** |
-| A-04 | "Remember me" checkbox enabled 5-year persistence, bypassing 120-min session timeout | MEDIUM | **FIXED** |
-| A-05 | `SESSION_EXPIRE_ON_CLOSE=false` — session survived browser close on shared workstations | LOW | **FIXED** |
+| A-04 | "Remember me" checkbox enabled 5-year persistence, bypassing 120-min session timeout | MEDIUM | **REVERTED 2026-07-26** — see note below |
+| A-05 | `SESSION_EXPIRE_ON_CLOSE=false` — session survived browser close on shared workstations | LOW | **REVERTED 2026-07-26** — see note below |
 | A-06 | `SESSION_SAME_SITE=lax` — should be `strict` for internal government tool | LOW | **FIXED** |
 | A-07 | `SESSION_ENCRYPT=false` — session data stored in plain text in the database | LOW | **FIXED** |
 | A-08 | `APP_DEBUG=true` in `.env.example` — no production guidance in the template | LOW | **FIXED** |
@@ -809,7 +809,16 @@ The production `.env` on the SDC server must set this to `true`.
 ### A-04 · "Remember Me" Checkbox Enabled 5-Year Session Persistence
 
 **Severity:** MEDIUM  
-**Status:** FIXED
+**Status:** REVERTED 2026-07-26 — see note below
+
+> **2026-07-26 reversal:** The threat model this finding assumed — a shared government
+> workstation where any officer walking up could resume a previous session — does not match
+> how this app is actually deployed: one PC per user, not a shared kiosk. Frequent forced
+> re-login was pure friction with no offsetting risk reduction for this deployment. The
+> "Remember me" checkbox was reintroduced in `resources/views/auth/login.blade.php`, wired to
+> Fortify's built-in `remember` handling (no custom code — `AttemptToAuthenticate` already
+> reads `$request->boolean('remember')`). **If this app is ever deployed to a shared/kiosk
+> workstation, re-apply the original fix below.**
 
 **Vulnerability:**  
 The login form included a "Keep me signed in" checkbox (`name="remember"`). When checked, Fortify/Laravel sets a long-lived remember-me cookie (default: 5 years via `remember_token`). This completely bypasses the 120-minute `SESSION_LIFETIME`. On a shared government workstation where an officer checks this box, the account remains accessible indefinitely across browser restarts, OS logins, and shift changes.
@@ -825,7 +834,13 @@ Removed the remember-me checkbox and label from `resources/views/auth/login.blad
 ### A-05 · `SESSION_EXPIRE_ON_CLOSE=false`
 
 **Severity:** LOW  
-**Status:** FIXED
+**Status:** REVERTED 2026-07-26 — see note below
+
+> **2026-07-26 reversal:** Same shared-workstation-vs-personal-PC reasoning as A-04. Set back
+> to `SESSION_EXPIRE_ON_CLOSE=false` and `SESSION_LIFETIME=10080` (7 days, sliding — resets on
+> activity, expires only after 7 days idle) in `.env` and `.env.example`, so sessions survive
+> browser restarts instead of forcing a login every 120 minutes. **If this app is ever deployed
+> to a shared/kiosk workstation, re-apply the original fix below.**
 
 **Vulnerability:**  
 With the default `false`, closing the browser window did not invalidate the session. The 120-minute TTL continued to tick from the last request. On a shared desktop, another user opening the browser shortly after could resume an active authenticated session.

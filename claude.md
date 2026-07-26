@@ -1039,7 +1039,7 @@ Deletion is a two-stage process — soft-delete to trash, then optional permanen
 
 **Two upload modals (separate, not combined):**
 
-- **`#modal-rule`** (Upload Rule Document) — indigo accent; type dropdown shows all types except `rule_amendment`, pre-selects `rule`; no parent field. Button is disabled once a rule-type doc exists for this rule set (`$rootDocuments->where('document_type', 'rule')->isNotEmpty()`).
+- **`#modal-rule`** (Upload Document) — indigo accent; type dropdown shows all types except `rule_amendment`, pre-selects `rule`/`policy`; no parent field. The button itself is always enabled — only the root `rule`/`policy` **option inside the dropdown** is disabled once one exists for this rule set (`$rootDocuments->where('document_type', 'rule')->isNotEmpty()`), so supplementary docs (`other`, `notice`, `court_order`, etc.) can still be uploaded afterward through the same modal.
 - **`#modal-amendment`** (Upload Amendment) — amber accent; type is a fixed hidden input (`rule_amendment`) shown as read-only badge; requires parent document selection from `$parentOptions` dropdown (root docs only, auto-selects if exactly one exists). Button is disabled until a `rule` doc exists.
 
 Both modals share a `makeQueue(ids)` JS factory function that handles multi-file queue, drag-and-drop, per-row title editing, sequential upload loop, and post-upload redirect/error handling. Each modal has its own set of element IDs passed via the `ids` object.
@@ -1548,6 +1548,10 @@ This keeps Unicode letters + combining marks intact and collapses everything els
 - Fortify's public registration is **disabled** — accounts are admin-created only.
 - **Profile self-edit** (`GET /profile/edit`, `PATCH /profile`) — any authenticated user may edit their own name, username, email, mobile, post, and password. Role, privileges, department, and section are read-only (admin-assigned). Validated by `UpdateProfileRequest` which scopes uniqueness checks to `auth()->user()->id` and has no role/privilege fields. The `admin.users.edit` / `admin.users.update` routes are strictly admin-only and must not be used for self-editing by non-admins.
 - Sidebar avatar and name are clickable links: admins → `admin.users.edit` for their own record; non-admins → `profile.edit`.
+
+### Session lifetime
+- `SESSION_LIFETIME=10080` (7 days), sliding — resets on every authenticated request, expires only after 7 days of inactivity. `SESSION_EXPIRE_ON_CLOSE=false` — sessions survive browser restarts. This deliberately reverses `SECURITY.md` A-04/A-05 (2026-07-15, 120-min + expire-on-close + no remember-me, written for a shared-workstation threat model); this deployment turned out to be personal-PC-per-user, not shared kiosks, so the shared-workstation risk those findings guarded against doesn't apply — see `SECURITY.md` for the reversal note. Do not re-tighten this without confirming the deployment model has actually changed back.
+- Login form has a "Remember me" checkbox (`name="remember"`), wired to Fortify's built-in `$request->boolean('remember')` handling (no controller changes needed — Fortify's `AttemptToAuthenticate` action reads it natively). Sets Laravel's standard long-lived `remember_token` cookie on top of the 7-day session.
 
 ### Rate limiting
 - All auth mutation route groups carry `throttle:mutations` middleware (60/min/user).
