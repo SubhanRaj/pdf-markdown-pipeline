@@ -232,8 +232,8 @@ class User extends Authenticatable
     }
 
     /**
-     * Whether this user may create/manage (upload, edit, convert, verify, start a new period
-     * for) the given policy container. Deliberately stricter than canUploadTo()'s generic
+     * Whether this user may create/manage (upload, edit, convert, verify, start a new policy
+     * document for) the given policy container. Deliberately stricter than canUploadTo()'s generic
      * department scope — a bare department_id match is not enough for policy, the user must
      * hold the department.head privilege (or be admin).
      */

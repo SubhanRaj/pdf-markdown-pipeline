@@ -1,7 +1,7 @@
 <x-layout
-    title="Edit Policy Period"
-    page-title="Edit Policy Period"
-    :page-subtitle="$period->name . ' · ' . $policy->name"
+    title="Edit Policy"
+    page-title="Edit Policy"
+    :page-subtitle="$policyDoc->name . ' · ' . $policy->name"
 >
 
 <x-breadcrumb :items="[
@@ -11,12 +11,12 @@
     ['name' => $department->name,         'url' => route('departments.show', [$department->levelAlias(), $department])],
     ...\App\Models\RuleSet::policyBreadcrumb($department, $policy->state),
     ['name' => $policy->name,             'url' => route('departments.policy.show', [$department->levelAlias(), $department, $policy])],
-    ['name' => $period->name,             'url' => route('departments.policy.periods.show', [$department->levelAlias(), $department, $policy, $period])],
+    ['name' => $policyDoc->name,             'url' => route('departments.policy.periods.show', [$department->levelAlias(), $department, $policy, $policyDoc])],
     ['name' => 'Edit',                    'url' => null],
 ]" />
 
-<form id="periodForm" method="POST"
-      action="{{ route('departments.policy.periods.update', [$department->levelAlias(), $department, $policy, $period]) }}"
+<form id="policyDocForm" method="POST"
+      action="{{ route('departments.policy.periods.update', [$department->levelAlias(), $department, $policy, $policyDoc]) }}"
       novalidate class="max-w-2xl">
     @csrf
     @method('PATCH')
@@ -26,20 +26,20 @@
         <div class="px-6 py-5">
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
                 <i class="ti ti-calendar-time text-slate-400 dark:text-slate-500"></i>
-                Period Details
+                Policy Details
             </h3>
 
             <div class="mb-4 px-3 py-2.5 rounded-lg flex items-center gap-2 text-sm
-                {{ $period->policy_status === 'current' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300' }}">
-                <i class="ti {{ $period->policy_status === 'current' ? 'ti-circle-check' : 'ti-clock-pause' }}"></i>
-                {{ $period->policy_status === 'current' ? 'Current period' : 'Superseded — historical reference only' }}
+                {{ $policyDoc->policy_status === 'current' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300' }}">
+                <i class="ti {{ $policyDoc->policy_status === 'current' ? 'ti-circle-check' : 'ti-clock-pause' }}"></i>
+                {{ $policyDoc->policy_status === 'current' ? 'Current policy' : 'Superseded — historical reference only' }}
             </div>
 
             <div class="space-y-4">
                 <div>
-                    <label for="name" class="field-label">Period Name <span class="text-red-500">*</span></label>
+                    <label for="name" class="field-label">Policy Name <span class="text-red-500">*</span></label>
                     <input id="name" name="name" type="text"
-                        value="{{ old('name', $period->name) }}"
+                        value="{{ old('name', $policyDoc->name) }}"
                         class="field-input @error('name') field-error @enderror"
                         required autofocus>
                     <p class="field-hint">Letters, numbers, spaces, hyphens, dots, brackets allowed.</p>
@@ -53,7 +53,7 @@
                         <input id="effective_start_date_display" type="text" placeholder="DD-MM-YYYY" autocomplete="off"
                                class="field-input @error('effective_start_date') field-error @enderror">
                         <input type="hidden" id="effective_start_date" name="effective_start_date"
-                               value="{{ old('effective_start_date', $period->effective_start_date?->format('Y-m-d')) }}">
+                               value="{{ old('effective_start_date', $policyDoc->effective_start_date?->format('Y-m-d')) }}">
                         @error('effective_start_date') <p class="field-err-msg">{{ $message }}</p> @enderror
                     </div>
                     <div>
@@ -61,7 +61,7 @@
                         <input id="effective_end_date_display" type="text" placeholder="DD-MM-YYYY" autocomplete="off"
                                class="field-input @error('effective_end_date') field-error @enderror">
                         <input type="hidden" id="effective_end_date" name="effective_end_date"
-                               value="{{ old('effective_end_date', $period->effective_end_date?->format('Y-m-d')) }}">
+                               value="{{ old('effective_end_date', $policyDoc->effective_end_date?->format('Y-m-d')) }}">
                         @error('effective_end_date') <p class="field-err-msg">{{ $message }}</p> @enderror
                     </div>
                 </div>
@@ -71,28 +71,28 @@
                         <input type="hidden" name="requires_approval" value="0">
                         <input type="checkbox" name="requires_approval" value="1"
                             class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-amber-600 focus:ring-amber-500"
-                            {{ old('requires_approval', $period->requires_approval) ? 'checked' : '' }}>
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Require approval for all uploads to this period</span>
+                            {{ old('requires_approval', $policyDoc->requires_approval) ? 'checked' : '' }}>
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Require approval for all uploads to this policy</span>
                     </label>
                 </div>
 
-                @if($period->policy_status !== 'current')
+                @if($policyDoc->policy_status !== 'current')
                 <div class="pt-4 border-t border-slate-200 dark:border-slate-700">
                     <label class="flex items-center gap-3 cursor-pointer">
                         <input type="hidden" name="mark_as_current" value="0">
                         <input type="checkbox" name="mark_as_current" value="1"
                             class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-green-600 focus:ring-green-500"
                             {{ old('mark_as_current') ? 'checked' : '' }}>
-                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Set as the current policy period</span>
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Set as the current policy</span>
                     </label>
-                    <p class="field-hint ml-7">Marks this period current and supersedes whichever period is current now.</p>
+                    <p class="field-hint ml-7">Marks this policy current and supersedes whichever policy is current now.</p>
                 </div>
                 @endif
             </div>
         </div>
 
         <div class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 rounded-b-xl flex items-center justify-between">
-            <a href="{{ route('departments.policy.periods.show', [$department->levelAlias(), $department, $policy, $period]) }}"
+            <a href="{{ route('departments.policy.periods.show', [$department->levelAlias(), $department, $policy, $policyDoc]) }}"
                class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1">
                 <i class="ti ti-arrow-left"></i> Cancel
             </a>
@@ -113,21 +113,21 @@
     </div>
     <div class="px-6 py-5 flex items-start justify-between gap-6">
         <div>
-            <p class="text-sm font-medium text-slate-700 dark:text-slate-200">Delete this period</p>
+            <p class="text-sm font-medium text-slate-700 dark:text-slate-200">Delete this policy</p>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Permanently removes this period and soft-deletes all {{ $period->documents()->count() }} associated document(s) to trash.
+                Permanently removes this policy and soft-deletes all {{ $policyDoc->documents()->count() }} associated document(s) to trash.
                 This action cannot be easily undone.
             </p>
         </div>
-        <button type="button" id="delete-period-btn"
+        <button type="button" id="delete-policy-doc-btn"
                 class="flex-shrink-0 inline-flex items-center gap-1.5 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-            <i class="ti ti-trash text-base"></i> Delete Period
+            <i class="ti ti-trash text-base"></i> Delete Policy
         </button>
     </div>
 </div>
 
-<form id="delete-period-form" method="POST"
-      action="{{ route('departments.policy.periods.destroy', [$department->levelAlias(), $department, $policy, $period]) }}"
+<form id="delete-policy-doc-form" method="POST"
+      action="{{ route('departments.policy.periods.destroy', [$department->levelAlias(), $department, $policy, $policyDoc]) }}"
       style="display:none">
     @csrf @method('DELETE')
 </form>
@@ -194,15 +194,15 @@
         bindDatePicker('effective_start_date_display', 'effective_start_date');
         bindDatePicker('effective_end_date_display', 'effective_end_date');
 
-        const docCount = {{ $period->documents()->count() }};
-        document.getElementById('delete-period-btn').addEventListener('click', function () {
+        const docCount = {{ $policyDoc->documents()->count() }};
+        document.getElementById('delete-policy-doc-btn').addEventListener('click', function () {
             const isDark = document.documentElement.classList.contains('dark');
             Swal.fire({
-                title: 'Delete Period?',
-                html: '<p class="text-sm text-gray-500 mb-2">You are about to delete <strong>{{ e($period->name) }}</strong>.</p>'
+                title: 'Delete Policy?',
+                html: '<p class="text-sm text-gray-500 mb-2">You are about to delete <strong>{{ e($policyDoc->name) }}</strong>.</p>'
                     + (docCount > 0
                         ? '<p class="text-sm text-red-500">This will also move <strong>' + docCount + ' document(s)</strong> to trash.</p>'
-                        : '<p class="text-sm text-gray-400">No documents are associated with this period.</p>'),
+                        : '<p class="text-sm text-gray-400">No documents are associated with this policy.</p>'),
                 icon: 'warning',
                 showCancelButton: true,
                 confirmButtonText: 'Yes, delete it',
@@ -211,10 +211,10 @@
                 background: isDark ? '#1e293b' : '#ffffff',
                 color: isDark ? '#f1f5f9' : '#0f172a',
             }).then(function (result) {
-                if (result.isConfirmed) document.getElementById('delete-period-form').submit();
+                if (result.isConfirmed) document.getElementById('delete-policy-doc-form').submit();
             });
         });
-    } catch (err) { console.error('Period edit form init failed', err); }
+    } catch (err) { console.error('Policy edit form init failed', err); }
 })();
 </script>
 @endpush

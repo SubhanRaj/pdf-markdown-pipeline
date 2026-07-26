@@ -2,7 +2,7 @@
 <x-layout
     :title="$ruleSet->name"
     :page-title="$ruleSet->name"
-    :page-subtitle="$department->name . ' · ' . $ruleSet->state . ' · ' . $periods->count() . ' ' . Str::plural('period', $periods->count())"
+    :page-subtitle="$department->name . ' · ' . $ruleSet->state . ' · ' . $policyDocuments->count() . ' ' . Str::plural('policy', $policyDocuments->count())"
 >
 
 <x-breadcrumb :items="[
@@ -50,15 +50,15 @@
     </div>
 </div>
 
-{{-- ── Periods list ─────────────────────────────────────────────────────────── --}}
+{{-- ── Policies list ────────────────────────────────────────────────────────── --}}
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
     <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
-        <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Policy Periods</h3>
+        <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Policies</h3>
         <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">One per year/cycle — each holds its own document and amendments.</p>
     </div>
 
     <div class="p-5">
-        @include('rule_sets._policy_periods_grid', ['periods' => $periods])
+        @include('rule_sets._policy_documents_grid', ['policyDocuments' => $policyDocuments])
     </div>
 </div>
 

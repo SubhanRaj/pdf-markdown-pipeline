@@ -106,7 +106,7 @@
                 </div>
                 <p class="field-hint">
                     This is created once per state + policy type. Once saved, add each year's
-                    policy period (e.g. "2024-25", "2025-26") underneath it.
+                    policy (e.g. "2024-25", "2025-26") underneath it.
                 </p>
             </div>
             <div class="border-t border-slate-100 dark:border-slate-700 my-5"></div>
@@ -121,7 +121,7 @@
                         placeholder="{{ $isPolicy ? 'e.g. UP Excise Policy' : 'e.g. U.P. Excise Act 1910' }}"
                         class="field-input @error('name') field-error @enderror"
                         required autofocus>
-                    <p class="field-hint">{{ $isPolicy ? 'Name of this policy (state + policy type) — no year, that comes from each period.' : 'Name of the Act, Rule, or Regulation.' }} Letters, numbers, spaces, hyphens, dots, brackets allowed.</p>
+                    <p class="field-hint">{{ $isPolicy ? 'Name of this policy (state + policy type) — no year, that comes from each policy added below.' : 'Name of the Act, Rule, or Regulation.' }} Letters, numbers, spaces, hyphens, dots, brackets allowed.</p>
                     <p class="field-err-msg hidden" id="name-err"></p>
                     @error('name') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
@@ -221,7 +221,7 @@
             const form = this;
             Swal.fire({
                 title: 'Create this policy?',
-                html: 'You\'ll add each year\'s policy period (2024-25, 2025-26, ...) underneath it afterwards.',
+                html: 'You\'ll add each year\'s policy (2024-25, 2025-26, ...) underneath it afterwards.',
                 icon: 'question',
                 showCancelButton: true,
                 confirmButtonText: 'Create',

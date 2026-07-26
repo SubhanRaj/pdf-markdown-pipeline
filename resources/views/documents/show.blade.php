@@ -43,9 +43,10 @@
 
     if ($isRuleSetDoc) {
         $contextName    = $ruleSet->name;
-        // A policy period (container_id set) isn't itself a container — its "show" page is
-        // the nested periods.show route, not departments.policy.show (that would 404/render
-        // an empty container page since a period has no periods of its own).
+        // A policy document (container_id set) isn't itself a container — its "show" page is
+        // the nested periods.show route (URL segment kept as "periods" — that's the
+        // timeframe scoping, not the entity name), not departments.policy.show (that would 404/render
+        // an empty container page since a policy document has no policy documents of its own).
         $contextUrl     = ($ruleSet->kind === 'policy' && $ruleSet->container_id)
             ? route('departments.policy.periods.show', [$department->levelAlias(), $department, $ruleSet->container, $ruleSet])
             : route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]);

@@ -74,9 +74,9 @@ class ActivityLogController extends Controller
         'departments.policy.store'               => 'Create Policy',
         'departments.policy.update'              => 'Update Policy',
         'departments.policy.destroy'             => 'Delete Policy',
-        'departments.policy.periods.store'       => 'Create Policy Period',
-        'departments.policy.periods.update'      => 'Update Policy Period',
-        'departments.policy.periods.destroy'     => 'Delete Policy Period',
+        'departments.policy.periods.store'       => 'Create Policy Document',
+        'departments.policy.periods.update'      => 'Update Policy Document',
+        'departments.policy.periods.destroy'     => 'Delete Policy Document',
 
         // Users / profile
         'admin.users.store'                     => 'Create User',

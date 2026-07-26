@@ -1,9 +1,9 @@
 <?php
 $isPolicy  = $ruleSet->kind === 'policy';
 $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth()->user()->canManagePolicy($ruleSet)));
-// $isPolicy is only ever true here for a policy PERIOD (a container never reaches this
+// $isPolicy is only ever true here for a policy DOCUMENT (a container never reaches this
 // view — RuleSetController::show() renders rule_sets.policy_container for those), and
-// $policy (the container) is passed alongside it by PolicyPeriodController.
+// $policy (the container) is passed alongside it by PolicyDocumentController.
 $showRoute    = $isPolicy ? route('departments.policy.periods.show',    [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.show',    [$department->levelAlias(), $department, $ruleSet]);
 $editRoute    = $isPolicy ? route('departments.policy.periods.edit',    [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.edit',    [$department->levelAlias(), $department, $ruleSet]);
 $destroyRoute = $isPolicy ? route('departments.policy.periods.destroy', [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.destroy', [$department->levelAlias(), $department, $ruleSet]);
@@ -12,7 +12,7 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
 <x-layout
     :title="$ruleSet->name"
     :page-title="$ruleSet->name"
-    :page-subtitle="$department->name . ' · ' . ($isPolicy ? 'Policy Period' : 'Rules & Regulations')"
+    :page-subtitle="$department->name . ' · ' . ($isPolicy ? 'Policy' : 'Rules & Regulations')"
     :description="$ogDescription"
 >
 
@@ -36,7 +36,7 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
     <span>
         Superseded — kept for historical reference only.
         @if($supersededBy)
-        Current period:
+        Current policy:
         <a href="{{ route('departments.policy.periods.show', [$department->levelAlias(), $department, $policy, $supersededBy]) }}" class="font-medium underline hover:no-underline">{{ $supersededBy->name }}</a>
         @endif
     </span>
