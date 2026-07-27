@@ -10,7 +10,7 @@ class UpdatePolicyDocumentRequest extends FormRequest
     {
         $user = $this->user();
 
-        return $user && $user->canManagePolicy($this->route('period'));
+        return $user && $user->canManagePolicy($this->route('policyDoc'));
     }
 
     protected function prepareForValidation(): void
