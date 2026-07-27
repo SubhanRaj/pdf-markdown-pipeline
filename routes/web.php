@@ -134,7 +134,7 @@ Route::prefix('departments')->name('departments.')->group(function () {
     // timeframe each one covers), the entity itself is a policy document, not "a period".
     Route::prefix('/{level}/{department}/policy/{policy}/periods')->name('policy.periods.')->group(function () {
         Route::get('/create',    [PolicyDocumentController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
-        Route::get('/{period}',  [PolicyDocumentController::class, 'show'])->name('show');
+        Route::get('/{policyDoc}',  [PolicyDocumentController::class, 'show'])->name('show');
     });
 });
 
@@ -263,9 +263,9 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
         });
         Route::prefix('/{level}/{department}/policy/{policy}/periods')->name('policy.periods.')->group(function () {
             Route::post('/',              [PolicyDocumentController::class, 'store'])->name('store');
-            Route::get('/{period}/edit',  [PolicyDocumentController::class, 'edit'])->name('edit');
-            Route::patch('/{period}',     [PolicyDocumentController::class, 'update'])->name('update');
-            Route::delete('/{period}',    [PolicyDocumentController::class, 'destroy'])->name('destroy');
+            Route::get('/{policyDoc}/edit',  [PolicyDocumentController::class, 'edit'])->name('edit');
+            Route::patch('/{policyDoc}',     [PolicyDocumentController::class, 'update'])->name('update');
+            Route::delete('/{policyDoc}',    [PolicyDocumentController::class, 'destroy'])->name('destroy');
         });
     });
 });
