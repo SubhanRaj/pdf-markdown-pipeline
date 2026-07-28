@@ -61,7 +61,7 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
 <script id="page-data" type="application/json">@json(['storeUrl' => route('documents.store'), 'csrfToken' => csrf_token(), 'parentOptions' => $parentOptions])</script>
 
 {{-- ── Rule set header ─────────────────────────────────────────────────────── --}}
-<div class="flex items-start justify-between gap-4 mb-6">
+<div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
     <div class="flex items-center gap-4">
         <div class="w-12 h-12 rounded-xl bg-indigo-500/10 dark:bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
             <i class="ti {{ $isPolicy ? 'ti-file-certificate' : 'ti-book' }} text-indigo-500 dark:text-indigo-400 text-xl"></i>
@@ -81,7 +81,7 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
             @endif
         </div>
     </div>
-    <div class="flex items-center gap-2 flex-wrap justify-end">
+    <div class="flex items-center gap-2 flex-wrap justify-end w-full sm:w-auto">
         <a href="{{ $downloadRoute }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-400 dark:hover:border-emerald-500 text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 text-sm font-medium px-3 py-2 rounded-lg transition-all"
            title="Download all markdown as ZIP">
