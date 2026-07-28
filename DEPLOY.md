@@ -302,29 +302,43 @@ Deliberately run as a plain CLI process, not through Apache — Apache's systemd
 block it from reading `/proc/meminfo` the same way it blocked the Pipeline Health endpoint until
 that override was added.
 
-`--timeout=1900` matches `RunOcrExtraction::$timeout` (1900s — the longer of the two job
-classes; `ConvertDocumentToMarkdown::$timeout` is 1200s). The worker-level `--timeout` must be
-at least as large as the largest job's own `$timeout`, or the worker kills a legitimately-running
-OCR job (multi-page scanned Gazette PDF, several minutes) before it finishes — don't lower this
-without checking both job classes' `$timeout` first. After deploying code changes that touch a job class,
-restart the worker (`queue:restart` signals workers to finish their current job and exit; the
-supervisor — launchd/systemd/the loop above — then starts a fresh one that picks up the new
-code — **this applies to any edit to an `App\Jobs\*` class**, PHP does not hot-reload a running
-worker's in-memory bytecode):
+`--timeout=1900` is just the worker's *default* for jobs that don't declare their own — Laravel
+enforces a job's own `public int $timeout` property via `pcntl_alarm` regardless of what
+`--timeout` says (`Worker::timeoutForJob()`), so it's not a ceiling on `RunOcrExtraction` or
+`ConvertDocumentToMarkdown`. `ConvertDocumentToMarkdown::$timeout` is a flat 1200s.
+`RunOcrExtraction::$timeout` (2026-07-28) is no longer flat — it scales with the PDF's page count
+(`RunOcrExtraction::timeoutForDocument()`, checked via `pdfinfo` at dispatch time, before the job
+is serialized onto the queue):
+
+| Pages | Timeout |
+|---|---|
+| ≤ 50 | 1900s (~32 min) |
+| 51–150 | 3600s (1 hr) |
+| 151–250 | 5400s (1.5 hr) |
+| 251–500 | 7200s (2 hr) |
+| 501–1000 | 10800s (3 hr) |
+| 1000+ | 14400s (4 hr) |
+
+A 500-page scanned document (e.g. a large Gazette PDF needing OCR) used to get killed and
+restarted from page 1 every ~32 minutes under the old flat 1900s timeout — this fixes that at the
+source instead of needing an ever-larger flat number. After deploying code changes that touch a
+job class, restart the worker (`queue:restart` signals workers to finish their current job and
+exit; the supervisor — launchd/systemd/the loop above — then starts a fresh one that picks up the
+new code — **this applies to any edit to an `App\Jobs\*` class**, PHP does not hot-reload a
+running worker's in-memory bytecode):
 ```bash
 php artisan queue:restart
 ```
 
-**`retry_after` must exceed the worker `--timeout` too** — `config('queue.connections.database.retry_after')`
-is set to 2000s (`config/queue.php`), just above the 1900s worker timeout above. This isn't
-optional headroom: the database queue driver considers a job "abandoned" and hands it to another
-worker once `retry_after` seconds pass, even if the original worker is still legitimately running
-it. Found this the hard way running a bulk 14-document backfill with several concurrent
-`queue:work` processes against Laravel's stock 90s default — every OCR pass past 90s got picked
-up a second time by another worker, and the loser of the race failed with
+**`retry_after` must exceed the *largest possible* job timeout** — `config('queue.connections.database.retry_after')`
+is 14700s (`config/queue.php`), just above `RunOcrExtraction`'s new 14400s ceiling for 1000+ page
+scans. This isn't optional headroom: the database queue driver considers a job "abandoned" and
+hands it to another worker once `retry_after` seconds pass, even if the original worker is still
+legitimately running it. Found this the hard way running a bulk 14-document backfill with several
+concurrent `queue:work` processes against Laravel's stock 90s default — every OCR pass past 90s
+got picked up a second time by another worker, and the loser of the race failed with
 `MaxAttemptsExceededException`, wasting a full duplicate OCR/Docling run for nothing. Keep
-`retry_after` > worker `--timeout` > the largest job's own `$timeout` whenever any of the three
-changes.
+`retry_after` above whatever the largest job timeout can now reach whenever either changes.
 
 **Running more than one `queue:work` process concurrently** (for throughput on a bulk
 backfill, or a multi-core departmental server) is safe with the database queue driver — it
