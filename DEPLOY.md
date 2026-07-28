@@ -243,8 +243,29 @@ value: `php artisan config:clear` (or `optimize:clear` if configs are cached).
 
 `php artisan queue:work` in a foreground terminal is fine for active development but dies the
 moment the terminal closes or the machine reboots — not acceptable for a departmental PC that
-needs to process conversions unattended. No persistent worker is currently configured on this
-Mac. Options, in order of how much this project actually needs right now:
+needs to process conversions unattended.
+
+**Actual live setup on the AIO (2026-07-29) — read this before assuming a worker isn't
+configured:** two queue workers run as **user-level** systemd units, not system-level —
+`pdf-pipeline-queue.service` and `pdf-pipeline-queue2.service`, both owned by `subhan`, both
+`enabled`. They live in `~/.config/systemd/user/`, not `/etc/systemd/system/`, and must be
+checked with `systemctl --user status pdf-pipeline-queue` — plain `systemctl status
+pdf-pipeline-queue` (no `--user`) will report "could not be found" even though the unit is
+running, which caused exactly this confusion once already. `pdf-pipeline-tunnel.service`
+(Cloudflare Tunnel) is the same pattern; `pdf-pipeline-app.service` (the old `artisan serve` unit,
+replaced by Apache) is disabled but still present. Also required for these to start at boot
+*before* any interactive login: `loginctl enable-linger subhan` (confirmed already set,
+`Linger=yes`) — without linger, user units only start once that user logs in, which defeats the
+point on a machine meant to run unattended overnight.
+
+**Consequence if this app is ever run under a different Unix account**: user-level units and
+linger are per-account. A new user would need their own copies of these four `.service` files
+under their own `~/.config/systemd/user/`, `systemctl --user enable` each, and their own
+`loginctl enable-linger <user>` — none of this is inherited or shared system-wide just because
+it works for `subhan`.
+
+Below are generic options/examples for setting this up from scratch (useful on a fresh machine or
+a different OS) — not what's actually deployed here; see the box above for that.
 
 **Simplest — `queue:work` with auto-restart via a loop** (fine for a single-user dev machine,
 not recommended long-term):
