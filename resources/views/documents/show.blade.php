@@ -190,7 +190,7 @@
 
 {{-- ── Document header ──────────────────────────────────────────────────────── --}}
 <div class="flex flex-wrap items-start justify-between gap-4 mb-6">
-    <div class="flex items-start gap-4">
+    <div class="flex items-start gap-4 min-w-0 flex-1">
         <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0
             @if($document->status === 'verified') bg-green-500/10 dark:bg-green-500/20
             @elseif($document->status === 'failed') bg-red-500/10 dark:bg-red-500/20
@@ -256,7 +256,7 @@
          edit/delete only ever render for a signed-in manager. ──────────────────────────── --}}
     {{-- flex-1 buttons (not a fixed grid-cols-4) so this still looks right when fewer than
          four buttons render — e.g. a public visitor only ever sees Share. --}}
-    <div class="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:items-center">
+    <div class="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-nowrap sm:items-center sm:shrink-0">
         <div class="relative flex-1 sm:flex-none min-w-[5rem] sm:min-w-0" x-data="{ shareOpen: false, copied: false }" @keydown.escape.window="shareOpen = false">
             <button type="button" title="Share" @click="shareOpen = !shareOpen"
                     class="w-full inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
