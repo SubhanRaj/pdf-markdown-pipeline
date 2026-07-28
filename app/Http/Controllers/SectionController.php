@@ -78,6 +78,7 @@ class SectionController extends Controller
         $documentsQuery = $section->documents()
             ->publishable()
             ->whereNull('division_id')
+            ->whereNull('folder_id')
             ->with('user:id,name')
             ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
             ->when($filterYear, fn ($q) => $q->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.effective_year')) = ?", [$filterYear]));
@@ -95,6 +96,7 @@ class SectionController extends Controller
         $availableYears = $section->documents()
             ->publishable()
             ->whereNull('division_id')
+            ->whereNull('folder_id')
             ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
             ->pluck('metadata')
             ->map(fn ($m) => is_array($m) ? ($m['effective_year'] ?? null) : null)

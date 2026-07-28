@@ -430,3 +430,27 @@ what the server actually accepts. (The 300 MB app-level limit is separate from �
 than — the zone's Cloudflare edge cap; see DEPLOY.md's "Cloudflare's own edge upload cap" section
 for the full upload-path story, including the 100 MB/200 MB Free/Business ceiling that sits in
 front of Apache entirely.)
+
+## 12. Bug: a folder's document also showed up as a "direct" document (2026-07-28)
+
+Reported live: uploading a document into a folder made it appear correctly inside the folder, but
+it *also* appeared a second time in the section page's separate direct-documents list — as if it
+existed both inside and outside the folder at once.
+
+**Root cause:** `SectionController::show()`'s root-documents query (`$documentsQuery` and its
+sibling `$availableYears` query) filtered `whereNull('division_id')` to exclude documents nested
+under a division, but never filtered `whereNull('folder_id')` — so a document placed directly in
+a section-level folder passed the filter and was counted twice: once under its folder's card,
+once again in the "direct documents" list meant only for documents in no folder at all.
+`DivisionController::show()`'s `$rootDocuments`/`$totalCount` queries had the identical gap
+(`whereNull('parent_id')` but no `whereNull('folder_id')`), since folders can exist at the
+division level too, not just the section level.
+
+**Fix:** added `->whereNull('folder_id')` to all four affected queries (two in each controller).
+`DepartmentController::show()` was checked and doesn't list documents directly, so it isn't
+affected.
+
+**Deliberately left unchanged:** both controllers' `$parentOptions` queries (feed the "Amends
+Previous Document" dropdown) still ignore `folder_id` — a document placed in a folder should
+remain a valid amendment target; only the two duplicate-listing queries per controller needed the
+extra filter.
