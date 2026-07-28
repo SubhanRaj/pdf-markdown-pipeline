@@ -107,6 +107,13 @@
                 <span class="text-xs text-slate-400 dark:text-slate-500">
                     {{ $ruleSet->documents_count }} {{ Str::plural('doc', $ruleSet->documents_count) }}
                 </span>
+                @if($ruleSet->documents_count > 0)
+                <span class="inline-flex items-center gap-1 text-xs {{ $ruleSet->documents_converted_count === $ruleSet->documents_count ? 'text-emerald-500 dark:text-emerald-400' : 'text-amber-500 dark:text-amber-400' }}"
+                      title="Converted to Markdown">
+                    <i class="ti ti-markdown text-sm"></i>
+                    {{ $ruleSet->documents_converted_count }}/{{ $ruleSet->documents_count }}
+                </span>
+                @endif
                 <a href="{{ route('departments.rules.download', [$department->levelAlias(), $department, $ruleSet]) }}"
                    class="text-slate-400 dark:text-slate-500 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors"
                    title="Download as ZIP">

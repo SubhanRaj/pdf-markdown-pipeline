@@ -3220,3 +3220,29 @@ values + row deletions, no code changes there), `resources/views/{department,sec
 folders,rule_sets/show,rule_sets/policy_container}.blade.php` (header wrap classes),
 `public/vendor/tabler-icons/tabler-icons.min.css` + `fonts/tabler-icons-subset.{woff,woff2}`
 (regenerated), `CLAUDE.md` (icon-font note updated).
+
+## M64 — Document header button-row wrap fixed + converted-doc count on Rules index (COMPLETED 2026-07-29)
+
+**Header button-row jitter:** on `documents/show.blade.php`, the header's title block had no
+`flex-1`/shrink sizing, so it and the button row (Share/Edit/Convert/Delete) both sized to their
+natural content width inside a `flex-wrap justify-between` parent. When the Convert button's
+label toggled between "Convert to Markdown" and "Converting…" (different text lengths), the
+row's total width shifted enough to occasionally push the whole button group onto its own line,
+looking broken. Fixed by making the title block the one that flexes (`min-w-0 flex-1`) and
+pinning the button row to a stable footprint (`sm:shrink-0`), so layout no longer depends on
+which label state is currently rendered.
+
+**Converted-doc count on Rules index:** `rule_sets/index.blade.php`'s Rules & Regulations listing
+(`kind=rules`) only showed a raw document count per rule set (e.g. "12 docs"), so checking how
+many were actually OCR'd/converted to Markdown required opening each rule set individually.
+`RuleSetController::index()` now adds a second `withCount` aggregate,
+`documents as documents_converted_count`, counting `whereNotNull('markdown_path')` (same
+visibility scope as the existing count; deliberately SQL-only rather than checking
+`Storage::disk('public')->exists()` per row like `documents/show.blade.php`'s `$hasMarkdown` does,
+since that check isn't practical at listing scale). The view shows this as an "8/12" badge next
+to the doc count, using the already-subset `ti-markdown` icon, green when fully converted and
+amber otherwise.
+
+**Files changed:** `resources/views/documents/show.blade.php` (header flex fix),
+`app/Http/Controllers/RuleSetController.php` (`documents_converted_count` aggregate),
+`resources/views/rule_sets/index.blade.php` (converted-count badge).
