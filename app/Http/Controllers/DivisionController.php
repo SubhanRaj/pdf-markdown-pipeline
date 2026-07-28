@@ -79,6 +79,7 @@ class DivisionController extends Controller
                     ->orderBy('created_at'),
             ])
             ->whereNull('parent_id')
+            ->whereNull('folder_id')
             ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
             ->orderBy('created_at')
             ->get();
@@ -113,6 +114,7 @@ class DivisionController extends Controller
 
         $totalCount = $division->documents()
             ->publishable()
+            ->whereNull('folder_id')
             ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
             ->count();
 
