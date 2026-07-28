@@ -3128,3 +3128,45 @@ passes (`PolicyDocumentSupersedeTest`, renamed from `PolicyPeriodSupersedeTest`)
 `resources/views/rule_sets/policy_documents/{create,edit}.blade.php` (renamed),
 `resources/views/documents/show.blade.php`, `tests/Unit/PolicyDocumentSupersedeTest.php` (renamed).
 Docs: `POLICY_PERIODS.md` §8, `claude.md`.
+
+## M62 — Bulk "download as ZIP" at every browse level (COMPLETED 2026-07-28)
+
+User asked for bulk download: per rule set, per folder/division/section, per state in policy,
+per policy container/document, and the whole department, each as one ZIP mirroring the site's
+own folder structure.
+
+**Markdown only, never the original PDF** — user's explicit call after seeing the first version
+(which zipped both): bulk-zipping hundreds of PDFs is bandwidth-heavy for no real benefit — the
+PDF is already the one format every visitor already has via its own document page and its own
+single-file download link (`DocumentController::pdf()` and its per-context siblings), so bulk
+download exists specifically to cover markdown, which has no other download path at all.
+
+**Implementation:** `App\Http\Controllers\Concerns\BuildsZipDownload` (new trait) takes a flat
+list of `{document, dir}` pairs and streams them into a `ZipArchive` temp file via
+`response()->download(...)->deleteFileAfterSend(true)` — `ext-zip` was already installed, no new
+dependency. `App\Http\Controllers\DownloadController` (new) builds that list per scope by walking
+the existing Eloquent relationships (no schema change): `folderEntries()`, `divisionEntries()`
+(recurses into its folders), `sectionEntries()` (recurses into folders + divisions),
+`ruleSetEntries()` (a plain rule set's own documents, or — when given a policy container —
+every policy document underneath it, each in its own sub-folder named after it), plus
+`policyState()` (every container for one state) and `department()` (everything: direct docs,
+every section, every rules rule-set, every policy container). Guests get the same
+`publishable()` + `visibility='public'` filtering as every existing browse page — no new
+authorization surface.
+
+Nine new GET routes, one "Download ZIP" link added to each corresponding page (section, division,
+folder, rule set, policy container, policy document, policy state, department, and the rules
+index row-level icon). Verified live end-to-end over HTTP against the real vhost
+(`docsrepo.exciseup.in:8080`) — a rule-set download and a section download (including a ~185MB
+real scanned document) both returned `200 application/zip` with correctly-named `.md` entries
+under the expected folder paths.
+
+**Known ceiling:** the department-wide zip builds synchronously on the request — fine at current
+scale, but a department with thousands of documents would need this queued instead. Not built
+since no department here is close to that yet.
+
+**Files changed:** `app/Http/Controllers/Concerns/BuildsZipDownload.php` (new),
+`app/Http/Controllers/DownloadController.php` (new), `routes/web.php`,
+`resources/views/{sections,divisions,folders}/show.blade.php`,
+`resources/views/rule_sets/{show,index,policy_container,policy_state}.blade.php`,
+`resources/views/department/show.blade.php`.

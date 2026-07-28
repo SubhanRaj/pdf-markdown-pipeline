@@ -8,6 +8,7 @@ use App\Http\Controllers\Auth\OnboardingController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DivisionController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\DownloadController;
 use App\Http\Controllers\FolderController;
 use App\Http\Controllers\FrontendController;
 use App\Http\Controllers\PolicyDocumentController;
@@ -92,25 +93,31 @@ Route::prefix('departments')->name('departments.')->group(function () {
     // /create must be before /{level}/{department} — no collision risk since /create has only one segment
     Route::get('/create',  [DepartmentController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
     Route::get('/{level}/{department}', [DepartmentController::class, 'show'])->name('show');
+    // Entire department as one zip (all sections/divisions/folders + rule sets + policy).
+    Route::get('/{level}/{department}/download', [DownloadController::class, 'department'])->name('download');
 
     Route::prefix('/{level}/{department}/sections')->name('sections.')->group(function () {
         Route::get('/',          [SectionController::class, 'index'])->name('index');
         Route::get('/create',    [SectionController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
         Route::get('/{section}', [SectionController::class, 'show'])->name('show');
+        Route::get('/{section}/download', [DownloadController::class, 'section'])->name('download');
         // Internal divisions — public show only
         Route::prefix('/{section}/divisions')->name('divisions.')->group(function () {
             Route::get('/create',     [DivisionController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
             Route::get('/{division}', [DivisionController::class, 'show'])->name('show');
+            Route::get('/{division}/download', [DownloadController::class, 'division'])->name('download');
             // Division folders — public show only
             Route::prefix('/{division}/folders')->name('folders.')->group(function () {
                 Route::get('/create',   [FolderController::class, 'createForDivision'])->name('create')->middleware(['auth', 'throttle:mutations']);
                 Route::get('/{folder}', [FolderController::class, 'showForDivision'])->name('show');
+                Route::get('/{folder}/download', [DownloadController::class, 'divisionFolder'])->name('download');
             });
         });
         // Section folders — public show only
         Route::prefix('/{section}/folders')->name('folders.')->group(function () {
             Route::get('/create',   [FolderController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
             Route::get('/{folder}', [FolderController::class, 'show'])->name('show');
+            Route::get('/{folder}/download', [DownloadController::class, 'folder'])->name('download');
         });
     });
 
@@ -118,6 +125,7 @@ Route::prefix('departments')->name('departments.')->group(function () {
         Route::get('/',            [RuleSetController::class, 'index'])->name('index')->defaults('kind', 'rules');
         Route::get('/create',     [RuleSetController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations'])->defaults('kind', 'rules');
         Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show')->defaults('kind', 'rules');
+        Route::get('/{rule_set}/download', [DownloadController::class, 'ruleSet'])->name('download');
     });
     // Policy — department-level only, available to every department (existing or future)
     Route::prefix('/{level}/{department}/policy')->name('policy.')->group(function () {
@@ -127,7 +135,9 @@ Route::prefix('departments')->name('departments.')->group(function () {
         // resolve "state"/"other-states" as a policy container slug and 404.
         Route::get('/other-states',    [RuleSetController::class, 'policyOtherStates'])->name('other-states');
         Route::get('/state/{state}',   [RuleSetController::class, 'policyState'])->name('state');
+        Route::get('/state/{state}/download', [DownloadController::class, 'policyState'])->name('state.download');
         Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show')->defaults('kind', 'policy');
+        Route::get('/{rule_set}/download', [DownloadController::class, 'ruleSet'])->name('download');
     });
     // Policy documents (e.g. "Excise Policy 2024-25", "Excise Policy 2025-26") — yearly
     // documents under a policy container. URI/route-name segment stays "periods" (the
@@ -135,6 +145,7 @@ Route::prefix('departments')->name('departments.')->group(function () {
     Route::prefix('/{level}/{department}/policy/{policy}/periods')->name('policy.periods.')->group(function () {
         Route::get('/create',    [PolicyDocumentController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
         Route::get('/{policyDoc}',  [PolicyDocumentController::class, 'show'])->name('show');
+        Route::get('/{policyDoc}/download', [DownloadController::class, 'policyPeriod'])->name('download');
     });
 });
 

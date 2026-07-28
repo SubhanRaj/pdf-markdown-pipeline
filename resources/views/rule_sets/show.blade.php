@@ -7,6 +7,7 @@ $canManage = auth()->check() && (auth()->user()->isAdmin() || ($isPolicy && auth
 $showRoute    = $isPolicy ? route('departments.policy.periods.show',    [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.show',    [$department->levelAlias(), $department, $ruleSet]);
 $editRoute    = $isPolicy ? route('departments.policy.periods.edit',    [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.edit',    [$department->levelAlias(), $department, $ruleSet]);
 $destroyRoute = $isPolicy ? route('departments.policy.periods.destroy', [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.destroy', [$department->levelAlias(), $department, $ruleSet]);
+$downloadRoute = $isPolicy ? route('departments.policy.periods.download', [$department->levelAlias(), $department, $policy, $ruleSet]) : route('departments.rules.download', [$department->levelAlias(), $department, $ruleSet]);
 $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSet->documents->count() . ' ' . Str::plural('document', $ruleSet->documents->count());
 ?>
 <x-layout
@@ -81,6 +82,12 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
         </div>
     </div>
     <div class="flex items-center gap-2 flex-wrap justify-end">
+        <a href="{{ $downloadRoute }}"
+           class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-400 dark:hover:border-emerald-500 text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 text-sm font-medium px-3 py-2 rounded-lg transition-all"
+           title="Download all markdown as ZIP">
+            <i class="ti ti-file-zip text-base"></i>
+            <span class="hidden sm:inline">Download ZIP</span>
+        </a>
         @auth
         @if($isPolicy ? auth()->user()->canManagePolicy($ruleSet) : auth()->user()->canUploadTo($ruleSet))
         {{-- Upload a document — the root rule/policy type is capped at one (dropdown hides it

@@ -13,6 +13,17 @@
     ['name' => $stateName,                'url' => null],
 ]" />
 
+@if($containers->isNotEmpty())
+<div class="flex justify-end mb-4">
+    <a href="{{ route('departments.policy.state.download', [$department->levelAlias(), $department, \App\Models\RuleSet::stateSlug($stateName)]) }}"
+       class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-400 dark:hover:border-emerald-500 text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 text-sm font-medium px-3 py-2 rounded-lg transition-all"
+       title="Download every policy's markdown for {{ $stateName }} as ZIP">
+        <i class="ti ti-file-zip text-base"></i>
+        <span class="hidden sm:inline">Download All ({{ $stateName }})</span>
+    </a>
+</div>
+@endif
+
 @if($containers->isEmpty())
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center py-16 text-center">
     <i class="ti ti-file-certificate text-4xl text-slate-200 dark:text-slate-600 mb-3"></i>
