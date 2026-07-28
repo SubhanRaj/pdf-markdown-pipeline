@@ -32,7 +32,7 @@
             @endif
         </div>
     </div>
-    <div class="flex items-center gap-2 flex-shrink-0">
+    <div class="flex items-center gap-2 flex-wrap justify-end w-full sm:w-auto">
         <a href="{{ route('departments.policy.download', [$department->levelAlias(), $department, $ruleSet]) }}"
            class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-emerald-400 dark:hover:border-emerald-500 text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 text-sm font-medium px-3 py-2 rounded-lg transition-all"
            title="Download every policy year's markdown as ZIP">

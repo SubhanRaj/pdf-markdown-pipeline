@@ -3170,3 +3170,53 @@ since no department here is close to that yet.
 `resources/views/{sections,divisions,folders}/show.blade.php`,
 `resources/views/rule_sets/{show,index,policy_container,policy_state}.blade.php`,
 `resources/views/department/show.blade.php`.
+
+## M63 — Two stray duplicate slugs cleaned up, mobile header wrap fixed, missing icon glyph found and added (COMPLETED 2026-07-28)
+
+Three small follow-ups from live testing of M62 on a phone.
+
+**Duplicate slugs:** `/departments/dept/excise/policy/excise-policy-uttar-pradesh-2` had a `-2`
+suffix because a soft-deleted leftover test period (id 12, itself with a soft-deleted test
+document) had reserved the plain slug before the real container (id 26) was created. Purged the
+already-trashed id-12 row and its document (force-deleted, including its one file and the
+`document_status_histories` rows — nothing live referenced either), then renamed the real
+container's slug back to `excise-policy-uttar-pradesh`. Separately, all 6 other soft-deleted test
+documents in the app (ids 1–6, an old Chhattisgarh test upload and old Bar Rules test uploads)
+were force-deleted along with their files on disk — confirmed first that no live document's
+`parent_id`/`sibling_document_id` pointed at any of them. Also renamed the `2026-27` policy
+period's slug from a stale `excise-policy-uttar-pradesh-3` (left over from before the period was
+renamed — slugs aren't regenerated on rename) to `excise-policy-uttar-pradesh-2026-27`, matching
+its sibling periods' pattern, and its Hindi document's slug from a collision-suffixed leftover to
+`hindi-excise-policy-26-27` to mirror the English sibling's `english-excise-policy-26-27`.
+
+**Mobile header wrap:** the ZIP-download button (and Edit/Add buttons) on department, section,
+division, folder, rule-set, and policy-container pages was getting clipped off-screen on narrow
+viewports — the header row (`flex items-start justify-between gap-4 mb-6`) had no `flex-wrap`,
+so on mobile the title block and button group fought for one line and the app shell's
+`overflow-hidden` (`components/layout.blade.php`) silently clipped whatever didn't fit, with no
+horizontal scrollbar to reach it. Added `flex-wrap` to all 6 header rows, then — after actually
+screenshotting a mobile viewport with Playwright — found the wrapped button row was landing
+badly left-aligned under the icon instead of staying right-aligned, because it inherited the
+parent's `justify-between` on a single-item second line. Fixed by adopting the pattern already
+used on `documents/show.blade.php`'s own action row: `w-full sm:w-auto` on the actions container,
+so on mobile it takes the full width and its own `justify-end` actually has room to work.
+
+**Missing icon glyph:** this app self-hosts a *subset* Tabler Icons webfont (only the classes
+actually used, ~114 before this — see the "Icon font is subset" note in `CLAUDE.md`, M51). The
+ZIP-download button uses `ti-file-zip`, added in M62, but nobody added its glyph to the subset —
+it silently rendered as an empty box, which is exactly why the button "wasn't working" on mobile
+even after the wrap fix. Audited for other gaps and found two more real-but-missing icon classes
+already in use (`ti-lock-check`, `ti-mail-exclamation`). Rebuilt the subset font: pulled the full
+`@tabler/icons-webfont@3.45.0` package from npm, subset its `.ttf` with `pyftsubset` to the
+**union** of the previous 114 classes plus these 3 (117 total, deliberately a union rather than a
+fresh grep-based rebuild — a class can be referenced dynamically in Blade and not show up in a
+static search), converted to woff2/woff, and regenerated the trimmed CSS in the same hand-rolled
+format as before. Net result is *smaller* than the previous build (~13KB vs ~22KB woff2) despite
+adding 3 icons — the prior build had retained some now-stripped table data. Verified all three
+codepoints resolve to real glyphs in the rebuilt font via `fontTools`.
+
+**Files changed:** `app/Models/RuleSet.php` and `app/Models/Document.php` records only (slug
+values + row deletions, no code changes there), `resources/views/{department,sections,divisions,
+folders,rule_sets/show,rule_sets/policy_container}.blade.php` (header wrap classes),
+`public/vendor/tabler-icons/tabler-icons.min.css` + `fonts/tabler-icons-subset.{woff,woff2}`
+(regenerated), `CLAUDE.md` (icon-font note updated).
