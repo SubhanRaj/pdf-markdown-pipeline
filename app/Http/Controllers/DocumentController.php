@@ -514,65 +514,41 @@ class DocumentController extends Controller
 
             $metadata = $this->extractMetadata($validated);
 
-            // "Both" uploads the one submitted file under two Document rows (English +
-            // Hindi) so each language version gets its own independent status/conversion
-            // lifecycle — never split into two upload fields, matches confirmed design.
-            $languages = ($validated['language'] ?? 'english') === 'both' ? ['english', 'hindi'] : [$validated['language'] ?? 'english'];
+            // 'both' is a real, standalone language value (a bilingual document in its own
+            // right) — it coexists alongside separate english/hindi uploads for the same
+            // rule_set rather than expanding into a pair of them.
+            $language = $validated['language'] ?? 'english';
 
-            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $folder, $department, $vaultDir, $pdfPath, $slug, $request, $metadata, $initialStatus, $languages, &$document) {
-                $created = [];
+            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $folder, $department, $vaultDir, $pdfPath, $slug, $request, $metadata, $initialStatus, $language, &$document) {
+                $document = Document::create([
+                    'department_id'     => $department->id,
+                    'section_id'        => $section?->id,
+                    'division_id'       => $division?->id,
+                    'rule_set_id'       => $ruleSet?->id,
+                    'folder_id'         => $folder?->id,
+                    'parent_id'         => $validated['parent_id'] ?? null,
+                    'user_id'           => $request->user()->id,
+                    'title'             => $validated['title'],
+                    'slug'              => $slug,
+                    'document_type'     => $validated['document_type'],
+                    'language'          => $language,
+                    'original_filename' => preg_replace('/[^\w\s\-\.\(\)]/', '_', $request->file('file')->getClientOriginalName()),
+                    'original_pdf_path' => $pdfPath,
+                    'vault_path'        => $vaultDir,
+                    'status'            => $initialStatus,
+                    'visibility'        => $validated['visibility'] ?? 'public',
+                    'metadata'          => ! empty($metadata) ? $metadata : null,
+                ]);
 
-                foreach ($languages as $i => $language) {
-                    if ($i === 0) {
-                        $langSlug = $slug;
-                        $langPath = $pdfPath;
-                    } else {
-                        // Second language version: physically distinct copy of the same
-                        // file so later conversion/OCR/discard never touches the sibling.
-                        $langSlug = "{$slug}-{$language}";
-                        $langPath = $vaultDir . '/' . $langSlug . '_' . now()->format('YmdHis') . '.pdf';
-                        Storage::disk('public')->copy($pdfPath, $langPath);
-                    }
-
-                    $doc = Document::create([
-                        'department_id'     => $department->id,
-                        'section_id'        => $section?->id,
-                        'division_id'       => $division?->id,
-                        'rule_set_id'       => $ruleSet?->id,
-                        'folder_id'         => $folder?->id,
-                        'parent_id'         => $validated['parent_id'] ?? null,
-                        'user_id'           => $request->user()->id,
-                        'title'             => $validated['title'],
-                        'slug'              => $langSlug,
-                        'document_type'     => $validated['document_type'],
-                        'language'          => $language,
-                        'original_filename' => preg_replace('/[^\w\s\-\.\(\)]/', '_', $request->file('file')->getClientOriginalName()),
-                        'original_pdf_path' => $langPath,
-                        'vault_path'        => $vaultDir,
-                        'status'            => $initialStatus,
-                        'visibility'        => $validated['visibility'] ?? 'public',
-                        'metadata'          => ! empty($metadata) ? $metadata : null,
-                    ]);
-
-                    DocumentStatusHistory::create([
-                        'document_id' => $doc->id,
-                        'actor_id'    => $request->user()->id,
-                        'from_status' => null,
-                        'to_status'   => $initialStatus,
-                        'note'        => $initialStatus === 'pending_approval'
-                            ? 'Document submitted for approval.'
-                            : 'Document uploaded.',
-                    ]);
-
-                    $created[] = $doc;
-                }
-
-                if (count($created) === 2) {
-                    $created[0]->update(['sibling_document_id' => $created[1]->id]);
-                    $created[1]->update(['sibling_document_id' => $created[0]->id]);
-                }
-
-                $document = $created[0];
+                DocumentStatusHistory::create([
+                    'document_id' => $document->id,
+                    'actor_id'    => $request->user()->id,
+                    'from_status' => null,
+                    'to_status'   => $initialStatus,
+                    'note'        => $initialStatus === 'pending_approval'
+                        ? 'Document submitted for approval.'
+                        : 'Document uploaded.',
+                ]);
             });
 
             if ($initialStatus === 'pending_approval') {

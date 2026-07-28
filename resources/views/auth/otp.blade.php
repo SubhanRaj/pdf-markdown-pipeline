@@ -37,19 +37,19 @@
             @csrf
             <input type="hidden" name="code" :value="digits.join('')">
 
-            <div class="flex justify-between gap-2 mb-6" @paste="paste($event)">
+            <div class="flex justify-between gap-1.5 sm:gap-2 mb-6" @paste="paste($event)">
                 <input type="text" inputmode="numeric" maxlength="1" x-ref="box0" x-model="digits[0]" @input="onInput(0, $event)" @keydown.backspace="onBackspace(0)"
-                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                       class="flex-1 min-w-0 h-12 sm:h-14 text-center text-lg sm:text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                 <input type="text" inputmode="numeric" maxlength="1" x-ref="box1" x-model="digits[1]" @input="onInput(1, $event)" @keydown.backspace="onBackspace(1)"
-                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                       class="flex-1 min-w-0 h-12 sm:h-14 text-center text-lg sm:text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                 <input type="text" inputmode="numeric" maxlength="1" x-ref="box2" x-model="digits[2]" @input="onInput(2, $event)" @keydown.backspace="onBackspace(2)"
-                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                       class="flex-1 min-w-0 h-12 sm:h-14 text-center text-lg sm:text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                 <input type="text" inputmode="numeric" maxlength="1" x-ref="box3" x-model="digits[3]" @input="onInput(3, $event)" @keydown.backspace="onBackspace(3)"
-                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                       class="flex-1 min-w-0 h-12 sm:h-14 text-center text-lg sm:text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                 <input type="text" inputmode="numeric" maxlength="1" x-ref="box4" x-model="digits[4]" @input="onInput(4, $event)" @keydown.backspace="onBackspace(4)"
-                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                       class="flex-1 min-w-0 h-12 sm:h-14 text-center text-lg sm:text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                 <input type="text" inputmode="numeric" maxlength="1" x-ref="box5" x-model="digits[5]" @input="onInput(5, $event)" @keydown.backspace="onBackspace(5)"
-                       class="w-12 h-14 text-center text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                       class="flex-1 min-w-0 h-12 sm:h-14 text-center text-lg sm:text-xl font-semibold bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
             </div>
 
             <button

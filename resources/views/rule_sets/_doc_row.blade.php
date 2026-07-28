@@ -16,9 +16,14 @@
 
 {{-- Status icon/badge poll (in-flight docs only) reuses the exact plain-JS pattern from
      documents/pipeline.blade.php — same problem, already solved there, no need for Alpine. --}}
-<div class="flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group
+<div class="relative flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group
             {{ $isAmendment ? 'bg-amber-50/30 dark:bg-amber-900/5 border-l-2 border-amber-200 dark:border-amber-700 ml-6 pl-4' : '' }}"
      @if($isPolling) data-doc-row="{{ $doc->id }}" data-poll="1" @endif>
+
+    {{-- Stretched link: makes the whole row clickable while the action buttons
+         below (delete, etc.) sit above it via z-10 and remain independently clickable. --}}
+    <a href="{{ route("documents.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet, $doc]) }}"
+       class="absolute inset-0 z-0" aria-label="View {{ $doc->title }}"></a>
 
     {{-- Tree connector for amendments --}}
     @if($isAmendment)
@@ -82,6 +87,17 @@
             <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
                 {{ \App\Models\Document::DOCUMENT_TYPES[$doc->document_type] ?? $doc->document_type }}
             </span>
+            @php
+                $langClass = match($doc->language) {
+                    'hindi' => 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400',
+                    'both'  => 'bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400',
+                    default => 'bg-sky-100 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400',
+                };
+            @endphp
+            <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium {{ $langClass }}">
+                <i class="ti ti-language text-[10px]"></i>
+                {{ \App\Models\Document::LANGUAGES[$doc->language] ?? $doc->language }}
+            </span>
             @auth
             <span class="doc-status-badge inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium {{ $sc[$sm['color']] ?? $sc['slate'] }}">
                 @if($isPolling)<i class="ti ti-loader-2 animate-spin text-[10px]"></i>@endif
@@ -104,7 +120,7 @@
     </div>
 
     {{-- Actions --}}
-    <div class="flex items-center gap-1 flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+    <div class="relative z-10 flex items-center gap-1 flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
         <a href="{{ route("documents.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet, $doc]) }}"
            class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all"
            title="View">

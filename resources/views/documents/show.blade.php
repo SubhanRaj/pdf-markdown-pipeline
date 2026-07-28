@@ -213,6 +213,18 @@
                    title="See all {{ \App\Models\Document::DOCUMENT_TYPES[$document->document_type] ?? $document->document_type }} documents">
                     {{ \App\Models\Document::DOCUMENT_TYPES[$document->document_type] ?? $document->document_type }}
                 </a>
+                @php
+                    $langClass = match($document->language) {
+                        'hindi' => 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
+                        'both'  => 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300',
+                        default => 'bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300',
+                    };
+                @endphp
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium {{ $langClass }}"
+                      title="Language">
+                    <i class="ti ti-language text-[10px]"></i>
+                    {{ \App\Models\Document::LANGUAGES[$document->language] ?? $document->language }}
+                </span>
                 @if($isPolicyDoc && $ruleSet->state)
                 <a href="{{ route('search.index', ['state' => $ruleSet->state]) }}"
                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-800/40 transition-colors"
