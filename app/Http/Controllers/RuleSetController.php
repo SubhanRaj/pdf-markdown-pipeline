@@ -55,7 +55,10 @@ class RuleSetController extends Controller
         }
 
         $ruleSets = $department->ruleSets()->rules()
-            ->withCount(['documents' => $visibilityScope])->orderBy('name')->get();
+            ->withCount([
+                'documents' => $visibilityScope,
+                'documents as documents_converted_count' => fn ($q) => $visibilityScope($q)->whereNotNull('markdown_path'),
+            ])->orderBy('name')->get();
 
         return view('rule_sets.index', compact('department', 'kind', 'ruleSets'));
     }
