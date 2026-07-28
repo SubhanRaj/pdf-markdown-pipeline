@@ -135,52 +135,32 @@ class PolicyDocumentController extends Controller
     {
         $requireApproval = $request->user()->shouldRequireApproval($policyDoc);
         $initialStatus   = $requireApproval ? 'pending_approval' : 'uploaded';
-        $languages       = ($validated['language'] ?? 'english') === 'both' ? ['english', 'hindi'] : [$validated['language'] ?? 'english'];
+        $language        = $validated['language'] ?? 'english';
 
-        $created = [];
+        $doc = Document::create([
+            'department_id'     => $department->id,
+            'rule_set_id'       => $policyDoc->id,
+            'user_id'           => $request->user()->id,
+            'title'             => $policyDoc->name,
+            'slug'              => $policyDoc->slug,
+            'document_type'     => 'policy',
+            'language'          => $language,
+            'original_filename' => preg_replace('/[^\w\s\-\.\(\)]/', '_', $request->file('file')->getClientOriginalName()),
+            'original_pdf_path' => $pdfPath,
+            'vault_path'        => $vaultDir,
+            'status'            => $initialStatus,
+            'visibility'        => $validated['visibility'] ?? 'public',
+        ]);
 
-        foreach ($languages as $i => $language) {
-            if ($i === 0) {
-                $langSlug = $policyDoc->slug;
-                $langPath = $pdfPath;
-            } else {
-                $langSlug = $policyDoc->slug . '-' . $language;
-                $langPath = $vaultDir . '/' . $langSlug . '_' . now()->format('YmdHis') . '.pdf';
-                Storage::disk('public')->copy($pdfPath, $langPath);
-            }
-
-            $doc = Document::create([
-                'department_id'     => $department->id,
-                'rule_set_id'       => $policyDoc->id,
-                'user_id'           => $request->user()->id,
-                'title'             => $policyDoc->name,
-                'slug'              => $langSlug,
-                'document_type'     => 'policy',
-                'language'          => $language,
-                'original_filename' => preg_replace('/[^\w\s\-\.\(\)]/', '_', $request->file('file')->getClientOriginalName()),
-                'original_pdf_path' => $langPath,
-                'vault_path'        => $vaultDir,
-                'status'            => $initialStatus,
-                'visibility'        => $validated['visibility'] ?? 'public',
-            ]);
-
-            DocumentStatusHistory::create([
-                'document_id' => $doc->id,
-                'actor_id'    => $request->user()->id,
-                'from_status' => null,
-                'to_status'   => $initialStatus,
-                'note'        => $initialStatus === 'pending_approval'
-                    ? 'Document submitted for approval.'
-                    : 'Document uploaded.',
-            ]);
-
-            $created[] = $doc;
-        }
-
-        if (count($created) === 2) {
-            $created[0]->update(['sibling_document_id' => $created[1]->id]);
-            $created[1]->update(['sibling_document_id' => $created[0]->id]);
-        }
+        DocumentStatusHistory::create([
+            'document_id' => $doc->id,
+            'actor_id'    => $request->user()->id,
+            'from_status' => null,
+            'to_status'   => $initialStatus,
+            'note'        => $initialStatus === 'pending_approval'
+                ? 'Document submitted for approval.'
+                : 'Document uploaded.',
+        ]);
     }
 
     public function show(Request $request, string $level, Department $department, RuleSet $policy, RuleSet $policyDoc): View

@@ -44,8 +44,16 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
 @endif
 
 @php
-    $hasRuleDoc      = $rootDocuments->where('document_type', $isPolicy ? 'policy' : 'rule')->isNotEmpty();
-    $canUploadRule   = ! $hasRuleDoc;
+    $rootDocsOfType  = $rootDocuments->where('document_type', $isPolicy ? 'policy' : 'rule');
+    $hasRuleDoc      = $rootDocsOfType->isNotEmpty();
+    // A root document exists per-language, independently — applies to both policy and rules
+    // documents (rules/GOs can be bilingual too): english, hindi, and a bilingual 'both'
+    // document can all three coexist for the same rule set.
+    $hasEnglishDoc   = $rootDocsOfType->where('language', 'english')->isNotEmpty();
+    $hasHindiDoc     = $rootDocsOfType->where('language', 'hindi')->isNotEmpty();
+    $hasBothDoc      = $rootDocsOfType->where('language', 'both')->isNotEmpty();
+    // Root documents are per-language — only block re-upload once all three are covered.
+    $canUploadRule   = ! ($hasEnglishDoc && $hasHindiDoc && $hasBothDoc);
     $canUploadAmend  = $hasRuleDoc;
 @endphp
 
@@ -141,7 +149,7 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
                      class="rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors flex flex-col items-center justify-center gap-1.5 py-5 px-4 text-center flex-shrink-0">
                     <i class="ti ti-cloud-upload text-2xl text-slate-300 dark:text-slate-600"></i>
                     <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Click or drag files here</p>
-                    <p class="text-xs text-slate-400 dark:text-slate-500">PDF · Word · Excel · Images · max 50 MB each · multiple files supported</p>
+                    <p class="text-xs text-slate-400 dark:text-slate-500">PDF · Word · Excel · Images · max 300 MB each · multiple files supported</p>
                     <input type="file" id="rule-file" name="file" multiple
                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif,.svg"
                            style="display:none">
@@ -177,26 +185,25 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
                         </select>
                         <p id="rule-err-type" class="field-err-msg" style="display:none"></p>
                     </div>
-                    @if($isPolicy)
+                    @php $defaultLanguage = ! $hasEnglishDoc ? 'english' : (! $hasHindiDoc ? 'hindi' : 'both'); @endphp
                     <div>
                         <label class="field-label">Language</label>
                         <div class="flex gap-3 mt-1">
-                            <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" name="language" value="english" checked class="text-indigo-600 focus:ring-indigo-500">
-                                <span class="text-sm text-slate-700 dark:text-slate-200">English only</span>
+                            <label class="flex items-center gap-2 {{ $hasEnglishDoc ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer' }}">
+                                <input type="radio" name="language" value="english" @selected($defaultLanguage === 'english') @disabled($hasEnglishDoc) class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200">English only{{ $hasEnglishDoc ? ' (already uploaded)' : '' }}</span>
                             </label>
-                            <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" name="language" value="hindi" class="text-indigo-600 focus:ring-indigo-500">
-                                <span class="text-sm text-slate-700 dark:text-slate-200">Hindi only</span>
+                            <label class="flex items-center gap-2 {{ $hasHindiDoc ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer' }}">
+                                <input type="radio" name="language" value="hindi" @selected($defaultLanguage === 'hindi') @disabled($hasHindiDoc) class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200">Hindi only{{ $hasHindiDoc ? ' (already uploaded)' : '' }}</span>
                             </label>
-                            <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" name="language" value="both" class="text-indigo-600 focus:ring-indigo-500">
-                                <span class="text-sm text-slate-700 dark:text-slate-200">Both</span>
+                            <label class="flex items-center gap-2 {{ $hasBothDoc ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer' }}">
+                                <input type="radio" name="language" value="both" @selected($defaultLanguage === 'both') @disabled($hasBothDoc) class="text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-sm text-slate-700 dark:text-slate-200">Both{{ $hasBothDoc ? ' (already uploaded)' : '' }}</span>
                             </label>
                         </div>
-                        <p class="field-hint">"Both" uploads this file under an English and a Hindi copy, each independently manageable.</p>
+                        <p class="field-hint">"Both" is for a single bilingual document (one PDF covering English and Hindi together) — a separate, third document from the English-only and Hindi-only versions.</p>
                     </div>
-                    @endif
                     <div>
                         <label class="field-label">Visibility</label>
                         <div class="flex gap-3 mt-1">
@@ -256,7 +263,7 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
                      class="rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-700 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex flex-col items-center justify-center gap-1.5 py-5 px-4 text-center flex-shrink-0">
                     <i class="ti ti-cloud-upload text-2xl text-amber-300 dark:text-amber-600"></i>
                     <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Click or drag amendment files here</p>
-                    <p class="text-xs text-slate-400 dark:text-slate-500">PDF · Word · Excel · Images · max 50 MB each · multiple files supported</p>
+                    <p class="text-xs text-slate-400 dark:text-slate-500">PDF · Word · Excel · Images · max 300 MB each · multiple files supported</p>
                     <input type="file" id="amend-file" name="file" multiple
                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif,.svg"
                            style="display:none">

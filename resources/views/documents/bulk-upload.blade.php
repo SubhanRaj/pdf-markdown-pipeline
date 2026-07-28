@@ -159,7 +159,7 @@
                  class="rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors flex flex-col items-center justify-center gap-1.5 py-6 px-4 text-center flex-shrink-0">
                 <i class="ti ti-cloud-upload text-2xl text-slate-300 dark:text-slate-600"></i>
                 <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Click or drag files here</p>
-                <p class="text-xs text-slate-400 dark:text-slate-500">PDF · Word · Excel · Images · max 50 MB each · multiple files supported</p>
+                <p class="text-xs text-slate-400 dark:text-slate-500">PDF · Word · Excel · Images · max 300 MB each · multiple files supported</p>
                 <input type="file" id="doc-file" multiple
                        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif"
                        style="display:none">

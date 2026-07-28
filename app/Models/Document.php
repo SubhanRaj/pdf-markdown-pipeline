@@ -34,6 +34,7 @@ class Document extends Model
     public const LANGUAGES = [
         'english' => 'English',
         'hindi'   => 'Hindi',
+        'both'    => 'Bilingual (English + Hindi)',
     ];
 
     public const STATUSES = [

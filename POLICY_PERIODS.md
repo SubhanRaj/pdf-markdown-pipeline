@@ -115,17 +115,14 @@ write-up):
 ## 2. Bilingual documents
 
 `documents` gained two columns (`database/migrations/2026_07_23_162101_add_language_fields_to_documents_table.php`):
-- `language` enum (`english` default | `hindi`)
-- `sibling_document_id` — nullable self-FK, mirrors the existing `parent_id` pattern.
+- `language` enum — originally `english` default | `hindi`, widened in §7 to add `both`.
+- `sibling_document_id` — nullable self-FK, mirrors the existing `parent_id` pattern. No longer
+  auto-populated (see §7) — kept for the existing `documents/show.blade.php` "version available"
+  banner, dormant until something sets it again.
 
-The upload modals on `rule_sets/show.blade.php` (policy branch only, `@if($isPolicy)`) gained a
-Language radio group: **English only / Hindi only / Both**. "Both" is never stored as a `language`
-value — it's an upload-time instruction. `DocumentController::store()` handles it by creating **two**
-`Document` rows (one per language) instead of one, each with its own physically-copied PDF file, so
-later conversion/OCR/discard on one language never touches the other. The two rows are linked via
-`sibling_document_id` (set on both, pointing at each other). `Document::siblingDocument()` is the new
-relation; `documents/show.blade.php` shows a small "Hindi/English version available →" banner when a
-sibling exists.
+The upload modals on `rule_sets/show.blade.php` (policy branch only, `@if($isPolicy)`) have a
+Language radio group: **English only / Hindi only / Both**. See §7 for what "Both" means and how
+it's gated — this section otherwise still describes the original per-language storage model.
 
 Applies to any upload context (rule_set_id/section/division/folder), not just policies — the
 language field defaults to `english` and is harmless/unused for non-policy uploads.
@@ -352,3 +349,84 @@ production deployment with real users on `docsrepo.exciseup.in`):
 - **`database/migrations/2026_07_23_162100_add_container_id_to_rule_sets_table.php`** — already run
   against production; its docblock still says "period," left as a historical record rather than
   edited after the fact.
+
+## 9. Bilingual upload gating fix + "Both" becomes a real third document (2026-07-27)
+
+**Bug found:** the "Upload Document" modal on `rule_sets/show.blade.php` blocked the root `policy`
+document type the moment **either** language had been uploaded — the label flipped to "already
+uploaded" and the option disabled, even if only Hindi existed and the officer wanted to add the
+English copy of the same policy document. Root cause was `$hasRuleDoc` checking only
+`document_type`, blind to the `language` column added in §2 — a front-end-only bug; confirmed
+nothing in `StoreDocumentRequest`/`DocumentController::store()` enforced one-root-document-per-
+`rule_set_id` server-side (no `unique` rule, no duplicate guard before `Document::create()`).
+
+**Along the way, "Both" was redefined.** Originally (§2) "Both" was upload-time shorthand that
+silently expanded into *two* `Document` rows (english + hindi) from one submitted file — never
+itself a stored `language` value. Clarified with the user that this doesn't match the real need:
+a bilingual PDF (one file, both languages together) is its own **third, independent document**,
+meant to coexist alongside separately-uploaded English-only and Hindi-only versions of the same
+policy — not a shorthand that creates the other two.
+
+- **`database/migrations/2026_07_27_154629_add_both_to_documents_language_enum.php`** — widens
+  `documents.language` from `enum('english','hindi')` to `enum('english','hindi','both')` via raw
+  `ALTER TABLE ... MODIFY COLUMN` (no Doctrine/DBAL dependency needed). Run against production.
+- `Document::LANGUAGES` gained `'both' => 'Bilingual (English + Hindi)'`.
+- `DocumentController::store()` and `PolicyDocumentController::storePolicyDocument()` simplified:
+  each submission now creates exactly **one** `Document` row, with `language` stored as whatever
+  the form sent (`english`/`hindi`/`both`) — the old per-submission loop that duplicated the file
+  into two rows and cross-linked them via `sibling_document_id` is gone. `sibling_document_id`
+  itself is untouched (still a column, still a relation, still renders the "version available"
+  banner on `documents/show.blade.php` if set) — it just no longer auto-populates for new
+  uploads, since there's no longer a paired creation event to link. Dormant, not removed.
+- Gating in `rule_sets/show.blade.php`, scoped to `$isPolicy` only (rules/GOs keep the original
+  one-and-done gating): `$hasEnglishDoc`/`$hasHindiDoc`/`$hasBothDoc` are each computed
+  independently from real root-document rows per language value. The "Policy" document-type
+  option in the upload dropdown only disables once **all three** exist. In the Language radio
+  group, each of the three options disables independently the moment its own language already has
+  a row (labeled "already uploaded") — uploading English doesn't touch whether Hindi or Both are
+  still available, and vice versa — and the default-checked radio picks the first still-open one,
+  in English → Hindi → Both order.
+
+Same language-blind `hasRuleDoc` pattern also exists in `DocumentController`'s bulk-upload JSON
+builder (~line 300, feeds `documents/bulk-upload.blade.php`) — left as-is, since it only drives an
+advisory hint sentence there ("should typically use Amendment"), never disables or blocks
+anything, so the inaccuracy has no functional effect.
+
+## 10. Language badge + language upload extended to Rules documents (2026-07-27, same day)
+
+§9's Language radio group (English only / Hindi only / Both) and its per-language gating
+(`$hasEnglishDoc`/`$hasHindiDoc`/`$hasBothDoc`/`$canUploadRule`) were scoped to `@if($isPolicy)` —
+rules/GOs could only ever be uploaded as a single, implicit `english` row, with the root
+document-type option locked out after the very first upload regardless of language. Rules
+documents can be genuinely bilingual too (e.g. a Hindi-only GO with an English translation added
+later), so this was an artificial restriction, not a real one-rule-per-set constraint — removed
+the `$isPolicy` guard on both the gating computation and the modal's Language radio group; rules
+now get the exact same English/Hindi/Both flow as policy documents.
+
+A small language badge (`ti-language` icon, color-coded: sky = English, orange = Hindi, violet =
+Both) was added next to the existing document-type badge in two shared places so the language is
+visible at a glance, for both policy and rules documents:
+- `rule_sets/_doc_row.blade.php` — the document-list row partial shared by both `rules` and
+  `policy` kinds.
+- `documents/show.blade.php` — the single-document page's pill row (plain `<span>`, not a link —
+  unlike the `document_type`/`state` pills next to it, there's no `language` search filter to
+  link to).
+
+## 11. Whole document row clickable + upload size wording corrected (2026-07-28)
+
+`rule_sets/_doc_row.blade.php` only made the small eye icon clickable to open a document — every
+other page in the app (department cards, state cards, etc.) makes the whole card clickable, so
+this row was an inconsistent outlier. Added a "stretched link" (`<a class="absolute inset-0
+z-0">` covering the row, title/icon/badges included) so clicking anywhere on the row opens the
+document, while the action buttons (eye, delete) sit in a `relative z-10` wrapper above it and
+stay independently clickable — no route or behavior change, just click-target size.
+
+Separately, the upload forms' helper text ("PDF · Word · Excel · Images · max 50 MB each") was
+stale — the actual validation limit (`StoreDocumentRequest`/`StorePolicyDocumentRequest`,
+`max:307200`) has been 300 MB for a while. Corrected the text to "max 300 MB each" across all six
+upload forms (`rule_sets/show.blade.php` ×2, `documents/bulk-upload.blade.php`,
+`sections/show.blade.php`, `folders/show.blade.php`, `divisions/show.blade.php`) so it matches
+what the server actually accepts. (The 300 MB app-level limit is separate from — and smaller
+than — the zone's Cloudflare edge cap; see DEPLOY.md's "Cloudflare's own edge upload cap" section
+for the full upload-path story, including the 100 MB/200 MB Free/Business ceiling that sits in
+front of Apache entirely.)
