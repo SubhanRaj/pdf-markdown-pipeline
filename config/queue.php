@@ -44,9 +44,11 @@ return [
             // RunOcrExtraction run (Docling + OCR routinely take minutes on real policy PDFs).
             // Below this, a job still legitimately running looks "abandoned" to the queue after
             // 90s, so a second worker grabs and re-runs the same job — worse the more workers run
-            // concurrently. Set above both jobs' $timeout (1200s/1900s) so a job is never
-            // re-picked while still genuinely in flight.
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 2000),
+            // concurrently. Set above both jobs' $timeout (1200s, and RunOcrExtraction's own
+            // page-count-scaled ceiling of 14400s for 1000+ page scans — see
+            // RunOcrExtraction::timeoutForDocument()) so a job is never re-picked while still
+            // genuinely in flight.
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 14700),
             'after_commit' => false,
         ],
 

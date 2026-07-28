@@ -24,8 +24,6 @@ class RunOcrExtraction implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    // EasyOCR/PaddleOCR/Surya load multi-hundred-MB models per run and are far slower than
-    // Tesseract per page; keep enough headroom for those, not just the tesseract path.
     public int $timeout = 1900;
 
     private string $extractorScript;
@@ -33,6 +31,47 @@ class RunOcrExtraction implements ShouldQueue
     public function __construct(public int $documentId, public string $engine = 'tesseract')
     {
         $this->extractorScript = resource_path('python/pdf_structure_extractor.py');
+        $this->timeout = self::timeoutForDocument($documentId);
+    }
+
+    /**
+     * Scales with page count, not file size — a 500-page scan needs far longer than the
+     * worker's original 1900s (~32min) default, which was sized for small documents only.
+     * Read here (constructor), not in handle(): Laravel captures $timeout from the job
+     * object before it's serialized onto the queue, so it must be set before dispatch.
+     */
+    public static function timeoutForDocument(int $documentId): int
+    {
+        $document = Document::find($documentId);
+
+        if (! $document || ! $document->original_pdf_path) {
+            return 1900;
+        }
+
+        $absolutePath = Storage::disk('public')->path($document->original_pdf_path);
+        $pages = self::pageCount($absolutePath);
+
+        // ponytail: fixed buckets, not a per-page formula — revisit with real timing data
+        // once OCR runs at this scale are common enough to tune against.
+        return match (true) {
+            $pages <= 50    => 1900,   // ~32 min
+            $pages <= 150   => 3600,   // 1 hr
+            $pages <= 250   => 5400,   // 1.5 hr
+            $pages <= 500   => 7200,   // 2 hr
+            $pages <= 1000  => 10800,  // 3 hr
+            default         => 14400,  // 4 hr
+        };
+    }
+
+    private static function pageCount(string $pdfPath): int
+    {
+        $result = Process::timeout(30)->run(['pdfinfo', $pdfPath]);
+
+        if ($result->successful() && preg_match('/^Pages:\s+(\d+)/m', $result->output(), $m)) {
+            return (int) $m[1];
+        }
+
+        return 0;
     }
 
     public function handle(): void
