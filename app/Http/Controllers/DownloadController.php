@@ -143,6 +143,17 @@ class DownloadController extends Controller
         return $this->zipDocuments(Str::slug($stateName).'.zip', $entries);
     }
 
+    /** Every rule set (kind=rules) in the department, as one zip — the "Rules & Regulations" listing page. */
+    public function rules(string $level, Department $department)
+    {
+        $entries = [];
+        foreach ($department->ruleSets()->rules()->get() as $ruleSet) {
+            $entries = [...$entries, ...$this->ruleSetEntries($ruleSet, Str::slug($ruleSet->name))];
+        }
+
+        return $this->zipDocuments("{$department->slug}-rules.zip", $entries);
+    }
+
     /** Everything in the department: direct documents, every section, every rule set, every policy. */
     public function department(string $level, Department $department)
     {

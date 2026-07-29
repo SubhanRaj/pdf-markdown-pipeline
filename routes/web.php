@@ -124,6 +124,9 @@ Route::prefix('departments')->name('departments.')->group(function () {
     Route::prefix('/{level}/{department}/rules')->name('rules.')->group(function () {
         Route::get('/',            [RuleSetController::class, 'index'])->name('index')->defaults('kind', 'rules');
         Route::get('/create',     [RuleSetController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations'])->defaults('kind', 'rules');
+        // Must be registered before /{rule_set} — otherwise route-model-binding would try to
+        // resolve "download-all" as a rule set slug and 404.
+        Route::get('/download-all', [DownloadController::class, 'rules'])->name('download-all');
         Route::get('/{rule_set}', [RuleSetController::class, 'show'])->name('show')->defaults('kind', 'rules');
         Route::get('/{rule_set}/download', [DownloadController::class, 'ruleSet'])->name('download');
     });
