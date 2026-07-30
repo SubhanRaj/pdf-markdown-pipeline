@@ -3246,3 +3246,28 @@ amber otherwise.
 **Files changed:** `resources/views/documents/show.blade.php` (header flex fix),
 `app/Http/Controllers/RuleSetController.php` (`documents_converted_count` aggregate),
 `resources/views/rule_sets/index.blade.php` (converted-count badge).
+
+## M65 — Row-level ZIP download on every remaining listing/card (COMPLETED 2026-07-30)
+
+M62 added a "Download ZIP" button to each browse-level's own *show* page (a section's, a
+division's, a folder's own header), plus a rules-index-row icon and the Rules & Regulations
+listing's "Download All". Still missing: the divisions/folders *cards* one level up (inside a
+section's or division's own page), the plain sections-index row, and the policy "Other States"
+state cards — all existing routes already supported this (`DownloadController`/`BuildsZipDownload`
+from M62 needed no changes), just no link was ever added at those spots.
+
+**Nested-anchor problem:** division/folder/state cards are each a single full-card `<a>` (the
+whole card navigates to the child page), so a second `<a>` for the ZIP link can't just nest
+inside it — invalid HTML, and browsers only honor the outer link anyway. Converted each card from
+`<a>` to `<div class="group relative ...">`, kept the download icon as a small `<a>` with
+`relative z-10`, and added a full-bleed `<a class="absolute inset-0">` as the last child for the
+"click anywhere else on the card" navigation — same visual result, both links independently
+clickable. `sections/index.blade.php`'s row didn't have this problem (already a plain flex row
+like `rule_sets/index.blade.php`, not a card), so it just got the icon link added directly,
+mirroring the rules-index row from M62.
+
+**Files changed:** `resources/views/sections/index.blade.php` (row-level icon),
+`resources/views/sections/show.blade.php` (division + folder cards),
+`resources/views/divisions/show.blade.php` (folder cards),
+`resources/views/rule_sets/_state_card.blade.php` (state cards, icon shown only when the state
+has a current policy).
