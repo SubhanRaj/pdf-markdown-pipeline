@@ -48,6 +48,11 @@
                 <span class="text-xs text-slate-400 dark:text-slate-500">
                     {{ $section->documents_count }} {{ Str::plural('doc', $section->documents_count) }}
                 </span>
+                <a href="{{ route('departments.sections.download', [$department->levelAlias(), $department, $section]) }}"
+                   class="text-slate-400 dark:text-slate-500 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors"
+                   title="Download as ZIP">
+                    <i class="ti ti-file-zip text-base"></i>
+                </a>
                 <a href="{{ route('departments.sections.show', [$department->levelAlias(), $department, $section]) }}"
                    class="text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
                     <i class="ti ti-arrow-right text-base"></i>

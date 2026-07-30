@@ -246,8 +246,7 @@
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         @foreach($folders as $fld)
-        <a href="{{ route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $fld]) }}"
-           class="group flex items-start gap-3 p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-cyan-400 dark:hover:border-cyan-500 transition-all">
+        <div class="group relative flex items-start gap-3 p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-cyan-400 dark:hover:border-cyan-500 transition-all">
             <div class="w-9 h-9 rounded-lg bg-cyan-500/10 dark:bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
                 <i class="ti ti-folder-star text-cyan-500 dark:text-cyan-400 text-base"></i>
             </div>
@@ -265,8 +264,15 @@
                     {{ $fld->documents_count }} {{ Str::plural('document', $fld->documents_count) }}
                 </p>
             </div>
+            <a href="{{ route('departments.sections.divisions.folders.download', [$department->levelAlias(), $department, $section, $division, $fld]) }}"
+               class="relative z-10 text-slate-400 dark:text-slate-500 hover:text-cyan-500 dark:hover:text-cyan-400 transition-colors flex-shrink-0 mt-1"
+               title="Download as ZIP">
+                <i class="ti ti-file-zip text-base"></i>
+            </a>
             <i class="ti ti-chevron-right text-slate-300 dark:text-slate-600 group-hover:text-cyan-400 transition-colors flex-shrink-0 mt-1 text-sm"></i>
-        </a>
+            <a href="{{ route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $fld]) }}"
+               class="absolute inset-0" aria-label="Open {{ $fld->name }}"></a>
+        </div>
         @endforeach
     </div>
 </div>
