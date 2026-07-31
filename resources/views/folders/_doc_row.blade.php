@@ -18,7 +18,7 @@
     $hasAmendments = !$isAmendment && $doc->amendments->isNotEmpty();
 @endphp
 
-<div class="flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group
+<div class="relative flex items-start gap-3 px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group
             {{ $isAmendment ? 'bg-amber-50/30 dark:bg-amber-900/5 border-l-2 border-amber-200 dark:border-amber-700 ml-6 pl-4' : '' }}">
 
     @if($isAmendment)
@@ -78,13 +78,13 @@
 
     <div class="flex items-center gap-1 flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
         <a href="{{ route($showRoute, $showParams) }}"
-           class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-all"
+           class="relative z-10 inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-all"
            title="View">
             <i class="ti ti-eye text-base"></i>
         </a>
         @auth @if(auth()->user()->isAdmin())
         <button type="button"
-                class="doc-delete-btn inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
+                class="doc-delete-btn relative z-10 inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
                 data-action="{{ route($destroyRoute, $showParams) }}"
                 data-title="{{ e($doc->title) }}"
                 title="Delete">
@@ -92,4 +92,5 @@
         </button>
         @endif @endauth
     </div>
+    <a href="{{ route($showRoute, $showParams) }}" class="absolute inset-0" aria-label="Open {{ $doc->title }}"></a>
 </div>
