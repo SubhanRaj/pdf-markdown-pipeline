@@ -36,7 +36,7 @@
     @else
     <div class="divide-y divide-slate-100 dark:divide-slate-700">
         @foreach($sections as $section)
-        <div class="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
+        <div class="relative px-5 py-3.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
             <div class="flex items-center gap-3 min-w-0">
                 <i class="ti ti-layout-list text-slate-400 dark:text-slate-500 flex-shrink-0"></i>
                 <div class="min-w-0">
@@ -49,15 +49,17 @@
                     {{ $section->documents_count }} {{ Str::plural('doc', $section->documents_count) }}
                 </span>
                 <a href="{{ route('departments.sections.download', [$department->levelAlias(), $department, $section]) }}"
-                   class="text-slate-400 dark:text-slate-500 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors"
+                   class="relative z-10 text-slate-400 dark:text-slate-500 hover:text-emerald-500 dark:hover:text-emerald-400 transition-colors"
                    title="Download as ZIP">
                     <i class="ti ti-file-zip text-base"></i>
                 </a>
                 <a href="{{ route('departments.sections.show', [$department->levelAlias(), $department, $section]) }}"
-                   class="text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
+                   class="relative z-10 text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
                     <i class="ti ti-arrow-right text-base"></i>
                 </a>
             </div>
+            <a href="{{ route('departments.sections.show', [$department->levelAlias(), $department, $section]) }}"
+               class="absolute inset-0" aria-label="Open {{ $section->name }}"></a>
         </div>
         @endforeach
     </div>
