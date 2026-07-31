@@ -3271,3 +3271,66 @@ mirroring the rules-index row from M62.
 `resources/views/divisions/show.blade.php` (folder cards),
 `resources/views/rule_sets/_state_card.blade.php` (state cards, icon shown only when the state
 has a current policy).
+
+## M66 — Whole-row click targets + breadcrumb showed the wrong field (COMPLETED 2026-07-31)
+
+**Whole-row clickability:** the department-level Sections list only responded to its trailing
+arrow icon, and every folder document row (`folders/_doc_row.blade.php`, shared by both
+section-folders and division-folders) only responded to the small eye icon — the rest of each
+row looked clickable (hover background) but wasn't. Fixed both with the overlay-link pattern
+already established elsewhere in this codebase (`sections/show.blade.php`'s division/folder
+cards, M65): outer row gets `relative`, a trailing `<a class="absolute inset-0">` covers the
+whole row as the real navigation target, and any other in-row link (download, eye, delete)
+is bumped to `relative z-10` so it stays independently clickable above the overlay.
+
+**Breadcrumb frozen on the upload-time filename:** a user uploaded a Hindi-named PDF; the
+auto-derived title came out garbled (the original filename gets ASCII-sanitized into
+`original_filename` for `Content-Disposition` header safety — non-Latin characters become `_`).
+Editing the document's title afterward fixed the title everywhere *except* the "Vault" breadcrumb
+strip on `documents/show.blade.php`, which read `$document->original_filename` instead of
+`$document->title` — a field the edit flow never touches. Pointed the breadcrumb at `title`
+instead, the field edits actually update.
+
+**Files changed:** `resources/views/sections/index.blade.php`, `resources/views/folders/_doc_row.blade.php`,
+`resources/views/documents/show.blade.php`.
+
+## M67 — Auto-generated usernames for new accounts (COMPLETED 2026-07-31)
+
+Admin previously had to type a username by hand alongside full name and post/designation on the
+"Add User" form. Added `User::uniqueUsername($name, $post, $exceptId)`, which slugs name+post
+(`Str::slug(..., '_')`, ASCII-transliterated so Devanagari/Unicode names produce a valid
+`[a-zA-Z0-9_]` username) and dedupes against existing users — including soft-deleted — with a
+numeric suffix, mirroring the `RuleSet::uniqueSlugForDepartment()` pattern already used
+elsewhere. `StoreUserRequest::prepareForValidation()` calls it when the username field is left
+blank, before the `unique:users,username` rule runs. The create-form field is now optional with
+a live JS placeholder preview (`ramesh_kumar_sharma_section_o (auto-generated)`); admin can still
+type their own or edit it later exactly as before — nothing about the edit flow changed.
+
+**Files changed:** `app/Models/User.php` (`uniqueUsername()`), `app/Http/Requests/Admin/StoreUserRequest.php`,
+`resources/views/admin/users/create.blade.php`, `tests/Feature/UserUniqueUsernameTest.php` (new).
+
+## M68 — Upload-modal Title field made visible and given its own spot (COMPLETED 2026-07-31)
+
+Every upload modal (folders, rule_sets — both root-document and amendment forms, sections,
+divisions, bulk-upload) already let a user retitle a file before submitting, but the input was a
+bare underlined line with no label — indistinguishable from static text, which is how a Hindi
+upload silently kept its garbled auto-filled title (see M66). First pass gave it a visible
+bordered box with a "Title (auto-filled — change if you like)" label. Second pass, per user
+feedback that a per-row label still didn't read as prominent enough: moved the primary title
+editor into the right-hand form column next to Document Type, same visual weight as
+Amendment No./Effective Year. It's two-way bound to the one queued file's title when exactly one
+file is queued (the common case); queuing multiple files hides the master field (disabled, with
+an explanatory hint) and falls back to each file's own title box in the queue, since a single
+shared field can't hold distinct titles for a batch.
+
+`rule_sets/show.blade.php` uses one shared `makeQueue(ids)` factory for both its root-document
+and amendment upload forms, so the master-field wiring (`titleFieldId`/`titleHintId` on the
+`ids` object) only needed adding once and both `rule-title` and `amend-title` fields picked it
+up. The other four views hand-roll their own queue JS per view (pre-existing duplication, not
+introduced here), so each got the same three edits individually: a `titleWrap` div added around
+the per-row label+input so it can be hidden/shown, a `titleInput` "input" listener mirroring to
+the master field, and `syncUI()` toggling which one is active based on queue length.
+
+**Files changed:** `resources/views/folders/show.blade.php`, `resources/views/rule_sets/show.blade.php`,
+`resources/views/sections/show.blade.php`, `resources/views/divisions/show.blade.php`,
+`resources/views/documents/bulk-upload.blade.php`.
