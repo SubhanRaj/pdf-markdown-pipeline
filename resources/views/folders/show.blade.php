@@ -389,7 +389,7 @@
             meta.className = 'flex-1 min-w-0 flex flex-col gap-1';
             const titleLabel = document.createElement('label');
             titleLabel.className = 'text-[10px] font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1';
-            titleLabel.innerHTML = '<i class="ti ti-pencil text-[10px]"></i> Title (edit before upload)';
+            titleLabel.innerHTML = '<i class="ti ti-pencil text-[10px]"></i> Title (auto-filled — change if you like)';
             const titleInput = document.createElement('input');
             titleInput.type = 'text';
             titleInput.className = 'w-full text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 outline-none';
