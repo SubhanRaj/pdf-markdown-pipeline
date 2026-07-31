@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 
 class User extends Authenticatable
 {
@@ -95,6 +96,28 @@ class User extends Authenticatable
     public function isOperator(): bool
     {
         return $this->role === 'operator';
+    }
+
+    /** Generate a username from full name + post, unique among all users (incl. soft-deleted). */
+    public static function uniqueUsername(string $name, ?string $post = null, ?int $exceptId = null): string
+    {
+        $base = Str::slug(trim($name . ' ' . ($post ?? '')), '_');
+        $base = substr($base, 0, 26) ?: 'user';
+
+        $username = $base;
+        $i        = 2;
+
+        while (
+            static::where('username', $username)
+                ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+                ->withTrashed()
+                ->exists()
+        ) {
+            $username = "{$base}_{$i}";
+            $i++;
+        }
+
+        return $username;
     }
 
     public function hasPrivilege(string $privilege): bool
