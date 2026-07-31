@@ -94,6 +94,12 @@
             </div>
 
             <div>
+                <label for="doc-title" class="field-label">Title <span class="text-slate-400 font-normal">(optional — only when a single file is queued)</span></label>
+                <input type="text" id="doc-title" class="field-input" placeholder="Auto-filled from filename" maxlength="255">
+                <p id="doc-title-hint" class="text-xs text-slate-400 dark:text-slate-500 mt-1" style="display:none">Multiple files queued — edit each one's title in the queue on the right.</p>
+            </div>
+
+            <div>
                 <label class="field-label">Visibility</label>
                 <div class="flex gap-3 mt-1">
                     <label class="flex items-center gap-2 cursor-pointer">
@@ -382,9 +388,15 @@
     const queueCountEl = document.getElementById('queue-count');
     const queueHint    = document.getElementById('queue-empty-hint');
     const btnClear     = document.getElementById('btn-clear-queue');
+    const fldTitle     = document.getElementById('doc-title');
+    const fldTitleHint = document.getElementById('doc-title-hint');
 
-    let uploadFiles = []; // [{file, titleInput, statusBadge, row}]
+    let uploadFiles = []; // [{file, titleInput, titleWrap, statusBadge, row}]
     let isUploading = false;
+
+    fldTitle.addEventListener('input', () => {
+        if (uploadFiles.length === 1) uploadFiles[0].titleInput.value = fldTitle.value;
+    });
 
     function fileToTitle(name) {
         return name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
@@ -416,6 +428,12 @@
         queueHint.style.display = n ? 'none' : 'block';
         btnLabel.textContent = n > 1 ? `Upload ${n} files` : 'Upload';
         btnSubmit.disabled = n === 0 || isUploading;
+
+        const single = n === 1;
+        uploadFiles.forEach(it => { it.titleWrap.style.display = single ? 'none' : ''; });
+        fldTitle.disabled = n > 1;
+        fldTitleHint.style.display = n > 1 ? 'block' : 'none';
+        fldTitle.value = single ? uploadFiles[0].titleInput.value : '';
     }
 
     function addFiles(files) {
@@ -429,6 +447,9 @@
             const meta = document.createElement('div');
             meta.className = 'flex-1 min-w-0 flex flex-col gap-1';
 
+            const titleWrap = document.createElement('div');
+            titleWrap.className = 'flex flex-col gap-1';
+
             const titleLabel = document.createElement('label');
             titleLabel.className = 'text-[10px] font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1';
             titleLabel.innerHTML = '<i class="ti ti-pencil text-[10px]"></i> Title (auto-filled — change if you like)';
@@ -439,13 +460,15 @@
             titleInput.value = fileToTitle(file.name);
             titleInput.placeholder = 'Document title';
             titleInput.maxLength = 255;
-            meta.appendChild(titleLabel);
+            titleInput.addEventListener('input', () => { if (uploadFiles.length === 1) fldTitle.value = titleInput.value; });
+            titleWrap.appendChild(titleLabel);
+            titleWrap.appendChild(titleInput);
 
             const sizeLine = document.createElement('p');
             sizeLine.className = 'text-[10px] text-slate-400 dark:text-slate-500 truncate';
             sizeLine.textContent = (file.size / 1048576).toFixed(1) + ' MB · ' + file.name;
 
-            meta.appendChild(titleInput);
+            meta.appendChild(titleWrap);
             meta.appendChild(sizeLine);
 
             const statusBadge = document.createElement('span');
@@ -463,7 +486,7 @@
             row.appendChild(removeBtn);
             queueList.appendChild(row);
 
-            const item = { file, titleInput, statusBadge, row };
+            const item = { file, titleInput, titleWrap, statusBadge, row };
             uploadFiles.push(item);
             removeBtn.addEventListener('click', () => {
                 if (isUploading) return;
