@@ -614,14 +614,19 @@
             icon.className = 'ti ti-file-text text-slate-400 dark:text-slate-500 flex-shrink-0 text-sm mt-1.5';
 
             const meta = document.createElement('div');
-            meta.className = 'flex-1 min-w-0 flex flex-col gap-0.5';
+            meta.className = 'flex-1 min-w-0 flex flex-col gap-1';
+
+            const titleLabel = document.createElement('label');
+            titleLabel.className = 'text-[10px] font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1';
+            titleLabel.innerHTML = '<i class="ti ti-pencil text-[10px]"></i> Title (edit before upload)';
 
             const titleInput = document.createElement('input');
             titleInput.type = 'text';
-            titleInput.className = 'w-full text-xs font-medium text-slate-700 dark:text-slate-200 bg-transparent border-b border-slate-200 dark:border-slate-600 focus:border-indigo-400 outline-none pb-0.5';
+            titleInput.className = 'w-full text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 outline-none';
             titleInput.value = fileToTitle(file.name);
             titleInput.placeholder = 'Document title';
             titleInput.maxLength = 255;
+            meta.appendChild(titleLabel);
 
             const sizeLine = document.createElement('p');
             sizeLine.className = 'text-[10px] text-slate-400 dark:text-slate-500 truncate';
