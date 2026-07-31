@@ -344,7 +344,7 @@
             $wing ? Str::title(str_replace('_', ' ', $wing)) : null,
             $isRuleSetDoc ? $ruleSet->kind : null,
             $contextName,
-            $document->original_filename,
+            $document->title,
         ]);
     @endphp
     @foreach($crumbs as $crumb)
