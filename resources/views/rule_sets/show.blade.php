@@ -192,6 +192,12 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
                         </select>
                         <p id="rule-err-type" class="field-err-msg" style="display:none"></p>
                     </div>
+
+                    <div>
+                        <label for="rule-title" class="field-label">Title <span class="text-slate-400 font-normal">(optional — auto-filled from filename)</span></label>
+                        <input type="text" id="rule-title" class="field-input" placeholder="Auto-filled from filename" maxlength="255">
+                        <p id="rule-title-hint" class="text-xs text-slate-400 dark:text-slate-500 mt-1" style="display:none">Multiple files queued — edit each one's title in the queue on the left.</p>
+                    </div>
                     @php $defaultLanguage = ! $hasEnglishDoc ? 'english' : (! $hasHindiDoc ? 'hindi' : 'both'); @endphp
                     <div>
                         <label class="field-label">Language</label>
@@ -296,6 +302,11 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
                     <div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50">
                         <i class="ti ti-git-merge text-amber-500 text-sm"></i>
                         <span class="text-xs font-medium text-amber-700 dark:text-amber-300">Type: Amendment</span>
+                    </div>
+                    <div>
+                        <label for="amend-title" class="field-label">Title <span class="text-slate-400 font-normal">(optional — auto-filled from filename)</span></label>
+                        <input type="text" id="amend-title" class="field-input" placeholder="Auto-filled from filename" maxlength="255">
+                        <p id="amend-title-hint" class="text-xs text-slate-400 dark:text-slate-500 mt-1" style="display:none">Multiple files queued — edit each one's title in the queue on the left.</p>
                     </div>
                     <div>
                         <label for="amend-parent" class="field-label">Amends <span class="text-red-500">*</span></label>
@@ -489,7 +500,8 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
     // Generic multi-file upload queue factory
     function makeQueue(ids) {
         const { fileInputId, dropZoneId, queueListId, queueCountId, queueWrapId, queueHintId,
-                clearBtnId, formId, submitBtnId, submitLabelId, statusElId } = ids;
+                clearBtnId, formId, submitBtnId, submitLabelId, statusElId,
+                titleFieldId, titleHintId } = ids;
 
         const fileInput = document.getElementById(fileInputId);
         const dropZone  = document.getElementById(dropZoneId);
@@ -502,8 +514,14 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
         const btnSubmit = document.getElementById(submitBtnId);
         const btnLabel  = document.getElementById(submitLabelId);
         const statusEl  = document.getElementById(statusElId);
+        const fldTitle     = document.getElementById(titleFieldId);
+        const fldTitleHint = document.getElementById(titleHintId);
 
         if (!fileInput || !form) return;
+
+        fldTitle.addEventListener('input', () => {
+            if (uploadFiles.length === 1) uploadFiles[0].titleInput.value = fldTitle.value;
+        });
 
         let uploadFiles = [];
         let isUploading = false;
@@ -522,6 +540,12 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
             queueHint.style.display = n ? 'none' : 'block';
             btnLabel.textContent = n > 1 ? ('Upload ' + n + ' files') : 'Upload';
             btnSubmit.disabled = n === 0 || isUploading;
+
+            const single = n === 1;
+            uploadFiles.forEach(it => { it.titleWrap.style.display = single ? 'none' : ''; });
+            fldTitle.disabled = n > 1;
+            fldTitleHint.style.display = n > 1 ? 'block' : 'none';
+            fldTitle.value = single ? uploadFiles[0].titleInput.value : '';
         }
 
         function addFiles(files) {
@@ -532,6 +556,8 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
                 icon.className = 'ti ti-file-text text-slate-400 dark:text-slate-500 flex-shrink-0 text-sm mt-1.5';
                 const meta = document.createElement('div');
                 meta.className = 'flex-1 min-w-0 flex flex-col gap-1';
+                const titleWrap = document.createElement('div');
+                titleWrap.className = 'flex flex-col gap-1';
                 const titleLabel = document.createElement('label');
                 titleLabel.className = 'text-[10px] font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1';
                 titleLabel.innerHTML = '<i class="ti ti-pencil text-[10px]"></i> Title (auto-filled — change if you like)';
@@ -541,11 +567,13 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
                 titleInput.value = fileToTitle(file.name);
                 titleInput.placeholder = 'Document title';
                 titleInput.maxLength = 255;
-                meta.appendChild(titleLabel);
+                titleInput.addEventListener('input', () => { if (uploadFiles.length === 1) fldTitle.value = titleInput.value; });
+                titleWrap.appendChild(titleLabel);
+                titleWrap.appendChild(titleInput);
                 const sizeLine = document.createElement('p');
                 sizeLine.className = 'text-[10px] text-slate-400 dark:text-slate-500 truncate';
                 sizeLine.textContent = (file.size / 1048576).toFixed(1) + ' MB · ' + file.name;
-                meta.appendChild(titleInput);
+                meta.appendChild(titleWrap);
                 meta.appendChild(sizeLine);
                 const statusBadge = document.createElement('span');
                 statusBadge.className = badgeClass('pending');
@@ -557,7 +585,7 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
                 row.appendChild(icon); row.appendChild(meta);
                 row.appendChild(statusBadge); row.appendChild(removeBtn);
                 queueList.appendChild(row);
-                const item = { file, titleInput, statusBadge, row };
+                const item = { file, titleInput, titleWrap, statusBadge, row };
                 uploadFiles.push(item);
                 removeBtn.addEventListener('click', () => {
                     if (isUploading) return;
@@ -684,6 +712,8 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
         submitBtnId:   'rule-btn-submit',
         submitLabelId: 'rule-btn-label',
         statusElId:    'rule-upload-status',
+        titleFieldId:  'rule-title',
+        titleHintId:   'rule-title-hint',
         validate: function () {
             const typeEl = document.getElementById('rule-type');
             if (!typeEl || !typeEl.value) {
@@ -723,6 +753,8 @@ $ogDescription = $department->name . ' — ' . $ruleSet->name . ' · ' . $ruleSe
         submitBtnId:   'amend-btn-submit',
         submitLabelId: 'amend-btn-label',
         statusElId:    'amend-upload-status',
+        titleFieldId:  'amend-title',
+        titleHintId:   'amend-title-hint',
         validate: function () {
             const parentEl = document.getElementById('amend-parent');
             if (!parentEl || !parentEl.value) {
