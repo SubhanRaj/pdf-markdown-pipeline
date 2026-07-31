@@ -40,16 +40,15 @@
 
                 {{-- Username --}}
                 <div class="col-span-2 sm:col-span-1">
-                    <label for="username" class="field-label">Username <span class="text-red-500">*</span></label>
+                    <label for="username" class="field-label">Username</label>
                     <input
                         id="username" name="username" type="text"
                         value="{{ old('username') }}"
-                        placeholder="e.g. ramesh_sharma"
+                        placeholder="Auto-generated from name & post"
                         class="field-input @error('username') field-error @enderror"
                         data-rule="username"
-                        required
                     >
-                    <p class="field-hint">3–30 chars. Letters, numbers, underscores only.</p>
+                    <p class="field-hint">Auto-generated from full name + post if left blank. Edit to override.</p>
                     <p class="field-err-msg hidden" id="username-err"></p>
                     @error('username') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
@@ -284,7 +283,8 @@
         },
         username: {
             pattern: /^[a-zA-Z0-9_]{3,30}$/,
-            msg: 'Username: 3–30 chars, letters/numbers/underscores only.'
+            msg: 'Username: 3–30 chars, letters/numbers/underscores only.',
+            optional: true
         },
         email: {
             pattern: /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/,
@@ -343,6 +343,27 @@
             return true;
         }
     }
+
+    // ── Username auto-fill preview (server generates the real, unique value if
+    //    left blank — this only shows the admin what to expect, as a placeholder) ──
+    const nameEl = document.getElementById('name');
+    const postEl = document.getElementById('post');
+    const usernameEl = document.getElementById('username');
+
+    function slugify(text) {
+        return text.trim().toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '')
+            .slice(0, 26);
+    }
+
+    function refreshUsernamePreview() {
+        const preview = slugify(`${nameEl.value} ${postEl.value}`);
+        usernameEl.placeholder = preview ? `${preview} (auto-generated)` : 'Auto-generated from name & post';
+    }
+
+    nameEl.addEventListener('input', refreshUsernamePreview);
+    postEl.addEventListener('input', refreshUsernamePreview);
 
     // ── Attach listeners ─────────────────────────────────────────────────────
     Object.keys(RULES).forEach(id => {

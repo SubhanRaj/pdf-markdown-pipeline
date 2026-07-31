@@ -16,7 +16,7 @@ class StoreUserRequest extends FormRequest
     {
         return [
             'name'          => ['required', 'string', 'max:100', 'regex:/^[\p{L}\s\'\-\.]+$/u'],
-            'username'      => ['required', 'string', 'min:3', 'max:30', 'unique:users,username', 'regex:/^[a-zA-Z0-9_]+$/'],
+            'username'      => ['nullable', 'string', 'min:3', 'max:30', 'unique:users,username', 'regex:/^[a-zA-Z0-9_]+$/'],
             'email'         => ['required', 'email:rfc', 'max:255', 'unique:users,email'],
             'mobile'        => ['nullable', 'digits:10'],
             'landline'      => ['nullable', 'string', 'max:20', 'regex:/^[\d\s\-\+\(\)]{7,20}$/'],
@@ -57,13 +57,21 @@ class StoreUserRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        $name     = strip_tags(trim($this->name ?? ''));
+        $post     = strip_tags(trim($this->post ?? ''));
+        $username = strtolower(strip_tags(trim($this->username ?? '')));
+
+        if ($username === '' && $name !== '') {
+            $username = User::uniqueUsername($name, $post);
+        }
+
         $this->merge([
-            'name'     => strip_tags(trim($this->name ?? '')),
-            'username' => strtolower(strip_tags(trim($this->username ?? ''))),
+            'name'     => $name,
+            'username' => $username,
             'email'    => strtolower(strip_tags(trim($this->email ?? ''))),
             'mobile'   => static::sanitizeMobile($this->mobile ?? ''),
             'landline' => trim($this->landline ?? ''),
-            'post'     => strip_tags(trim($this->post ?? '')),
+            'post'     => $post,
         ]);
     }
 }
