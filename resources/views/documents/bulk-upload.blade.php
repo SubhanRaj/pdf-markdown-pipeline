@@ -431,7 +431,7 @@
 
             const titleLabel = document.createElement('label');
             titleLabel.className = 'text-[10px] font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1';
-            titleLabel.innerHTML = '<i class="ti ti-pencil text-[10px]"></i> Title (edit before upload)';
+            titleLabel.innerHTML = '<i class="ti ti-pencil text-[10px]"></i> Title (auto-filled — change if you like)';
 
             const titleInput = document.createElement('input');
             titleInput.type = 'text';
