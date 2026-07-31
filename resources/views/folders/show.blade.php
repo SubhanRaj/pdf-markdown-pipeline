@@ -169,6 +169,12 @@
                     </div>
 
                     <div>
+                        <label for="fld-title" class="field-label">Title <span class="text-slate-400 font-normal">(optional — auto-filled from filename)</span></label>
+                        <input type="text" id="fld-title" class="field-input" placeholder="Auto-filled from filename" maxlength="255">
+                        <p id="fld-title-hint" class="text-xs text-slate-400 dark:text-slate-500 mt-1" style="display:none">Multiple files queued — edit each one's title in the queue on the left.</p>
+                    </div>
+
+                    <div>
                         <label for="fld-parent" class="field-label">Amends Previous Document <span class="text-slate-400 font-normal">(optional)</span></label>
                         <select id="fld-parent" name="parent_id" class="field-input">
                             <option value="">— None —</option>
@@ -347,8 +353,14 @@
     const btnSubmit = document.getElementById('fld-btn-submit');
     const btnLabel  = document.getElementById('fld-btn-label');
     const statusEl  = document.getElementById('fld-upload-status');
+    const fldTitle     = document.getElementById('fld-title');
+    const fldTitleHint = document.getElementById('fld-title-hint');
 
     if (!fileInput || !form) return;
+
+    fldTitle.addEventListener('input', () => {
+        if (uploadFiles.length === 1) uploadFiles[0].titleInput.value = fldTitle.value;
+    });
 
     const parentSel = document.getElementById('fld-parent');
     if (parentSel && page.parentOptions && page.parentOptions.length > 0) {
@@ -377,6 +389,15 @@
         queueHint.style.display = n ? 'none' : 'block';
         btnLabel.textContent = n > 1 ? ('Upload ' + n + ' files') : 'Upload';
         btnSubmit.disabled = n === 0 || isUploading;
+
+        // Single file: the "Title" field on the right is the primary editor, and the
+        // per-row title box (needed only so multiple files can each have their own title)
+        // is hidden to avoid showing the same thing twice.
+        const single = n === 1;
+        uploadFiles.forEach(it => { it.titleWrap.style.display = single ? 'none' : ''; });
+        fldTitle.disabled = n > 1;
+        fldTitleHint.style.display = n > 1 ? 'block' : 'none';
+        fldTitle.value = single ? uploadFiles[0].titleInput.value : '';
     }
 
     function addFiles(files) {
@@ -387,6 +408,8 @@
             icon.className = 'ti ti-file-text text-slate-400 dark:text-slate-500 flex-shrink-0 text-sm mt-1.5';
             const meta = document.createElement('div');
             meta.className = 'flex-1 min-w-0 flex flex-col gap-1';
+            const titleWrap = document.createElement('div');
+            titleWrap.className = 'flex flex-col gap-1';
             const titleLabel = document.createElement('label');
             titleLabel.className = 'text-[10px] font-medium text-slate-400 dark:text-slate-500 flex items-center gap-1';
             titleLabel.innerHTML = '<i class="ti ti-pencil text-[10px]"></i> Title (auto-filled — change if you like)';
@@ -396,11 +419,13 @@
             titleInput.value = fileToTitle(file.name);
             titleInput.placeholder = 'Document title';
             titleInput.maxLength = 255;
+            titleInput.addEventListener('input', () => { if (uploadFiles.length === 1) fldTitle.value = titleInput.value; });
+            titleWrap.appendChild(titleLabel);
+            titleWrap.appendChild(titleInput);
             const sizeLine = document.createElement('p');
             sizeLine.className = 'text-[10px] text-slate-400 dark:text-slate-500 truncate';
             sizeLine.textContent = (file.size / 1048576).toFixed(1) + ' MB · ' + file.name;
-            meta.appendChild(titleLabel);
-            meta.appendChild(titleInput);
+            meta.appendChild(titleWrap);
             meta.appendChild(sizeLine);
             const statusBadge = document.createElement('span');
             statusBadge.className = badgeClass('pending');
@@ -412,7 +437,7 @@
             row.appendChild(icon); row.appendChild(meta);
             row.appendChild(statusBadge); row.appendChild(removeBtn);
             queueList.appendChild(row);
-            const item = { file, titleInput, statusBadge, row };
+            const item = { file, titleInput, titleWrap, statusBadge, row };
             uploadFiles.push(item);
             removeBtn.addEventListener('click', () => {
                 if (isUploading) return;
