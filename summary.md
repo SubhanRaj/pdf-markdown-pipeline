@@ -3334,3 +3334,19 @@ the master field, and `syncUI()` toggling which one is active based on queue len
 **Files changed:** `resources/views/folders/show.blade.php`, `resources/views/rule_sets/show.blade.php`,
 `resources/views/sections/show.blade.php`, `resources/views/divisions/show.blade.php`,
 `resources/views/documents/bulk-upload.blade.php`.
+
+## M69 — OTP mobile paste fixed, email copy hint added (COMPLETED 2026-08-01)
+
+On mobile Chrome, using Gmail's "copy code" suggestion to fill the 6-digit login OTP only ever
+landed the last digit and never advanced past the first box. Root cause: the clipboard-suggestion
+autofill sets the focused box's `value` directly and fires only an `input` event, never a `paste`
+event, so it skipped the existing `paste()` handler entirely and fell into `onInput()`, which did
+`.slice(-1)` — discarding every digit but the last. Fixed by having `onInput()` detect a multi-digit
+value and route it through the same fill logic as manual paste. Also added
+`autocomplete="one-time-code"` to each digit box so Gboard/Chrome recognize the field and offer the
+OTP suggestion chip at all (it wasn't showing before). Separately, real click-to-copy buttons can't
+work inside the OTP email itself — Gmail and other mail clients strip all JavaScript — so instead
+the code box was isolated in its own table cell (clean long-press-select-all) with a "Tap and hold
+the code to copy it." hint added underneath.
+
+**Files changed:** `resources/views/auth/otp.blade.php`, `resources/views/emails/otp.blade.php`.
