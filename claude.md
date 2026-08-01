@@ -1245,7 +1245,7 @@ For `Folder` contexts, `canUploadTo()` resolves the folder's owning section (or 
 `admin.*` routes are gated by `IsAdmin` middleware (`app/Http/Middleware/IsAdmin.php`, alias `is_admin`, registered in `bootstrap/app.php`). This was the critical fix: previously only `auth` middleware was applied, allowing any authenticated user to list all accounts, access the create form, and delete other users.
 
 **Form Requests:**
-- `StoreUserRequest` — `authorize()` requires `isAdmin()`; validates all user fields including role.
+- `StoreUserRequest` — `authorize()` requires `isAdmin()`; validates all user fields including role. `username` is `nullable`; `prepareForValidation()` calls `User::uniqueUsername($name, $post)` to auto-generate one from full name + post (`Str::slug`-based, deduped like `RuleSet::uniqueSlugForDepartment()`) when left blank on the create form. Admin can still type/edit their own.
 - `UpdateUserRequest` — `authorize()` requires `isAdmin()`; validates all fields including role/privileges/dept/section. Used only by `admin.users.update`.
 - `UpdateProfileRequest` — `authorize()` requires any authenticated user (`$this->user() !== null`); validates name/username/email/mobile/post/password only. Scopes `unique` checks to `auth()->user()->id`. No role, privilege, department, or section fields — those cannot be self-assigned.
 
