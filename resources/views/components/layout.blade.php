@@ -7,6 +7,12 @@
     'ogUrl'        => null,
     'ogType'       => 'website',
     'noindex'      => false,
+    // Opt-in for pages that need to fill exactly the space below the header (a
+    // side-by-side compare pane whose action bar must never scroll off-screen) instead
+    // of growing with their content — sidebar/header stay put either way, only the
+    // <main> sizing and the footer (dropped, it'd fight for the same vertical space)
+    // change. Every other page is unaffected — default false.
+    'fullHeight'   => false,
 ])
 
 <!DOCTYPE html>
@@ -23,15 +29,17 @@
     <div id="sidebar-backdrop" onclick="window.toggleMobileSidebar()"
          class="fixed inset-0 bg-black/50 z-40 hidden md:hidden"></div>
 
-    <div class="flex-1 flex flex-col min-w-0 overflow-y-auto">
+    <div class="flex-1 flex flex-col min-w-0 {{ $fullHeight ? 'overflow-hidden' : 'overflow-y-auto' }}">
 
         <x-header :page-title="$pageTitle" :page-subtitle="$pageSubtitle" />
 
-        <main class="flex-1 p-3 sm:p-6">
+        <main class="flex-1 p-3 sm:p-6 {{ $fullHeight ? 'min-h-0 flex flex-col overflow-hidden' : '' }}">
             {{ $slot }}
         </main>
 
+        @unless($fullHeight)
         <x-footer />
+        @endunless
 
     </div>
 </div>

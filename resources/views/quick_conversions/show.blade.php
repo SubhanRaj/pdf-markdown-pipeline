@@ -17,14 +17,17 @@ $needsOcrReview = (bool) ($quickConversion->metadata['needs_ocr_review'] ?? fals
     title="New Conversion"
     page-title="{{ $quickConversion->title ?: $quickConversion->original_filename }}"
     page-subtitle="Not saved anywhere yet — decide below"
+    :full-height="$isDone"
 >
 
+@unless($isDone)
 <x-breadcrumb :items="[
     ['name' => 'Home',           'url' => route('home')],
     ['name' => 'New Conversion', 'url' => route('conversions.create')],
     ['name' => 'My Conversions', 'url' => route('conversions.index')],
     ['name' => $quickConversion->title ?: $quickConversion->original_filename, 'url' => null],
 ]" />
+@endunless
 
 @php
 $pageData = [
@@ -59,12 +62,14 @@ $pageData = [
 </div>
 @endif
 
-{{-- ── Full-viewport compare layout, same structure as documents/show.blade.php's Compare &
-     Verify modal — a fixed inset-0 flex column so the PDF/Markdown panes take the remaining
-     height and the action bar stays pinned at the bottom, instead of living in the normal page
-     scroll flow (where a long document would push the Save/Discard buttons off-screen). ── --}}
+{{-- ── Compare layout, sized to fill the page (sidebar/header stay visible — this is a normal
+     page, not a dismissible modal) so the PDF/Markdown panes take the remaining height and the
+     action bar stays pinned at the bottom, instead of living in the normal page scroll flow
+     (where a long document would push the Save/Discard buttons off-screen). Works via the
+     `full-height` layout prop on <x-layout> above: <main> becomes a flex column with min-h-0, so
+     this div's flex-1 min-h-0 fills exactly the space below the header. ── --}}
 @if($isDone)
-<div style="position:fixed;inset:0;z-index:50" class="bg-slate-100 dark:bg-slate-950 flex flex-col overflow-hidden">
+<div class="flex-1 min-h-0 flex flex-col bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
 
     <div class="flex items-center justify-between gap-3 flex-wrap px-4 sm:px-6 py-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
         <div class="flex items-center gap-3 min-w-0">
