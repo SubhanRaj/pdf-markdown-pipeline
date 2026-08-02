@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Document;
 use App\Models\DocumentStatusHistory;
+use App\Services\PdfConversionEngine;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -11,7 +12,6 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 
 class ConvertDocumentToMarkdown implements ShouldQueue
@@ -22,15 +22,11 @@ class ConvertDocumentToMarkdown implements ShouldQueue
     // documents during evaluation (see STRUCTURE_RESEARCH.md); this leaves headroom for larger ones.
     public int $timeout = 1200;
 
-    /** Reuses the venv markitdown:install already provisions — pdfminer.six is one of its own dependencies. */
-    private string $pythonBin;
-
-    private string $extractorScript;
+    private PdfConversionEngine $engine;
 
     public function __construct(public int $documentId, public string $structureEngine = 'tesseract')
     {
-        $this->pythonBin = base_path('vendor/innobrain/markitdown/python/venv/bin/python3');
-        $this->extractorScript = resource_path('python/pdf_structure_extractor.py');
+        $this->engine = new PdfConversionEngine();
     }
 
     public function handle(): void
@@ -46,7 +42,7 @@ class ConvertDocumentToMarkdown implements ShouldQueue
             // without Docling's structure yet (nothing to splice in until Pass 0 below runs).
             // This tells us upfront whether the document has usable selectable text, without
             // waiting on Docling's per-page structure-detection time to find out.
-            $markdown = $this->tryStructuredExtract($absolutePdfPath);
+            $markdown = $this->engine->tryStructuredExtract($absolutePdfPath);
 
             // Both sentinels are stripped in a loop (not two independent `^`-anchored matches)
             // since pdf_structure_extractor.py can prepend either or both, in either order.
@@ -75,12 +71,12 @@ class ConvertDocumentToMarkdown implements ShouldQueue
             // a real quality problem, not noise from the odd blank/divider page.
             $hasSparsePages = $sparsePages !== null && $sparsePages[1] > 0 && ($sparsePages[0] / $sparsePages[1]) >= 0.15;
 
-            $needsOcrReview = $legacyFont !== null || $hasSparsePages || ! $this->isGoodQuality($markdown, $absolutePdfPath);
+            $needsOcrReview = $legacyFont !== null || $hasSparsePages || ! $this->engine->isGoodQuality($markdown, $absolutePdfPath);
 
             // Pass 0 — Docling structure detection (headings/tables/layout). Runs regardless of
             // the quality check above: structure/heading/table splicing is useful for the
             // text-layer render either way, and still needed when OCR ends up running next.
-            $structureMeta = $this->runDoclingStructureAnalysis($absolutePdfPath, $document, $legacyFont !== null);
+            $structureMeta = $this->engine->runDoclingStructureAnalysis($absolutePdfPath, $document->original_pdf_path, $document->id, $this->structureEngine, $legacyFont !== null);
 
             $structurePath = preg_replace('/\.pdf$/i', '.structure.json', $document->original_pdf_path);
             $structureAbsolutePath = ($structureMeta !== [] && Storage::disk('public')->exists($structurePath))
@@ -91,7 +87,7 @@ class ConvertDocumentToMarkdown implements ShouldQueue
             // pdfminer's own extraction (the part repeated here) is the fast half of this job;
             // Docling's pass above is what actually took the time.
             if ($structureAbsolutePath !== null) {
-                $markdown = $this->tryStructuredExtract($absolutePdfPath, $structureAbsolutePath);
+                $markdown = $this->engine->tryStructuredExtract($absolutePdfPath, $structureAbsolutePath);
                 // Two separate calls, not one pattern with a count limit — preg_replace's `^`
                 // anchors to the original string's position 0 on every match it counts toward
                 // the limit, so it can't strip two consecutive sentinel lines in one call.
@@ -160,183 +156,4 @@ class ConvertDocumentToMarkdown implements ShouldQueue
         }
     }
 
-    /**
-     * Pass 0 — Docling layout/table structure detection. Additive and non-fatal: any failure
-     * here (bad venv, timeout, malformed output) is logged and swallowed, never blocks the
-     * text-layer/OCR pipeline below. Table/heading cell text Docling extracts is kept and
-     * spliced into the final Markdown (see the call site in handle() and RunOcrExtraction).
-     *
-     * Docling's default mode trusts the PDF's native text layer for any region it doesn't
-     * detect as a scanned bitmap — fine normally, but wrong for legacy non-Unicode Devanagari
-     * fonts (Kruti Dev etc.): that text is technically "selectable" so Docling never OCRs it,
-     * and table cells come out with the same garbled codepoints the main pipeline's OCR pass
-     * (which renders full pages to images, font-encoding-proof) was supposed to fix. $forceOcr
-     * makes Docling re-read every region — tables included — from rendered pixels instead of
-     * the broken text layer. Only passed true when the legacy-font sentinel was already
-     * detected by pdf_structure_extractor.py, since force-OCR is measurably slower (impractical
-     * across a whole large document otherwise — see STRUCTURE_RESEARCH.md) and this is the one
-     * case where the native text layer cannot be trusted at all.
-     *
-     * @return array Metadata fields to merge into the document's `metadata` column, or [] on failure.
-     */
-    private function runDoclingStructureAnalysis(string $absolutePdfPath, Document $document, bool $forceOcr = false): array
-    {
-        try {
-            $engines = config('docling.ocr_engines');
-            $engineKey = array_key_exists($this->structureEngine, $engines) ? $this->structureEngine : config('docling.default_ocr_engine');
-            $ocrLang = $engines[$engineKey]['ocr_lang'] ?? 'hin+eng';
-            $doclingBin = config('docling.venv') . '/bin/docling';
-
-            $tmpDir = storage_path('app/private/docling_tmp/' . uniqid('doc_', true));
-            mkdir($tmpDir, 0755, true);
-
-            try {
-                $command = [
-                    $doclingBin, 'convert', '--to', 'json',
-                    '--ocr-engine', $engineKey,
-                    '--ocr-lang', $ocrLang,
-                    '--output', $tmpDir,
-                ];
-                if ($forceOcr) {
-                    $command[] = '--force-ocr';
-                }
-                $command[] = $absolutePdfPath;
-
-                // force-ocr genuinely takes longer (whole-document OCR instead of bitmap-only) —
-                // give it more room than the default path, still inside the job's 1200s ceiling.
-                $result = Process::timeout($forceOcr ? 900 : 600)->run($command);
-
-                if (! $result->successful()) {
-                    Log::warning('Docling structure analysis failed', ['document_id' => $document->id, 'error' => $result->errorOutput()]);
-
-                    return [];
-                }
-
-                $jsonFiles = glob("{$tmpDir}/*.json");
-                if (empty($jsonFiles)) {
-                    return [];
-                }
-
-                $raw = json_decode(file_get_contents($jsonFiles[0]), true);
-                if (! is_array($raw)) {
-                    return [];
-                }
-
-                $headings = [];
-                foreach ($raw['texts'] ?? [] as $text) {
-                    if (($text['label'] ?? null) !== 'section_header') {
-                        continue;
-                    }
-                    $prov = $text['prov'][0] ?? null;
-                    $headings[] = [
-                        'page' => $prov['page_no'] ?? null,
-                        'bbox' => $prov['bbox'] ?? null,
-                        'text' => $text['text'] ?? '',
-                    ];
-                }
-
-                $tables = [];
-                foreach ($raw['tables'] ?? [] as $table) {
-                    $prov = $table['prov'][0] ?? null;
-                    $data = $table['data'] ?? [];
-                    $tables[] = [
-                        'page'     => $prov['page_no'] ?? null,
-                        'bbox'     => $prov['bbox'] ?? null,
-                        'num_rows' => $data['num_rows'] ?? null,
-                        'num_cols' => $data['num_cols'] ?? null,
-                        'cells'    => array_map(fn ($cell) => [
-                            'row'      => $cell['start_row_offset_idx'] ?? null,
-                            'col'      => $cell['start_col_offset_idx'] ?? null,
-                            'row_span' => $cell['row_span'] ?? 1,
-                            'col_span' => $cell['col_span'] ?? 1,
-                            'text'     => $cell['text'] ?? '',
-                            'bbox'     => $cell['bbox'] ?? null,
-                        ], $data['table_cells'] ?? []),
-                    ];
-                }
-
-                $structurePath = preg_replace('/\.pdf$/i', '.structure.json', $document->original_pdf_path);
-                Storage::disk('public')->put($structurePath, json_encode([
-                    'engine'     => 'docling',
-                    'ocr_engine' => $engineKey,
-                    'force_ocr'  => $forceOcr,
-                    'headings'   => $headings,
-                    'tables'     => $tables,
-                ], JSON_UNESCAPED_UNICODE));
-
-                return [
-                    'structure_analyzed'       => true,
-                    'structure_engine'         => $engineKey,
-                    'structure_headings_count' => count($headings),
-                    'structure_tables_count'   => count($tables),
-                    'structure_force_ocr'      => $forceOcr,
-                ];
-            } finally {
-                foreach (glob("{$tmpDir}/*") ?: [] as $file) {
-                    @unlink($file);
-                }
-                @rmdir($tmpDir);
-            }
-        } catch (\Throwable $e) {
-            Log::warning('Docling structure analysis threw', ['document_id' => $document->id, 'error' => $e->getMessage()]);
-
-            return [];
-        }
-    }
-
-    /**
-     * Structure-aware extraction for native-text PDFs — uses pdfminer's per-character font
-     * size/name data to detect headings, bold, and lists. Deliberately bypasses markitdown's
-     * own PDF converter, which only calls pdfminer.high_level.extract_text() and is plain-text
-     * only by its own documentation ("most style information is ignored").
-     */
-    private function tryStructuredExtract(string $absolutePdfPath, ?string $structureJsonPath = null): string
-    {
-        try {
-            $command = [$this->pythonBin, $this->extractorScript, '--mode', 'pdf'];
-            if ($structureJsonPath !== null) {
-                $command[] = '--structure-json';
-                $command[] = $structureJsonPath;
-            }
-            $command[] = $absolutePdfPath;
-
-            $result = Process::timeout(120)->run($command);
-
-            return $result->successful() ? trim($result->output()) : '';
-        } catch (\Throwable) {
-            return '';
-        }
-    }
-
-    /**
-     * Two independent failure modes, both meaning "don't trust this text layer":
-     *  - Near-empty text (per page) — no real text layer at all, i.e. scanned/photographed.
-     *  - "(cid:NNN)" glyph-ID fallbacks — pdfminer found text but couldn't resolve it to
-     *    Unicode because the embedded font has no (or a broken) ToUnicode CMap. Very common
-     *    in older government PDFs typeset with legacy non-Unicode Devanagari fonts (Kruti Dev,
-     *    Chanakya, DevLys) — the text is technically "selectable" but the codepoints are
-     *    meaningless. Char-count alone doesn't catch this: a page full of "(cid:547)" garbage
-     *    still has plenty of characters.
-     */
-    private function isGoodQuality(string $markdown, string $absolutePdfPath): bool
-    {
-        if (preg_match_all('/\(cid:\d+\)/', $markdown) > 5) {
-            return false;
-        }
-
-        $charCount = strlen(preg_replace('/\s+/', '', $markdown));
-        $pageCount = max(1, $this->countPages($absolutePdfPath));
-
-        return $charCount >= ($pageCount * 40);
-    }
-
-    private function countPages(string $absolutePdfPath): int
-    {
-        $result = Process::run(['pdfinfo', $absolutePdfPath]);
-        if ($result->successful() && preg_match('/Pages:\s+(\d+)/', $result->output(), $m)) {
-            return (int) $m[1];
-        }
-
-        return 1;
-    }
 }
