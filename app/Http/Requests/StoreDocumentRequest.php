@@ -2,11 +2,8 @@
 
 namespace App\Http\Requests;
 
-use App\Models\Division;
+use App\Http\Requests\Concerns\ResolvesUploadDestination;
 use App\Models\Document;
-use App\Models\Folder;
-use App\Models\RuleSet;
-use App\Models\Section;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -14,6 +11,8 @@ use Illuminate\Http\Exceptions\HttpResponseException;
 
 class StoreDocumentRequest extends FormRequest
 {
+    use ResolvesUploadDestination;
+
     // Accepted MIME types — validated against actual file signature (magic bytes), not extension.
     // mimetypes: rule uses PHP's Fileinfo extension, not client-supplied Content-Type.
     public const ACCEPTED_MIMETYPES = [
@@ -44,50 +43,7 @@ class StoreDocumentRequest extends FormRequest
 
     public function authorize(): bool
     {
-        $user = $this->user();
-        if (! $user) {
-            return false;
-        }
-
-        // Resolve the upload context from the validated IDs.
-        // Input is not yet validated at authorize() time, so cast defensively.
-        $folderId    = (int) $this->input('folder_id')    ?: null;
-        $divisionId  = (int) $this->input('division_id')  ?: null;
-        $sectionId   = (int) $this->input('section_id')   ?: null;
-        $ruleSetId   = (int) $this->input('rule_set_id')  ?: null;
-
-        if ($folderId) {
-            $context = Folder::find($folderId);
-            // Folder must belong to the provided section/division when given
-            if ($context && $sectionId && $context->section_id !== $sectionId) {
-                return false;
-            }
-            if ($context && $context->division_id && $context->division_id !== $divisionId) {
-                return false;
-            }
-        } elseif ($divisionId) {
-            $context = Division::find($divisionId);
-            // Division must belong to the provided section when both are given
-            if ($context && $sectionId && $context->section_id !== $sectionId) {
-                return false;
-            }
-        } elseif ($sectionId) {
-            $context = Section::find($sectionId);
-        } elseif ($ruleSetId) {
-            $context = RuleSet::find($ruleSetId);
-        } else {
-            return false;
-        }
-
-        if (! $context) {
-            return false;
-        }
-
-        if ($context instanceof RuleSet && $context->kind === 'policy') {
-            return $user->canManagePolicy($context);
-        }
-
-        return $user->canUploadTo($context);
+        return $this->authorizeDestination();
     }
 
     protected function prepareForValidation(): void
@@ -116,12 +72,7 @@ class StoreDocumentRequest extends FormRequest
         $acceptedMimes  = implode(',', self::ACCEPTED_MIMETYPES);
 
         return [
-            // Exactly one of section_id or rule_set_id must be provided.
-            // division_id is optional and only valid alongside section_id.
-            'section_id'    => ['required_without:rule_set_id', 'nullable', 'integer', 'exists:sections,id'],
-            'rule_set_id'   => ['required_without:section_id',  'nullable', 'integer', 'exists:rule_sets,id'],
-            'division_id'   => ['nullable', 'integer', 'exists:divisions,id'],
-            'folder_id'     => ['nullable', 'integer', 'exists:folders,id'],
+            ...$this->destinationRules(),
             'parent_id'     => ['nullable', 'integer', 'exists:documents,id'],
             // The closure rejects titles with no letters at all — the upload form auto-fills
             // the title field from the file's name (see fileToTitle() in
@@ -164,8 +115,7 @@ class StoreDocumentRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'section_id.required_without'  => 'A section or rule set must be selected.',
-            'rule_set_id.required_without' => 'A section or rule set must be selected.',
+            ...$this->destinationMessages(),
             'title.regex'                  => 'Title contains invalid characters.',
             'document_type.in'             => 'Please select a valid document type.',
             'file.mimetypes'               => 'Unsupported file type. Accepted: PDF, Word, Excel, PowerPoint, ODT, images (JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC), RTF, TXT, CSV. SVG files are not permitted.',
