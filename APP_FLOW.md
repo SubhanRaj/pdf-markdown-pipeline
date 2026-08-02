@@ -214,33 +214,78 @@ flowchart TD
     Ctrl --> Jobs[Queue jobs, database driver, single worker]
     Jobs --> CDM[ConvertDocumentToMarkdown]
     Jobs --> ROE[RunOcrExtraction]
-    CDM --> Py[Python venvs]
-    ROE --> Py
-    Py --> Disk[Public disk, document vault]
+    Jobs --> CQC[ConvertQuickConversionToMarkdown]
+    Jobs --> RQC[RunQuickConversionOcrExtraction]
+    CDM --> Engine[PdfConversionEngine service]
+    ROE --> Engine
+    CQC --> Engine
+    RQC --> Engine
+    Engine --> Py[Python venvs]
+    Py --> Disk[Public disk, document vault / quick_conversions]
     CDM -.->|auto dispatch| ROE
+    CQC -.->|auto dispatch| RQC
     Ctrl --> ActivityLog[LogMutation middleware, activity_logs table]
 
     class Blade view
     class Ctrl,ActivityLog ctrl
     class DB store
-    class Jobs,CDM,ROE job
-    class Py py
+    class Jobs,CDM,ROE,CQC,RQC job
+    class Engine,Py py
     class Disk disk
 ```
 
-- **Blade** — `documents/show`, `documents/pipeline`, `documents/bulk-upload`, `approvals/index`,
-  `admin/*`, etc.
-- **Controllers** — `DocumentController`, `RuleSetController`, `ApprovalController`,
-  `DepartmentController`/`SectionController`/`DivisionController`/`FolderController`.
+- **Blade** — `documents/show`, `documents/pipeline`, `documents/bulk-upload`,
+  `quick_conversions/create`/`show`/`index`, `approvals/index`, `admin/*`, etc.
+- **Controllers** — `DocumentController`, `QuickConversionController`, `RuleSetController`,
+  `ApprovalController`, `DepartmentController`/`SectionController`/`DivisionController`/`FolderController`.
 - **MariaDB** — `departments`, `sections`, `divisions`, `folders`, `rule_sets`, `documents`,
-  `document_status_histories`, `users`.
+  `document_status_histories`, `quick_conversions`, `users`.
+- **`PdfConversionEngine`** (`app/Services/`, M70) — the actual pass-1/pass-0/OCR logic, extracted
+  out of the two `Document` jobs and reused verbatim by the two `QuickConversion` jobs; parameters
+  are explicit paths/ids instead of a `Document` model, so both job pairs call the exact same code.
 - **Python venvs** — `markitdown`/pdfminer (text layer), Docling (structure), Tesseract/EasyOCR/
   PaddleOCR/Surya (OCR), each in its own venv under `storage/app/private/ocr-engines/`.
-- **Public disk** — `document_vault/.../SLUG.pdf` plus sibling `.md`, `.pre-ocr.md`, and
-  `.structure.json` files once converted.
-- The dotted edge is M34's auto-dispatch: `ConvertDocumentToMarkdown` queues `RunOcrExtraction`
-  itself when the text layer is unreadable, instead of waiting for a reviewer to trigger it.
+- **Public disk** — `document_vault/.../SLUG.pdf` (permanent) or `quick_conversions/{id}/` (ephemeral,
+  see §6) plus sibling `.md`, `.pre-ocr.md`, and `.structure.json` files once converted.
+- The dotted edges are auto-dispatch: `ConvertDocumentToMarkdown`/`ConvertQuickConversionToMarkdown`
+  each queue their own OCR job when the text layer is unreadable, instead of waiting for a
+  reviewer to trigger it (M34 for the `Document` pair).
 
 See `OCR_RESEARCH.md` for the conversion pipeline's own detailed flowchart (pass ordering, quality
 checks, splice logic, auto-OCR-trigger) — this file stops at the component-boundary level to
 avoid duplicating that diagram.
+
+## 6. New Conversion — standalone upload (M70)
+
+`documents.bulk-upload` (diagram 2) requires picking a destination before a file can be added.
+"New Conversion" (`QuickConversionController`, `conversions.*` routes) is the opposite order —
+convert first, decide the destination (or skip it) after:
+
+```mermaid
+flowchart TD
+    classDef entry fill:#e0e7ff,stroke:#4338ca,color:#312e81
+    classDef working fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef decision fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef good fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+
+    U[Upload one file, no destination] --> QC[QuickConversion row, status uploaded]
+    QC --> CONV[Auto-converts via PdfConversionEngine]
+    CONV --> REV[status review or failed]
+    REV --> D{User decides}
+    D -->|Save to...| PLACE[Same taxonomy resolution as diagram 2 — becomes a real Document, QuickConversion row deleted]
+    D -->|Download Markdown| DL[File downloaded, QuickConversion untouched]
+    D -->|Discard| DISC[Row + files deleted immediately]
+    D -->|do nothing| EXP[PruneQuickConversion, delayed job fired at upload time, deletes row + files once expires_at passes]
+
+    class U entry
+    class QC,CONV,REV working
+    class D decision
+    class PLACE,DL good
+    class DISC,EXP bad
+```
+
+Default TTL is 48h (`QUICK_CONVERSION_TTL_HOURS`) — the prune job is dispatched once, delayed
+until `expires_at`, at upload time (`PruneQuickConversion::dispatch($id)->delay($expiresAt)`); no
+scheduler/cron involved. Owner-only throughout — checked inline in the controller, not a policy
+class. See `NEW_CONVERSION_PLAN.md` and `claude.md`'s "New Conversion" section for the full design.
