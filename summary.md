@@ -3350,3 +3350,128 @@ the code box was isolated in its own table cell (clean long-press-select-all) wi
 the code to copy it." hint added underneath.
 
 **Files changed:** `resources/views/auth/otp.blade.php`, `resources/views/emails/otp.blade.php`.
+
+## M70 — `PdfConversionEngine` extraction + standalone "New Conversion" upload flow (COMPLETED 2026-08-02)
+
+Today's `documents.bulk-upload` requires picking a Section/Folder/Division/Rule Set before a file
+can even be added — right for filing straight into a known destination, backwards for "I just
+want this one PDF converted to Markdown." Built a second, independent upload path instead of
+loosening `Document`'s validation: a small ephemeral model, `App\Models\QuickConversion`
+(`quick_conversions` table — `user_id`, `title` nullable, `pdf_path`/`markdown_path`/
+`structure_path`, `status` reusing `Document::STATUSES`' vocabulary, `metadata` json,
+`error_message`, `expires_at`), holds the file + conversion result until the user either saves it
+into the real vault (becomes a normal, permanent `Document`) or lets it expire.
+
+**Reuse, not duplication:** `ConvertDocumentToMarkdown`/`RunOcrExtraction`'s actual conversion
+logic (`tryStructuredExtract`, `runDoclingStructureAnalysis`, `isGoodQuality`, `countPages`,
+`runOcr`) was extracted verbatim into `App\Services\PdfConversionEngine` — parameters became
+explicit paths/ids instead of `$document->original_pdf_path`/`$document->id`, no behavior change,
+confirmed by re-running both the old and new code paths against the same test PDF and diffing the
+output. Both jobs now just orchestrate (status transitions, `DocumentStatusHistory`) and delegate
+to the service. Two new jobs, `ConvertQuickConversionToMarkdown`/`RunQuickConversionOcrExtraction`,
+mirror the same orchestration against `QuickConversion` instead, calling the identical service.
+
+**Expiry — delayed job, no scheduler.** `bootstrap/app.php` has no `->withSchedule()` — rather than
+add a cron dependency for one feature, `PruneQuickConversion::dispatch($id)->delay($expiresAt)`
+fires once at upload time onto the existing single serial queue worker. Default TTL 48h
+(`QUICK_CONVERSION_TTL_HOURS` env, `config/quick-conversions.php`). If the row's already gone
+(saved or discarded) by the time the delayed job runs, it's a no-op.
+
+**`QuickConversionController`** (`conversions.*` routes, owner-only — checked inline,
+`$quickConversion->user_id === auth()->id() || auth()->user()->isAdmin()`, no policy class, same
+convention as `DocumentController::authorizeEdit()`): `GET /conversions/new` (single-file drop
+form) → auto-dispatches conversion immediately on upload (no manual "click Convert" step) →
+`GET /conversions/{id}` (status polling while processing, then the compare view once done) offers
+three terminal actions — **Save to…** (`place()`, reuses the exact same four destination branches
+and `Document::uniqueSlugFor*()` calls as `DocumentController::store()`, but *moves* the
+already-converted files into the resolved vault dir instead of storing a fresh upload, then
+creates the `Document` row and deletes the `QuickConversion`), **Download Markdown** (no vault
+placement at all, for someone who just wants the file), or **Discard** (immediate delete).
+`ResolvesUploadDestination` (`app/Http/Requests/Concerns/`) — the destination-field validation +
+`canUploadTo`/`canManagePolicy` authorization previously inlined in `StoreDocumentRequest` — was
+extracted into a trait so the new `PlaceQuickConversionRequest` reuses the identical rules instead
+of duplicating them; `StoreDocumentRequest` itself is otherwise untouched (behavior-preserving).
+
+`documents.bulk-upload` is completely unaffected — verified by re-uploading a real file through it
+after the refactor and confirming identical behavior.
+
+**Files changed:** `app/Services/PdfConversionEngine.php` (new), `app/Jobs/ConvertDocumentToMarkdown.php`,
+`app/Jobs/RunOcrExtraction.php` (both refactored to call the service), `app/Jobs/ConvertQuickConversionToMarkdown.php`,
+`app/Jobs/RunQuickConversionOcrExtraction.php`, `app/Jobs/PruneQuickConversion.php` (new),
+`app/Models/QuickConversion.php` (new), `database/migrations/..._create_quick_conversions_table.php` (new),
+`config/quick-conversions.php` (new), `app/Http/Controllers/QuickConversionController.php` (new),
+`app/Http/Requests/StoreQuickConversionRequest.php`, `PlaceQuickConversionRequest.php` (new),
+`app/Http/Requests/Concerns/ResolvesUploadDestination.php` (new trait), `app/Http/Requests/StoreDocumentRequest.php`
+(updated to use the trait), `routes/web.php`, `resources/views/quick_conversions/create.blade.php`,
+`show.blade.php` (new), `resources/views/components/header.blade.php` (header CTA now points at
+`conversions.create` instead of `documents.bulk-upload`).
+
+## M71 — Document row clickability consolidated into a real shared component (COMPLETED 2026-08-02)
+
+Reported: a document row on a plain section page (`/departments/dept/excise/sections/misc`) wasn't
+clickable, only its eye icon was — even though "whole row clickable" (M66) was supposedly already
+fixed everywhere. Root cause: it was never one shared component. `folders/_doc_row.blade.php` and
+`rule_sets/_doc_row.blade.php` got the M66 fix; `sections/show.blade.php` (inline markup),
+`divisions/_doc_row.blade.php`, and `search/index.blade.php` (5 separate inline row blocks) were
+separate copies that never did — classic "fix it once, forgot the other N copies" duplication bug.
+
+Created a real shared component, `resources/views/components/document-row.blade.php` (`doc`, `url`,
+`destroyUrl`, `isAmendment` props; `hasAmendments` computed defensively via
+`$doc->relationLoaded('amendments')` so pages that don't eager-load the relation don't trigger an
+N+1 per row), and migrated `folders/_doc_row.blade.php`, `divisions/_doc_row.blade.php`,
+`sections/show.blade.php`, and `search/index.blade.php`'s document block onto it.
+`rule_sets/_doc_row.blade.php` was deliberately left as its own richer variant — it has live status
+polling (`data-doc-row`/`data-poll` attributes wired to `rule_sets/show.blade.php`'s own JS) and a
+bilingual-document language badge that the plain component doesn't need; unifying it in would have
+meant bolting unrelated features onto the shared component for one consumer.
+
+Verified by rendering every touched page (including the exact reported URL) against real
+production data through the actual controllers/middleware (not just Blade-compiling in isolation)
+and confirming 200s with the stretched-link markup present.
+
+**Files changed:** `resources/views/components/document-row.blade.php` (new),
+`resources/views/folders/_doc_row.blade.php`, `divisions/_doc_row.blade.php`,
+`resources/views/sections/show.blade.php`, `resources/views/search/index.blade.php`.
+
+## M72 — New Conversion follow-ups: My Conversions list, real full-viewport compare layout, Edit/Preview toggle (COMPLETED 2026-08-02)
+
+Three gaps found by actually using M70's flow:
+
+**No way back to an in-progress conversion.** Navigating away from `/conversions/{id}` (or just
+refreshing) left no path back to it short of re-uploading — the ID-based URL was never surfaced
+anywhere. Added `QuickConversionController::index()` (`GET /conversions`, `conversions.index`)
+listing the current user's own `QuickConversion` rows (status, created-at, `expires_at`
+countdown), linked from the New Conversion page and from every conversion's own breadcrumb.
+
+**Markdown pane had no Edit/Preview toggle.** The regular Document Compare & Verify modal
+(`documents/show.blade.php`) has one (marked.js-rendered preview, same link-sanitization as the
+server-rendered view); the quick-conversion review page was asked to copy it but only shipped a
+bare textarea. Added the identical tab pair (`marked@13` from the same CDN, same
+`sanitizeHtml()` javascript:/data:/vbscript: strip) to `quick_conversions/show.blade.php`.
+
+**Action buttons scrolled off-screen on long documents.** The review page used ordinary in-page
+content with `min-height:65vh` panes — on a document taller than the viewport, the page grew with
+it and the Save/Discard action bar ended up below the fold, exactly the "buttons get scrolled to
+the bottom" bug reported. The original Compare & Verify modal avoids this because it's
+`position:fixed;inset:0` — independent of page height, panes fill the remaining space, the action
+bar stays pinned. Rebuilt the review section of `quick_conversions/show.blade.php` the same way: a
+slim fixed header (back link, title, status, expiry), the PDF/Markdown panes as `flex-1 min-h-0`,
+and the action bar `flex-shrink-0` at the bottom — never requires scrolling the outer page.
+
+**Files changed:** `app/Http/Controllers/QuickConversionController.php` (`index()`),
+`routes/web.php`, `resources/views/quick_conversions/index.blade.php` (new),
+`resources/views/quick_conversions/create.blade.php`, `resources/views/quick_conversions/show.blade.php`.
+
+## M73 — Sidebar nav scrollbar styled to match Safari's default (COMPLETED 2026-08-02)
+
+Not a bug in the code — the sidebar `<nav>` has always had `overflow-y-auto`, and once its content
+(6 top items + department cards + Tools + Manage) exceeds a shorter viewport, it scrolls. Safari
+renders that as its own thin, auto-hiding overlay scrollbar by default; Chrome/Firefox fall back to
+a bulky, light-grey system scrollbar that stands out badly against the sidebar's permanently-dark
+`bg-slate-950` (the sidebar itself has no light-mode variant, so no light/dark split was needed).
+Styled directly as Tailwind arbitrary-variant utility classes on the `<nav>` element itself (`
+[scrollbar-width:thin] [scrollbar-color:...] [&::-webkit-scrollbar]:...`) rather than a separate
+hardcoded CSS block, keeping it colocated and consistent with how the rest of this codebase
+prefers utility classes over ad-hoc stylesheet rules.
+
+**Files changed:** `resources/views/components/sidebar.blade.php`.

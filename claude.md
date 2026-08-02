@@ -334,6 +334,7 @@ sections (States / Union Territories via `RuleSet::UNION_TERRITORIES`, see POLIC
 | Approval Queue | `ApprovalController` | Maker-checker workflow at `GET /approvals`; three tabs (Pending / Rejected / My Submissions); approve, reject, reclassify, resubmit actions; scope-aware (approvers see only their org boundary); PDF preview via slide-over drawer; bulk approve/reject |
 | **Text Extraction / OCR / Structure** | **`DocumentController` (`convert`, `convertOcr`, `conversionStatus`, `structureJson`, `updateMarkdown`, `discardMarkdown`)** | **Button-triggered Markdown conversion (`ConvertDocumentToMarkdown` job, now also runs a Docling structure-detection Pass 0) + on-demand OCR re-extraction (`RunOcrExtraction` job); Compare & Verify split-pane modal on `documents/show`; see dedicated section below** |
 | **Bulk Upload** | **`DocumentController@bulkUploadForm`** | **`GET /documents/bulk-upload` — single page to upload multiple files to any department/section/division/folder/rule-set the user is scoped to, with optional auto-convert per file** |
+| **New Conversion (standalone, M70)** | **`QuickConversionController`** | **`GET /conversions/new` — drop one file, no destination picked upfront; auto-converts via the same `PdfConversionEngine`; review page offers Save to… (promotes to a real `Document`), Download Markdown, or Discard; ephemeral `QuickConversion` row auto-expires (`PruneQuickConversion`, delayed job, 48h default) if left untouched — see the Text Extraction section below** |
 | **Conversion Pipeline monitor** | **`DocumentController@pipeline`** | **`GET /documents/pipeline` — table of every document not yet verified/archived (`uploaded`/`processing`/`ocr_pending`/`review`/`failed`), status tabs, live polling, per-row Convert/Retry** |
 
 ### Text Extraction & Markdown Conversion Pipeline
@@ -637,6 +638,35 @@ queue counts were already covered by the existing health page, and the rest (cac
 per-user request timing, outgoing-request timing) don't apply to a single-server, admin-only,
 no-outgoing-HTTP app like this one.
 
+**`PdfConversionEngine` service extraction + standalone "New Conversion" flow (M70, 2026-08-02).**
+`ConvertDocumentToMarkdown`/`RunOcrExtraction`'s actual conversion logic
+(`tryStructuredExtract`, `runDoclingStructureAnalysis`, `isGoodQuality`, `countPages`, `runOcr`)
+was extracted verbatim into `App\Services\PdfConversionEngine` — parameters became explicit
+paths/ids instead of `$document->original_pdf_path`/`$document->id`, no behavior change. Both
+jobs now just orchestrate (status transitions, `DocumentStatusHistory`) and delegate the actual
+work to the service. This unblocked a second, independent upload path: **"New Conversion"**
+(`App\Models\QuickConversion`, `quick_conversions` table) — drop a single file, get Markdown, with
+no destination (Section/Folder/Rule Set/Policy) picked upfront, unlike the existing
+`documents.bulk-upload` flow where a destination is required before a file can even be added.
+`QuickConversionController` (routes under `conversions.*`, `GET /conversions/new` to start) drives
+its own pair of jobs (`ConvertQuickConversionToMarkdown`, `RunQuickConversionOcrExtraction` —
+same status flow as the Document jobs, calling the same `PdfConversionEngine`) and a delayed
+`PruneQuickConversion::dispatch($id)->delay($expiresAt)` job (default 48h,
+`QUICK_CONVERSION_TTL_HOURS` env) that deletes the row + files if nothing happened to them by
+then — no scheduler/cron involved, just one delayed job on the existing single serial queue
+worker. From the review page (`quick_conversions/show.blade.php`, same PDF/Markdown compare UI
+and Edit/Preview toggle as `documents/show`'s Compare & Verify modal) the user picks one of:
+**Save to…** (`POST /conversions/{id}/place`, `QuickConversionController::place()` — moves the
+already-converted files into the resolved vault dir and creates a real, permanent `Document` row,
+same `Document::uniqueSlugFor*()`/vault-path logic as `DocumentController::store()`, then deletes
+the `QuickConversion` row), **Download Markdown** (no vault placement at all — for someone who
+just wants the converted file), or **Discard** (immediate delete). `ResolvesUploadDestination`
+(`app/Http/Requests/Concerns/`) — the destination-field validation + `canUploadTo`/`canManagePolicy`
+authorization previously inlined in `StoreDocumentRequest` — was extracted into a trait so
+`PlaceQuickConversionRequest` reuses the exact same rules rather than duplicating them.
+`documents.bulk-upload` is untouched and still the right flow for "I already know where this
+goes, and I have a batch of files." See `NEW_CONVERSION_PLAN.md` for the full design writeup.
+
 ### Frontend interactivity: Alpine, not Livewire (2026-07-26)
 
 Recurring complaint: several pages needed a manual refresh to show anything new — most visibly,
@@ -772,6 +802,21 @@ Controller method signatures **must** declare `string $level` as their first par
 | GET | `/documents/{id}/structure` | `documents.structure` | Admin/policy-manager (`canManageDocument()`) |
 | PATCH | `/documents/{id}/markdown` | `documents.markdown.update` | Admin (Form Request check) |
 | DELETE | `/documents/{id}/markdown` | `documents.markdown.discard` | Admin (controller check) |
+
+**New Conversion (standalone, M70)** — owner-only, checked inline in `QuickConversionController`
+(`$quickConversion->user_id === auth()->id() || auth()->user()->isAdmin()`), no policy class.
+
+| Method | URI | Route name | Auth |
+|---|---|---|---|
+| GET | `/conversions/new` | `conversions.create` | Auth (upload scope) |
+| POST | `/conversions` | `conversions.store` | Auth (upload scope) |
+| GET | `/conversions/{quickConversion}` | `conversions.show` | Auth + owner |
+| GET | `/conversions/{quickConversion}/status` | `conversions.status` | Auth + owner |
+| GET | `/conversions/{quickConversion}/download` | `conversions.download` | Auth + owner |
+| POST | `/conversions/{quickConversion}/ocr` | `conversions.ocr` | Auth + owner |
+| PATCH | `/conversions/{quickConversion}` | `conversions.update` | Auth + owner |
+| POST | `/conversions/{quickConversion}/place` | `conversions.place` | Auth + owner + destination authorization |
+| DELETE | `/conversions/{quickConversion}` | `conversions.destroy` | Auth + owner |
 
 *Public routes 403 on `visibility = authenticated` documents for guests. Folder doc routes additionally 403 if the containing folder's visibility is `authenticated` and the user is a guest.
 
@@ -1380,7 +1425,12 @@ resources/views/components/
 ├── head.blade.php     — <head> tag: CDN links, Tailwind config, @stack('styles'), title prop
 ├── sidebar.blade.php  — left nav (no props; uses request()->routeIs() internally)
 ├── header.blade.php   — top bar; props: page-title, page-subtitle
-└── footer.blade.php   — footer bar (no props)
+├── footer.blade.php   — footer bar (no props)
+└── document-row.blade.php — a document listing row (M71); props: doc, url, destroyUrl (nullable
+    → no delete button), isAmendment. Used by sections/show, divisions/_doc_row, folders/_doc_row,
+    search/index. `rule_sets/_doc_row.blade.php` is deliberately its own richer copy (live status
+    polling + language badge) — use this component for any *new* document listing, don't inline
+    another one-off row; that duplication is exactly what caused M71.
 ```
 
 ### How to author a new page
