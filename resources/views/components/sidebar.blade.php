@@ -25,8 +25,10 @@
         </div>
     </div>
 
-    {{-- Navigation --}}
-    <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+    {{-- Navigation — thin, dark scrollbar (matches the sidebar's own always-dark bg-slate-950,
+         no light-mode variant needed): Safari renders overlay scrollbars this way by default,
+         Chrome/Firefox need it spelled out or they fall back to a bulky light-grey one. --}}
+    <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:theme(colors.slate.700)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-thumb]:rounded-full">
 
         <a href="{{ route('home') }}"
            data-tooltip="Dashboard"
