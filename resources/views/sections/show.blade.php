@@ -427,99 +427,11 @@
     @else
     <div class="divide-y divide-slate-100 dark:divide-slate-700/60">
         @foreach($documents as $doc)
-        <div class="flex items-start gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
-
-            {{-- Icon --}}
-            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5
-                @if($doc->status === 'verified') bg-green-500/10 dark:bg-green-500/20
-                @elseif($doc->status === 'failed') bg-red-500/10 dark:bg-red-500/20
-                @elseif($doc->status === 'review') bg-indigo-500/10 dark:bg-indigo-500/20
-                @else bg-slate-100 dark:bg-slate-700 @endif">
-                <i class="ti ti-file-text text-base
-                    @if($doc->status === 'verified') text-green-500 dark:text-green-400
-                    @elseif($doc->status === 'failed') text-red-500 dark:text-red-400
-                    @elseif($doc->status === 'review') text-indigo-500 dark:text-indigo-400
-                    @else text-slate-400 dark:text-slate-500 @endif"></i>
-            </div>
-
-            {{-- Info --}}
-            <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $doc->title }}</p>
-                <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                    {{-- Document type badge --}}
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                        {{ \App\Models\Document::DOCUMENT_TYPES[$doc->document_type] ?? $doc->document_type }}
-                    </span>
-
-                    @auth
-                    {{-- Status badge (auth only for non-verified) --}}
-                    @php
-                        $statusMeta = \App\Models\Document::STATUSES[$doc->status] ?? ['label' => $doc->status, 'color' => 'slate'];
-                        $statusColors = [
-                            'slate'  => 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
-                            'blue'   => 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-                            'amber'  => 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
-                            'indigo' => 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400',
-                            'green'  => 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
-                            'red'    => 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-                        ];
-                    @endphp
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium {{ $statusColors[$statusMeta['color']] ?? $statusColors['slate'] }}">
-                        {{ $statusMeta['label'] }}
-                    </span>
-                    @endauth
-
-                    @php
-                        $secMn    = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                        $secEY    = $doc->metadata['effective_year']  ?? null;
-                        $secEM    = $doc->metadata['effective_month'] ?? null;
-                        $secED    = $doc->metadata['effective_day']   ?? null;
-                        $secAN    = $doc->metadata['amendment_number'] ?? null;
-                        $secDate  = $secEY
-                            ? ($secED && $secEM ? "{$secED} {$secMn[$secEM]} {$secEY}" : ($secEM ? "{$secMn[$secEM]} {$secEY}" : (string) $secEY))
-                            : null;
-                    @endphp
-                    @if($secAN)
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">#{{ $secAN }}</span>
-                    @endif
-                    <span class="text-slate-300 dark:text-slate-600">·</span>
-                    @if($secDate)
-                    <span class="text-xs text-slate-600 dark:text-slate-300 font-medium" title="Effective date">{{ $secDate }}</span>
-                    <span class="text-slate-300 dark:text-slate-600">·</span>
-                    <span class="text-xs text-slate-400 dark:text-slate-500" title="Uploaded">{{ $doc->created_at->format('d M Y') }}</span>
-                    @else
-                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $doc->created_at->format('d M Y') }}</span>
-                    @endif
-
-                    @auth
-                    @if($doc->user)
-                    <span class="text-slate-300 dark:text-slate-600">·</span>
-                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $doc->user->name }}</span>
-                    @endif
-                    @endauth
-                </div>
-            </div>
-
-            {{-- Actions --}}
-            <div class="flex items-center gap-1 flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                <a href="{{ route('documents.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]) }}"
-                   class="inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all"
-                   title="View">
-                    <i class="ti ti-eye text-base"></i>
-                </a>
-                @auth
-                @if(auth()->user()->isAdmin())
-                <button type="button"
-                        class="doc-delete-btn inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
-                        data-action="{{ route('documents.destroy', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]) }}"
-                        data-title="{{ e($doc->title) }}"
-                        title="Delete">
-                    <i class="ti ti-trash text-base"></i>
-                </button>
-                @endif
-                @endauth
-            </div>
-        </div>
+        <x-document-row
+            :doc="$doc"
+            :url="route('documents.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc])"
+            :destroy-url="auth()->check() && auth()->user()->isAdmin() ? route('documents.destroy', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc]) : null"
+        />
         @endforeach
     </div>
 

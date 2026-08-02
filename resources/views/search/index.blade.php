@@ -105,15 +105,6 @@
     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/60">
         @foreach($documents as $doc)
         @php
-            $statusMeta   = \App\Models\Document::STATUSES[$doc->status] ?? ['label' => $doc->status, 'color' => 'slate'];
-            $statusColors = [
-                'slate'  => 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
-                'blue'   => 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-                'amber'  => 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
-                'indigo' => 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400',
-                'green'  => 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
-                'red'    => 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-            ];
             $docUrl = match(true) {
                 $doc->folder && $doc->division => route('documents.divisions.folders.show', [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->division, $doc->folder, $doc]),
                 (bool) $doc->folder            => route('documents.folders.show',           [$doc->department->levelAlias(), $doc->department, $doc->section, $doc->folder, $doc]),
@@ -122,53 +113,7 @@
                 default                        => route("documents.{$doc->ruleSet->kind}.show",             [$doc->department->levelAlias(), $doc->department, $doc->ruleSet, $doc]),
             };
         @endphp
-        <div class="flex items-start gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group">
-
-            {{-- Status icon --}}
-            <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5
-                @if($doc->status === 'verified') bg-green-500/10 dark:bg-green-500/20
-                @elseif($doc->status === 'failed') bg-red-500/10 dark:bg-red-500/20
-                @elseif($doc->status === 'review') bg-indigo-500/10 dark:bg-indigo-500/20
-                @else bg-slate-100 dark:bg-slate-700 @endif">
-                <i class="ti ti-file-text text-base
-                    @if($doc->status === 'verified') text-green-500 dark:text-green-400
-                    @elseif($doc->status === 'failed') text-red-500 dark:text-red-400
-                    @elseif($doc->status === 'review') text-indigo-500 dark:text-indigo-400
-                    @else text-slate-400 dark:text-slate-500 @endif"></i>
-            </div>
-
-            {{-- Info --}}
-            <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $doc->title }}</p>
-                <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <span class="text-xs text-slate-400 dark:text-slate-500">
-                        {{ $doc->department->name }}
-                    </span>
-                    <span class="text-slate-300 dark:text-slate-600">·</span>
-                    <span class="text-xs text-slate-400 dark:text-slate-500">
-                        {{ $doc->folder?->name ?? $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name ?? '—' }}
-                    </span>
-                    <span class="text-slate-300 dark:text-slate-600">·</span>
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                        {{ \App\Models\Document::DOCUMENT_TYPES[$doc->document_type] ?? $doc->document_type }}
-                    </span>
-                    @auth
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium {{ $statusColors[$statusMeta['color']] ?? $statusColors['slate'] }}">
-                        {{ $statusMeta['label'] }}
-                    </span>
-                    @endauth
-                    <span class="text-slate-300 dark:text-slate-600">·</span>
-                    <span class="text-xs text-slate-400 dark:text-slate-500">{{ $doc->created_at->format('d M Y') }}</span>
-                </div>
-            </div>
-
-            {{-- View action --}}
-            <a href="{{ $docUrl }}"
-               class="flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all"
-               title="View document">
-                <i class="ti ti-eye text-base"></i>
-            </a>
-        </div>
+        <x-document-row :doc="$doc" :url="$docUrl" />
         @endforeach
     </div>
 </div>
