@@ -12,6 +12,7 @@ use App\Http\Controllers\DownloadController;
 use App\Http\Controllers\FolderController;
 use App\Http\Controllers\FrontendController;
 use App\Http\Controllers\PolicyDocumentController;
+use App\Http\Controllers\QuickConversionController;
 use App\Http\Controllers\RuleSetController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SectionController;
@@ -167,6 +168,17 @@ Route::middleware(['auth', 'throttle:reads'])->prefix('documents')->name('docume
     Route::get('/{id}/structure',      [DocumentController::class, 'structureJson'])->where('id', '[0-9]+')->name('structure');
 });
 
+// ── Standalone "New Conversion" — upload & convert without picking a destination first ────────
+// See NEW_CONVERSION_PLAN.md. Auth-only, same as the rest of the conversion pipeline — public
+// visitors never see this, only Documents explicitly marked public on upload.
+Route::middleware(['auth', 'throttle:reads'])->prefix('conversions')->name('conversions.')->group(function () {
+    Route::get('/',                   [QuickConversionController::class, 'index'])->name('index');
+    Route::get('/new',                [QuickConversionController::class, 'create'])->name('create');
+    Route::get('/{quickConversion}',          [QuickConversionController::class, 'show'])->name('show');
+    Route::get('/{quickConversion}/status',   [QuickConversionController::class, 'status'])->name('status');
+    Route::get('/{quickConversion}/download', [QuickConversionController::class, 'download'])->name('download');
+});
+
 // ── Auth-protected mutations ──────────────────────────────────────────────────
 // throttle:mutations = 60 state-changing requests/minute/user (defined in AppServiceProvider)
 
@@ -219,6 +231,15 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
             Route::patch('/{document}',      [DocumentController::class, 'updateDivisionFolderDoc'])->name('update');
             Route::delete('/{document}',     [DocumentController::class, 'destroyDivisionFolderDoc'])->name('destroy');
         });
+    });
+
+    // Standalone "New Conversion" — mutations
+    Route::prefix('conversions')->name('conversions.')->group(function () {
+        Route::post('/', [QuickConversionController::class, 'store'])->name('store')->middleware('throttle:uploads');
+        Route::post('/{quickConversion}/ocr',      [QuickConversionController::class, 'runOcr'])->name('ocr');
+        Route::patch('/{quickConversion}',         [QuickConversionController::class, 'updateMarkdown'])->name('update');
+        Route::post('/{quickConversion}/place',    [QuickConversionController::class, 'place'])->name('place');
+        Route::delete('/{quickConversion}',        [QuickConversionController::class, 'destroy'])->name('destroy');
     });
 
     // Departments — mutations
