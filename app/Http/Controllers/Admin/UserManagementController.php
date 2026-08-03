@@ -8,6 +8,7 @@ use App\Http\Requests\Admin\UpdateUserRequest;
 use App\Http\Requests\UpdateProfileRequest;
 use App\Mail\AccountOnboarding;
 use App\Models\Department;
+use App\Models\Designation;
 use App\Models\Division;
 use App\Models\Section;
 use App\Models\User;
@@ -24,7 +25,7 @@ class UserManagementController extends Controller
 {
     public function index(): View
     {
-        $users = User::with(['department', 'section'])
+        $users = User::with(['department', 'section', 'designation'])
             ->latest()
             ->paginate(20);
 
@@ -33,11 +34,12 @@ class UserManagementController extends Controller
 
     public function create(): View
     {
-        $departments = Department::orderBy('name')->get(['id', 'name', 'level']);
-        $sections    = Section::orderBy('name')->get(['id', 'name', 'department_id']);
-        $divisions   = Division::orderBy('name')->get(['id', 'name', 'section_id']);
+        $departments   = Department::orderBy('name')->get(['id', 'name', 'level']);
+        $sections      = Section::orderBy('name')->get(['id', 'name', 'department_id']);
+        $divisions     = Division::orderBy('name')->get(['id', 'name', 'section_id']);
+        $designations  = Designation::orderBy('sort_order')->orderBy('name')->get(['id', 'name', 'department_id', 'default_scope', 'default_privileges']);
 
-        return view('admin.users.create', compact('departments', 'sections', 'divisions'));
+        return view('admin.users.create', compact('departments', 'sections', 'divisions', 'designations'));
     }
 
     public function store(StoreUserRequest $request): RedirectResponse
@@ -53,6 +55,7 @@ class UserManagementController extends Controller
                     // the officer via the onboarding link mailed below.
                     'password'                 => Hash::make(Str::random(40)),
                     'post'                     => $request->post ?: null,
+                    'designation_id'           => $request->designation_id ?: null,
                     'role'                     => $request->role,
                     'uploads_require_approval' => (bool) $request->uploads_require_approval,
                     'privileges'               => $request->privileges ?? [],
@@ -125,11 +128,12 @@ class UserManagementController extends Controller
 
     public function edit(User $user): View
     {
-        $departments = Department::orderBy('name')->get(['id', 'name', 'level']);
-        $sections    = Section::orderBy('name')->get(['id', 'name', 'department_id']);
-        $divisions   = Division::orderBy('name')->get(['id', 'name', 'section_id']);
+        $departments   = Department::orderBy('name')->get(['id', 'name', 'level']);
+        $sections      = Section::orderBy('name')->get(['id', 'name', 'department_id']);
+        $divisions     = Division::orderBy('name')->get(['id', 'name', 'section_id']);
+        $designations  = Designation::orderBy('sort_order')->orderBy('name')->get(['id', 'name', 'department_id', 'default_scope', 'default_privileges']);
 
-        return view('admin.users.edit', compact('user', 'departments', 'sections', 'divisions'));
+        return view('admin.users.edit', compact('user', 'departments', 'sections', 'divisions', 'designations'));
     }
 
     public function update(UpdateUserRequest $request, User $user): RedirectResponse
@@ -142,6 +146,7 @@ class UserManagementController extends Controller
                     'email'                    => $request->email,
                     'mobile'                   => $request->mobile ?: null,
                     'post'                     => $request->post ?: null,
+                    'designation_id'           => $request->designation_id ?: null,
                     'role'                     => $request->role,
                     'uploads_require_approval' => (bool) $request->uploads_require_approval,
                     'privileges'               => $request->privileges ?? [],

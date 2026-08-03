@@ -3475,3 +3475,79 @@ hardcoded CSS block, keeping it colocated and consistent with how the rest of th
 prefers utility classes over ad-hoc stylesheet rules.
 
 **Files changed:** `resources/views/components/sidebar.blade.php`.
+
+## M74 — Designations: decoupling site administration from departmental authority (COMPLETED 2026-08-03)
+
+Reported: creating "Navneet sir" as an Additional Excise Commissioner required setting `role =
+admin` to get the right document authority (department-wide verify/approve), because the create
+form only exposed raw `department.head`/`documents.verify`/etc. checkboxes with no mapping from a
+real-world post to the correct combination — nobody creating accounts could reliably reverse-engineer
+that "Additional Excise Commissioner" means "check `department.head` + `documents.verify` +
+`documents.approve`, set Department to Excise." `role = admin` was the path of least resistance,
+but it also handed him the full site-management console (`/admin/users`, `/admin/activity-logs`,
+the privilege-editing UI itself) — access that should only ever belong to the developer/IT
+department, not a departmental officer. `User::uploadScope()`/`canUploadTo()`/`canApprove()`
+(`app/Models/User.php:144-226`) already implemented department/section/division scoping correctly
+via the `*.head` privileges — the gap was entirely in the create-form UI, not the authorization
+logic.
+
+Fix: a new **Designation** concept — an admin-manageable named preset (full CRUD at
+`/admin/designations`, not a hardcoded list) mapping a real government post to a default scope +
+privilege bundle. Picking "Additional Excise Commissioner" from the new dropdown on
+`admin/users/create`/`edit` sets Department (if the designation is department-locked) and
+pre-checks the right privilege boxes via `applyDesignationPreset()` JS — a one-time preset, not a
+permanently-synced rule; the admin can still hand-adjust anything afterward, and editing a
+Designation's defaults later doesn't retroactively touch users who already picked it. `post`
+(free-text) is kept as an "Other" fallback for posts that don't have a Designation yet, same
+pattern as the Policy Type "Other" dropdown elsewhere in this app. `role` itself is unchanged — no
+new enum value — but the behavioral convention going forward is that `role = admin` is reserved for
+the site-manager/IT-dev account(s) only; every real designation-holder gets `role = operator` (or
+`viewer`) plus a Designation.
+
+New `designations` table (`department_id` nullable FK — null means generic/any department,
+non-null locks it to that department; `default_scope` enum; `default_privileges` json; unique
+`(department_id, slug)`; soft-deletes so a retired post still resolves to a readable name for
+existing holders) and `users.designation_id` (nullable FK). `DesignationSeeder` ships 16 generic
+posts (Officer, Section Officer, HoD, Chief Secretary, Additional Chief Secretary, Principal
+Secretary, Secretary, Special Secretary, Deputy Secretary, Joint Secretary, Review Officer,
+Additional Review Officer, Clerk, Finance Controller, Auditor, Accounting Officer) plus
+department-specific variants for Excise (Excise Commissioner, Additional Excise Commissioner,
+Deputy Commissioner (P&E), Deputy Excise Commissioner (P)) and Sugarcane & Sugar Industries (Cane
+Commissioner, Additional Cane Commissioner) — 22 rows total, extensible via the CRUD screen with no
+deploy needed.
+
+The Granular Privileges checkbox panel (previously duplicated inline in both
+`admin/users/create.blade.php` and `edit.blade.php`) was extracted into a shared partial,
+`admin/_privilege_checkboxes.blade.php`, parameterized by input name + currently-checked array —
+used by the user forms and the new Designation create/edit form identically, so `default_privileges`
+and a user's `privileges` render from one source of markup.
+
+Migrations run additively against the live production DB (`php artisan migrate --force` — new table
++ nullable column only, no drops) and the seeder was run scoped (`--class=DesignationSeeder`);
+verified afterward that all 3 existing users, 223 documents, and 6 departments were untouched.
+
+Deliberately left as a manual follow-up, not automated: reassigning "Navneet sir"'s actual account
+from `role = admin` to `role = operator` + the correct Designation. Automatically detecting which
+existing `admin` accounts are workarounds vs. the real IT/dev account isn't safely inferable, so
+this is a one-off admin-panel action for whoever manages the site, done once the right Designation
+exists to assign.
+
+See [DESIGNATIONS_PLAN.md](DESIGNATIONS_PLAN.md) for the full design rationale (confirmed decisions,
+out-of-scope items, verification checklist) written and reviewed before implementation started.
+
+**Files changed:** `database/migrations/2026_08_03_000001_create_designations_table.php` (new),
+`database/migrations/2026_08_03_000002_add_designation_id_to_users_table.php` (new),
+`app/Models/Designation.php` (new), `app/Models/User.php` (`designation()` relationship,
+`designation_id` fillable), `database/seeders/DesignationSeeder.php` (new),
+`database/seeders/DatabaseSeeder.php`, `app/Http/Controllers/Admin/DesignationController.php` (new),
+`app/Http/Requests/Admin/StoreDesignationRequest.php`, `UpdateDesignationRequest.php` (new),
+`app/Http/Requests/Admin/StoreUserRequest.php`, `UpdateUserRequest.php` (`designation_id` rule),
+`app/Http/Controllers/Admin/UserManagementController.php` (persist `designation_id`, pass
+`$designations` to create/edit views), `routes/web.php` (`admin.designations.*` group),
+`resources/views/admin/designations/index.blade.php`, `create.blade.php`, `edit.blade.php` (new),
+`resources/views/admin/_privilege_checkboxes.blade.php` (new, extracted),
+`resources/views/admin/users/create.blade.php`, `edit.blade.php` (Designation select + preset JS,
+"Other post" fallback, shared partial), `resources/views/admin/users/index.blade.php`
+(`designation->name ?? post` fallback), `resources/views/components/sidebar.blade.php` (new
+"Designations" nav link), `DESIGNATIONS_PLAN.md` (new, planning doc), `claude.md`, `README.md`
+(schema + route map updates).

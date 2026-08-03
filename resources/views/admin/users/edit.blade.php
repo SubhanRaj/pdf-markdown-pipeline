@@ -170,7 +170,25 @@
             <div class="grid grid-cols-2 gap-4">
 
                 <div class="col-span-2 sm:col-span-1">
-                    <label for="post" class="field-label">Post / Designation</label>
+                    <label for="designation_id" class="field-label">Designation</label>
+                    <select id="designation_id" name="designation_id"
+                        class="field-input @error('designation_id') field-error @enderror">
+                        <option value="">— None / see "Other post" —</option>
+                        @foreach($designations->whereNull('department_id') as $d)
+                        <option value="{{ $d->id }}" data-dept="" data-privileges="{{ json_encode($d->default_privileges ?? []) }}"
+                            {{ old('designation_id', $user->designation_id) == $d->id ? 'selected' : '' }}>{{ $d->name }}</option>
+                        @endforeach
+                        @foreach($designations->whereNotNull('department_id') as $d)
+                        <option value="{{ $d->id }}" data-dept="{{ $d->department_id }}" data-privileges="{{ json_encode($d->default_privileges ?? []) }}"
+                            {{ old('designation_id', $user->designation_id) == $d->id ? 'selected' : '' }}>{{ $d->name }}</option>
+                        @endforeach
+                    </select>
+                    <p class="field-hint">Selecting one pre-fills Department + Privileges below. Nothing is locked — adjust freely afterward.</p>
+                    @error('designation_id') <p class="field-err-msg">{{ $message }}</p> @enderror
+                </div>
+
+                <div class="col-span-2 sm:col-span-1">
+                    <label for="post" class="field-label">Other post <span class="text-xs font-normal text-slate-400">(if not listed above)</span></label>
                     <input id="post" name="post" type="text"
                         value="{{ old('post', $user->post) }}"
                         placeholder="e.g. Section Officer"
@@ -255,41 +273,10 @@
 
             </div>
 
-            @php
-            $privilegeLabels = [
-                'documents.upload'       => ['label' => 'Upload documents',           'group' => 'Documents'],
-                'documents.edit'         => ['label' => 'Edit document metadata',     'group' => 'Documents'],
-                'documents.delete'       => ['label' => 'Archive (soft-delete) docs', 'group' => 'Documents'],
-                'documents.restore'      => ['label' => 'Restore from archive',       'group' => 'Documents'],
-                'documents.force-delete' => ['label' => 'Permanently delete (requires letter)', 'group' => 'Documents'],
-                'documents.verify'       => ['label' => 'Verify / mark as verified',  'group' => 'Documents'],
-                'documents.approve'      => ['label' => 'Approve / reject pending uploads', 'group' => 'Documents'],
-                'section.head'           => ['label' => 'Section Head (create divisions in own section)', 'group' => 'Organisational'],
-                'department.head'        => ['label' => 'Department Head (create sections/divisions in own dept)', 'group' => 'Organisational'],
-                'organization.head'      => ['label' => 'Organisation Head (full access across all depts)', 'group' => 'Organisational'],
-            ];
-            $privGroups     = collect($privilegeLabels)->groupBy(fn($v) => $v['group']);
-            $userPrivileges = old('privileges', $user->privileges ?? []);
-            @endphp
             <div class="mt-4">
                 <label class="field-label">Granular Privileges</label>
                 <p class="text-xs text-slate-400 dark:text-slate-500 mb-3">Applies on top of role. Admin always has all. Privileges control what actions and scopes the user can access.</p>
-                @foreach($privGroups as $group => $privs)
-                <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5 mt-3">{{ $group }}</p>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    @foreach($privs as $key => $meta)
-                    <label class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer select-none p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-                        <input type="checkbox" name="privileges[]" value="{{ $key }}"
-                            {{ in_array($key, $userPrivileges) ? 'checked' : '' }}
-                            class="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-400 flex-shrink-0">
-                        <span>
-                            <span class="font-medium">{{ $meta['label'] }}</span>
-                            <span class="block text-[10px] text-slate-400 font-mono">{{ $key }}</span>
-                        </span>
-                    </label>
-                    @endforeach
-                </div>
-                @endforeach
+                @include('admin._privilege_checkboxes', ['name' => 'privileges', 'checked' => old('privileges', $user->privileges ?? [])])
             </div>
         </div>
 
@@ -439,6 +426,26 @@
         el.type = el.type === 'password' ? 'text' : 'password';
         icon.className = el.type === 'password' ? 'ti ti-eye text-sm' : 'ti ti-eye-off text-sm';
     };
+
+    window.applyDesignationPreset = function () {
+        const select = document.getElementById('designation_id');
+        const option = select.options[select.selectedIndex];
+        if (!option || !option.value) return;
+
+        const deptId = option.dataset.dept;
+        if (deptId) {
+            const deptSelect = document.getElementById('department_id');
+            deptSelect.value = deptId;
+            filterSections(deptId);
+        }
+
+        let privileges = [];
+        try { privileges = JSON.parse(option.dataset.privileges || '[]'); } catch (e) { privileges = []; }
+        document.querySelectorAll('input[name="privileges[]"]').forEach(cb => {
+            cb.checked = privileges.includes(cb.value);
+        });
+    };
+    document.getElementById('designation_id').addEventListener('change', applyDesignationPreset);
 
     const deptSel = document.getElementById('department_id');
     if (deptSel.value) filterSections(deptSel.value);

@@ -23,6 +23,7 @@ class StoreUserRequest extends FormRequest
             // No password field — the account is passwordless until the officer completes
             // onboarding via their emailed signed link (see OnboardingController).
             'post'          => ['nullable', 'string', 'max:100', 'regex:/^[\p{L}\s\'\-\.&\/\(\)]+$/u'],
+            'designation_id'           => ['nullable', 'integer', 'exists:designations,id'],
             'role'                     => ['required', 'in:admin,operator,viewer'],
             'uploads_require_approval' => ['nullable', 'boolean'],
             'privileges'               => ['nullable', 'array'],

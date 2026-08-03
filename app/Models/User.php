@@ -41,6 +41,7 @@ class User extends Authenticatable
         'landline',
         'password',
         'post',
+        'designation_id',
         'role',
         'privileges',
         'department_id',
@@ -69,6 +70,11 @@ class User extends Authenticatable
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    public function designation(): BelongsTo
+    {
+        return $this->belongsTo(Designation::class)->withTrashed();
     }
 
     public function section(): BelongsTo
