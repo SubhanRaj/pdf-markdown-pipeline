@@ -169,6 +169,12 @@
             <i class="ti ti-users w-5 text-center text-base flex-shrink-0"></i>
             <span class="sidebar-text">Users</span>
         </a>
+        <a href="{{ route('admin.designations.index') }}"
+           data-tooltip="Designations"
+           class="nav-link {{ request()->routeIs('admin.designations.*') ? 'nav-link-active' : 'nav-link-idle' }}">
+            <i class="ti ti-id-badge-2 w-5 text-center text-base flex-shrink-0"></i>
+            <span class="sidebar-text">Designations</span>
+        </a>
         <a href="{{ route('admin.activity.index') }}"
            data-tooltip="Activity Log"
            class="nav-link {{ request()->routeIs('admin.activity.*') ? 'nav-link-active' : 'nav-link-idle' }}">

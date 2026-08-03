@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\ActivityLogController;
+use App\Http\Controllers\Admin\DesignationController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\Auth\LoginController;
@@ -340,6 +341,16 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'is_admin', 'throttl
         Route::patch('/{user}',    [UserManagementController::class, 'update'])->name('update');
         Route::delete('/{user}',   [UserManagementController::class, 'destroy'])->name('destroy');
         Route::post('/{user}/resend-activation', [UserManagementController::class, 'resendActivation'])->name('resend-activation');
+    });
+
+    // Designations — admin-managed presets mapping real-world posts to default scope/privileges
+    Route::prefix('designations')->name('designations.')->group(function () {
+        Route::get('/',                  [DesignationController::class, 'index'])->name('index');
+        Route::get('/create',            [DesignationController::class, 'create'])->name('create');
+        Route::post('/',                 [DesignationController::class, 'store'])->name('store');
+        Route::get('/{designation}/edit', [DesignationController::class, 'edit'])->name('edit');
+        Route::patch('/{designation}',   [DesignationController::class, 'update'])->name('update');
+        Route::delete('/{designation}',  [DesignationController::class, 'destroy'])->name('destroy');
     });
 });
 

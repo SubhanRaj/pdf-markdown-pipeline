@@ -268,7 +268,10 @@ Five-way context exclusivity — exactly one context group is active:
 | `created_at` | timestamp | Append-only — no `updated_at` |
 
 ### `users`
-Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digits, nullable), `landline` (free-form STD+number, nullable), `post`, `role`, `uploads_require_approval` (boolean, default false — bulk-mode flag; all uploads from this user go to `pending_approval`), `privileges` (JSON — validated against `User::PRIVILEGES` whitelist), `department_id`, `section_id`, `division_id`. Public registration disabled — admin-created only.
+Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digits, nullable), `landline` (free-form STD+number, nullable), `post` (free-text "Other" fallback), `designation_id` (FK → designations, nullable — see below), `role`, `uploads_require_approval` (boolean, default false — bulk-mode flag; all uploads from this user go to `pending_approval`), `privileges` (JSON — validated against `User::PRIVILEGES` whitelist), `department_id`, `section_id`, `division_id`. Public registration disabled — admin-created only.
+
+### `designations` (M74)
+Admin-managed presets mapping a real-world government post (Commissioner, HoD, Section Officer, etc.) to a default scope + privilege bundle, so creating a user means picking a title from a dropdown instead of reverse-engineering privilege checkboxes. `id`, `department_id` (FK → departments, nullable — null = generic/any department), `name`, `slug` (unique per department), `default_scope` (`global`|`department`|`section`|`division`|`none`, informational), `default_privileges` (JSON subset of `User::PRIVILEGES`), `sort_order`, soft-deletes. Selecting one on the user form is a **one-time preset** — it pre-fills Department + privilege checkboxes but doesn't lock them, and editing a Designation later doesn't retroactively touch users who already picked it. `role = admin` is reserved for the site-manager/IT-dev account(s) only; real designations get `role = operator`/`viewer` plus whatever scope/privileges their post implies. See [DESIGNATIONS_PLAN.md](./DESIGNATIONS_PLAN.md) for the full rationale.
 
 **Passwordless onboarding + email-OTP login (2026-07-26):** admins create a user with no password field at all — the account gets an unusable placeholder password and `email_verified_at = null` until the officer completes a one-time signed-link flow (`/onboarding/{user}`, 72h expiry, single-use via the `email_verified_at` gate) and sets their own password. Login is email+password followed by a 6-digit email OTP (`/login/otp`) before a session is granted — modeled on `github.com/SubhanRaj/pla`'s email-OTP pattern, rebuilt for this app's Tailwind/Alpine styling. Combined with the 7-day sliding session + remember-me below, OTP only fires on a genuine fresh login, not every visit. See `claude.md`'s "Auth & access control" section for the full flow.
 
@@ -397,6 +400,12 @@ that already resolved through one of the slug-based routes above, not a public-f
 | `/admin/users/{user}` | PATCH | `admin.users.update` | Admin |
 | `/admin/users/{user}` | DELETE | `admin.users.destroy` | Admin |
 | `/admin/users/{user}/edit` | GET | `admin.users.edit` | Admin |
+| `/admin/designations` | GET | `admin.designations.index` | Admin |
+| `/admin/designations/create` | GET | `admin.designations.create` | Admin |
+| `/admin/designations` | POST | `admin.designations.store` | Admin |
+| `/admin/designations/{designation}/edit` | GET | `admin.designations.edit` | Admin |
+| `/admin/designations/{designation}` | PATCH | `admin.designations.update` | Admin |
+| `/admin/designations/{designation}` | DELETE | `admin.designations.destroy` | Admin |
 | `/admin/activity-logs` | GET | `admin.activity.index` | Admin |
 | `/profile/edit` | GET | `profile.edit` | Auth |
 | `/profile` | PATCH | `profile.update` | Auth |

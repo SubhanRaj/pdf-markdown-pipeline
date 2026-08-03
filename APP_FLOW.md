@@ -198,6 +198,15 @@ flowchart TD
 beyond the blanket `auth` middleware before that fix). `H` is the still-open `SECURITY.md` L-04
 gap: any logged-in user can poll any document's conversion status by ID.
 
+**Note on `B` (Admin) vs. departmental authority (M74):** `B` is deliberately narrow — it gates
+only the site-management console (`/admin/users`, `/admin/designations`, `/admin/activity-logs`)
+and the privilege-editing UI itself. A Commissioner, ACS, or Section Officer does **not** need to
+be `role = admin` to get department/section-wide document authority — that comes from `C`'s scope
+check (`department.head`/`section.head`/`organization.head` privileges + `department_id`/
+`section_id`), which a **Designation** preset (`/admin/designations`) now fills in correctly when
+an admin creates their account, instead of `role = admin` being used as a scope workaround. See
+[DESIGNATIONS_PLAN.md](DESIGNATIONS_PLAN.md).
+
 ## 5. Component map
 
 ```mermaid
@@ -237,9 +246,10 @@ flowchart TD
 - **Blade** — `documents/show`, `documents/pipeline`, `documents/bulk-upload`,
   `quick_conversions/create`/`show`/`index`, `approvals/index`, `admin/*`, etc.
 - **Controllers** — `DocumentController`, `QuickConversionController`, `RuleSetController`,
-  `ApprovalController`, `DepartmentController`/`SectionController`/`DivisionController`/`FolderController`.
+  `ApprovalController`, `DepartmentController`/`SectionController`/`DivisionController`/`FolderController`,
+  `Admin\UserManagementController`/`Admin\DesignationController` (M74).
 - **MariaDB** — `departments`, `sections`, `divisions`, `folders`, `rule_sets`, `documents`,
-  `document_status_histories`, `quick_conversions`, `users`.
+  `document_status_histories`, `quick_conversions`, `users`, `designations` (M74).
 - **`PdfConversionEngine`** (`app/Services/`, M70) — the actual pass-1/pass-0/OCR logic, extracted
   out of the two `Document` jobs and reused verbatim by the two `QuickConversion` jobs; parameters
   are explicit paths/ids instead of a `Document` model, so both job pairs call the exact same code.

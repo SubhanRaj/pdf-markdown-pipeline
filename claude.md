@@ -289,7 +289,45 @@ a password check, not a mutation).
 **Timezone note (2026-07-25):** `document_status_histories.created_at`, `activity_logs.created_at`, and `failed_jobs.failed_at` all use a MariaDB-level `useCurrent()` column default rather than Eloquent's own timestamp assignment (the first two have `$timestamps = false` on their models). MariaDB's `CURRENT_TIMESTAMP` evaluates using the **server's system timezone** (this box is `Asia/Kolkata`/IST), not `config('app.timezone')` (`UTC`) — without the `'timezone' => '+00:00'` entry on the `mariadb` connection in `config/database.php`, these three columns silently stored IST wall-clock values that every other part of the app (Carbon casts, `now()`, `diffForHumans()`) treated as UTC, a consistent ~5.5h skew on any calculation against them (the raw printed digits via `format()` were never visibly wrong — only diffs/comparisons were). Fixed once at the connection level so any future `useCurrent()` column is automatically correct too — don't re-add a per-table fix. Existing historical rows in these three tables predate the fix and remain skewed.
 
 ### `users`
-Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (designation, nullable), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings — see `User::PRIVILEGES` constant for the canonical whitelist), `uploads_require_approval` (boolean, default false — when true every document this user uploads goes to `pending_approval` regardless of context), `department_id` (FK → departments, nullable, `nullOnDelete`), `section_id` (FK → sections, nullable, `nullOnDelete`), `division_id` (FK → divisions, nullable, `nullOnDelete`). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
+Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (free-text "Other" fallback designation, nullable — see `designations` below), `designation_id` (FK → designations, nullable, `nullOnDelete`, added M74), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings — see `User::PRIVILEGES` constant for the canonical whitelist), `uploads_require_approval` (boolean, default false — when true every document this user uploads goes to `pending_approval` regardless of context), `department_id` (FK → departments, nullable, `nullOnDelete`), `section_id` (FK → sections, nullable, `nullOnDelete`), `division_id` (FK → divisions, nullable, `nullOnDelete`). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
+
+**`role = admin` is reserved for the site-manager/IT-dev account(s) only (M74 convention).** It is
+not a stand-in for real-world seniority (Commissioner, ACS, Secretary, etc.) — those get `role =
+operator` (or `viewer`) plus a `Designation` (see below) carrying whatever `department.head`/
+`organization.head`/document privileges their post actually needs. `role = admin` unconditionally
+grants `/admin/users`, `/admin/designations`, `/admin/activity-logs`, and every privilege check —
+handing it to a departmental officer as a scope shortcut also hands them the site-management
+console, which is the bug M74 exists to fix.
+
+### `designations` (M74, 2026-08-03)
+A named, admin-managed preset mapping a real-world government post to a default scope + privilege
+bundle, so creating a user account means picking "Additional Excise Commissioner" from a dropdown
+instead of reverse-engineering which checkboxes it should imply. Columns: `id`, `department_id`
+(FK → departments, nullable — null means generic/selectable under any department, non-null locks
+it to that one department), `name`, `slug` (unique per `department_id`, mirrors the `rule_sets`
+uniqueness pattern), `default_scope` (enum `global`|`department`|`section`|`division`|`none` —
+informational, drives which fields the preset pre-fills, not itself enforced anywhere),
+`default_privileges` (json, subset of `User::PRIVILEGES`), `sort_order`, timestamps + soft-deletes
+(so a retired designation still resolves to a readable name for users who already hold it).
+
+**Preset, not a synced rule.** Selecting a Designation on the user create/edit form fires
+`applyDesignationPreset()` (JS, `resources/views/admin/users/create.blade.php` /
+`edit.blade.php`) once: it sets Department (if the designation is department-locked) and
+pre-checks the privilege checkboxes from that option's `data-privileges` JSON attribute. Nothing
+is locked — the admin can immediately uncheck/adjust anything, and editing a Designation's
+defaults later does **not** retroactively touch any user who already picked it. `User::PRIVILEGES`,
+`uploadScope()`, `canUploadTo()`, etc. are completely unchanged — Designations are purely a preset
+layer on top of the existing scope/privilege machinery, not a new authorization primitive.
+
+`Designation` model (`app/Models/Designation.php`) — `belongsTo(Department)`, `hasMany(User)`,
+`appliesToDepartment(?int $departmentId)` helper (`department_id === null || department_id ===
+$departmentId`) used to filter the dropdown once a Department is chosen. `DesignationSeeder`
+ships 16 generic posts (Officer, Section Officer, HoD, Chief Secretary … Accounting Officer) plus
+department-specific variants for Excise (Excise Commissioner, Additional Excise Commissioner,
+Deputy Commissioner (P&E), Deputy Excise Commissioner (P)) and Sugarcane & Sugar Industries (Cane
+Commissioner, Additional Cane Commissioner) — the CRUD screen at `/admin/designations` is how more
+get added later, no code change needed. See [DESIGNATIONS_PLAN.md](DESIGNATIONS_PLAN.md) for the
+full design rationale (the incident that motivated it, decisions confirmed before building).
 
 **Privilege strings (canonical whitelist — `User::PRIVILEGES` constant):**
 ```php
@@ -328,7 +366,8 @@ sections (States / Union Territories via `RuleSet::UNION_TERRITORIES`, see POLIC
 | Divisions | `DivisionController` | Full CRUD under sections; admin-only mutations; show page is division hub with multi-file upload modal, amendment hierarchy, and folder cards; `requires_approval` toggle on edit page |
 | **Folders** | **`FolderController`** | **Full CRUD under sections (and optionally divisions); show page is a hub with upload modal + document list (amendment chain supported via `parent_id`); `requires_approval` toggle; archive cascades to all contained docs; visibility gate on folder page** |
 | Search | `SearchController` | Public `GET /search?q=`; LIKE-based search across document titles, section names, rule set names/descriptions, folder names/descriptions; guests see `visibility = 'public'` docs and folders only; results capped at 50 docs + 20 sections + 20 rule sets + 20 folders; `->publishable()` scope hides pending/rejected |
-| User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins; `division_id`, `uploads_require_approval` fields added; `documents.approve` privilege checkbox added |
+| User management | `Admin\UserManagementController` | Admin-only CRUD + self-edit profile routes; `IsAdmin` middleware gates all `admin.*` routes; `editProfile`/`updateProfile` methods serve the `/profile` self-edit routes for non-admins; `division_id`, `uploads_require_approval` fields added; `documents.approve` privilege checkbox added; `designation_id` persisted alongside `post` (M74) |
+| **Designations (M74)** | **`Admin\DesignationController`** | **Admin-only CRUD at `/admin/designations`; named presets (default scope + privilege bundle) selectable on the user create/edit form — see "`designations`" table notes above** |
 | Archive | `DocumentController` (existing methods) | Soft-deleted documents accessible to all authenticated users; "Archive" in all UI; counts split active vs archived; restore gated by `documents.restore` privilege; permanent delete gated by `documents.force-delete` + requires reason + letter PDF upload — letter stored on the **private `local` disk** (`storage/app/private/archive_letters/`), never on public disk; letter path stored in `document_status_histories.metadata` |
 | Activity Log | `Admin\ActivityLogController` | Admin-only audit view at `GET /admin/activity-logs`; filterable by user, action, and IP; paginates the `activity_logs` table (50/page); `LogMutation` middleware records all authenticated POST/PATCH/DELETE requests (except a short skip-list — see "`activity_logs`" table notes); `Login`/`Logout` event listeners record every session start/end with IP, UA, and guard; raw route names shown as human-readable labels via `ACTION_LABELS` |
 | Approval Queue | `ApprovalController` | Maker-checker workflow at `GET /approvals`; three tabs (Pending / Rejected / My Submissions); approve, reject, reclassify, resubmit actions; scope-aware (approvers see only their org boundary); PDF preview via slide-over drawer; bulk approve/reject |
@@ -881,6 +920,12 @@ Controller method signatures **must** declare `string $level` as their first par
 | PATCH | `/admin/users/{user}` | `admin.users.update` | Admin |
 | DELETE | `/admin/users/{user}` | `admin.users.destroy` | Admin |
 | GET | `/admin/users/{user}/edit` | `admin.users.edit` | Admin |
+| GET | `/admin/designations` | `admin.designations.index` | Admin |
+| GET | `/admin/designations/create` | `admin.designations.create` | Admin |
+| POST | `/admin/designations` | `admin.designations.store` | Admin |
+| GET | `/admin/designations/{designation}/edit` | `admin.designations.edit` | Admin |
+| PATCH | `/admin/designations/{designation}` | `admin.designations.update` | Admin |
+| DELETE | `/admin/designations/{designation}` | `admin.designations.destroy` | Admin |
 | GET | `/profile/edit` | `profile.edit` | Auth |
 | PATCH | `/profile` | `profile.update` | Auth |
 
@@ -1290,14 +1335,17 @@ For `Folder` contexts, `canUploadTo()` resolves the folder's owning section (or 
 `admin.*` routes are gated by `IsAdmin` middleware (`app/Http/Middleware/IsAdmin.php`, alias `is_admin`, registered in `bootstrap/app.php`). This was the critical fix: previously only `auth` middleware was applied, allowing any authenticated user to list all accounts, access the create form, and delete other users.
 
 **Form Requests:**
-- `StoreUserRequest` — `authorize()` requires `isAdmin()`; validates all user fields including role. `username` is `nullable`; `prepareForValidation()` calls `User::uniqueUsername($name, $post)` to auto-generate one from full name + post (`Str::slug`-based, deduped like `RuleSet::uniqueSlugForDepartment()`) when left blank on the create form. Admin can still type/edit their own.
-- `UpdateUserRequest` — `authorize()` requires `isAdmin()`; validates all fields including role/privileges/dept/section. Used only by `admin.users.update`.
-- `UpdateProfileRequest` — `authorize()` requires any authenticated user (`$this->user() !== null`); validates name/username/email/mobile/post/password only. Scopes `unique` checks to `auth()->user()->id`. No role, privilege, department, or section fields — those cannot be self-assigned.
+- `StoreUserRequest` — `authorize()` requires `isAdmin()`; validates all user fields including role and `designation_id` (`nullable, integer, exists:designations,id`, M74). `username` is `nullable`; `prepareForValidation()` calls `User::uniqueUsername($name, $post)` to auto-generate one from full name + post (`Str::slug`-based, deduped like `RuleSet::uniqueSlugForDepartment()`) when left blank on the create form. Admin can still type/edit their own.
+- `UpdateUserRequest` — `authorize()` requires `isAdmin()`; validates all fields including role/privileges/dept/section/`designation_id`. Used only by `admin.users.update`.
+- `UpdateProfileRequest` — `authorize()` requires any authenticated user (`$this->user() !== null`); validates name/username/email/mobile/post/password only. Scopes `unique` checks to `auth()->user()->id`. No role, privilege, department, section, or designation fields — those cannot be self-assigned.
+- `StoreDesignationRequest`/`UpdateDesignationRequest` (M74) — `authorize()` requires `isAdmin()`; `slug` auto-generated from `name` (`Str::slug($name, '_')`), unique per `department_id` (same `Rule::unique()->where()` pattern as `StoreDepartmentRequest`); `default_privileges.*` validated against `User::PRIVILEGES`, same whitelist as user privileges.
 
 **Views:**
-- `admin/users/index.blade.php` — paginated user table (admin-only).
-- `admin/users/create.blade.php` — account creation form with full role/privilege/dept/section fields (admin-only).
-- `admin/users/edit.blade.php` — full edit form including role, privileges, department, section (admin-only route).
+- `admin/users/index.blade.php` — paginated user table (admin-only); post column shows `designation->name ?? post`.
+- `admin/users/create.blade.php` — account creation form with role/privilege/dept/section fields plus a Designation `<select>` (grouped generic vs. department-locked, filtered by the chosen Department via the same client-side cascade pattern as Section/Division) and a small "Other post" free-text fallback (admin-only). `applyDesignationPreset()` JS pre-fills Department + privilege checkboxes on selection — one-time, non-locking (M74).
+- `admin/users/edit.blade.php` — same Designation select + preset JS as create (admin-only route).
+- `admin/_privilege_checkboxes.blade.php` (M74, new) — the Granular Privileges checkbox panel, extracted out of `create.blade.php`/`edit.blade.php` so `admin/designations/create.blade.php`/`edit.blade.php` render the identical markup for `default_privileges` instead of duplicating it.
+- `admin/designations/index.blade.php`, `create.blade.php`, `edit.blade.php` (M74, new) — CRUD screen for Designations, grouped by department in the index list.
 - `admin/users/show.blade.php` — read-only user profile card (admin-only).
 - `profile/edit.blade.php` — self-edit form: name/username/email/mobile/post/password. Role, department, and section shown as read-only display values. No role or privilege inputs rendered. JS validation identical to admin edit (same regex ruleset, password strength meter, toggle visibility).
 

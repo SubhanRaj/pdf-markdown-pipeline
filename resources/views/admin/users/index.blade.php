@@ -75,8 +75,8 @@
                         <span class="badge {{ $roleMap[$user->role] ?? 'bg-slate-100 text-slate-600' }}">
                             {{ ucfirst($user->role) }}
                         </span>
-                        @if($user->post)
-                        <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ $user->post }}</p>
+                        @if($user->designation?->name ?? $user->post)
+                        <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ $user->designation?->name ?? $user->post }}</p>
                         @endif
                     </td>
                     <td class="px-5 py-3 text-xs text-slate-600 dark:text-slate-300">
