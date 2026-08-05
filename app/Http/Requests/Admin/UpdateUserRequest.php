@@ -4,7 +4,6 @@ namespace App\Http\Requests\Admin;
 
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rules\Password;
 
 class UpdateUserRequest extends FormRequest
 {
@@ -23,7 +22,6 @@ class UpdateUserRequest extends FormRequest
             'email'         => ['required', 'email:rfc', 'max:255', "unique:users,email,{$userId}"],
             'mobile'        => ['nullable', 'digits:10'],
             'landline'      => ['nullable', 'string', 'max:20', 'regex:/^[\d\s\-\+\(\)]{7,20}$/'],
-            'password'      => ['nullable', 'confirmed', Password::min(8)->mixedCase()->numbers()->symbols()],
             'post'          => ['nullable', 'string', 'max:100', 'regex:/^[\p{L}\s\'\-\.&\/\(\)]+$/u'],
             'designation_id'           => ['nullable', 'integer', 'exists:designations,id'],
             'role'                     => ['required', 'in:admin,operator,viewer'],
