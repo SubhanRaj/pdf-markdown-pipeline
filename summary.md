@@ -3551,3 +3551,38 @@ out-of-scope items, verification checklist) written and reviewed before implemen
 (`designation->name ?? post` fallback), `resources/views/components/sidebar.blade.php` (new
 "Designations" nav link), `DESIGNATIONS_PLAN.md` (new, planning doc), `claude.md`, `README.md`
 (schema + route map updates).
+
+## M75 — Timezone skew regression fix + icon subset rebuild (COMPLETED 2026-08-05)
+
+Reported: a document conversion's "Elapsed" timer showed 336:25 instead of the real ~6-9 minutes.
+Root cause: `config/database.php`'s `mariadb` connection pins the DB session's `time_zone` so
+MariaDB's `CURRENT_TIMESTAMP`/`useCurrent()` defaults (`document_status_histories.created_at`,
+`activity_logs.created_at`, `failed_jobs.failed_at`) agree with how Eloquent's `datetime` cast
+reads them back (`config('app.timezone')`) — this was hardcoded `'+00:00'` on 2026-07-25 back when
+`app.timezone` really was `UTC`. Since then `.env`'s `APP_TIMEZONE` was changed to `Asia/Kolkata`
+without updating this to match, silently reintroducing the exact same ~5.5h skew the original fix
+was written to close — confirmed on the live stuck-looking document (`document_status_histories`
+row correctly stored `10:09:01` UTC, but the app read it back mislabeled as IST, i.e. as if it were
+5.5h further in the past than the real instant). Fixed by deriving the DB session timezone from
+`APP_TIMEZONE` directly (`(new DateTime('now', new DateTimeZone(env('APP_TIMEZONE', 'UTC'))))
+->format('P')`) instead of a hardcoded literal, so the two settings can't drift apart again
+regardless of what `APP_TIMEZONE` is changed to later. Verified via `SELECT NOW()` matching PHP's
+`now()` post-fix. Historical rows written under either mismatch remain skewed — no retroactive
+fix, same tradeoff the original fix already accepted.
+
+Separately, while adding the Designations sidebar link (`ti-id-badge-2`), re-diffing every `ti-*`
+class actually referenced in `resources/views` against the subset font
+(`public/vendor/tabler-icons/`) turned up two more pre-existing gaps that had been silently
+rendering nothing since M72: `ti-history` and `ti-wand` in `quick_conversions/create.blade.php`.
+Rebuilt the subset (120 classes now, up from 117) the documented way — full 3.45.0 webfont pulled
+fresh from jsDelivr at build time only (never loaded from the page), `pyftsubset` with the union of
+all previously-used codepoints plus the three new ones, re-minified CSS. Confirmed all three
+glyphs present in the rebuilt `.woff2`'s `cmap` table. Cloudflare caches the CSS file itself at the
+edge (`max-age=14400`) independently of the font files, so a manual purge of
+`/vendor/tabler-icons/tabler-icons.min.css` is needed for the fix to show up immediately rather
+than waiting out the natural cache expiry.
+
+**Files changed:** `config/database.php`, `claude.md`,
+`public/vendor/tabler-icons/tabler-icons.min.css`,
+`public/vendor/tabler-icons/fonts/tabler-icons-subset.woff2`,
+`public/vendor/tabler-icons/fonts/tabler-icons-subset.woff`.

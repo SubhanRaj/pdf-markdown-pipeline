@@ -79,15 +79,18 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
-            // Server's system timezone is IST (Asia/Kolkata), but app.timezone is UTC. Without
-            // this, MariaDB's own CURRENT_TIMESTAMP/useCurrent() column defaults (jobs.failed_at,
-            // activity_logs.created_at, document_status_histories.created_at — none of which go
-            // through Eloquent's own UTC-based timestamp assignment) get written in IST wall-clock
-            // but read back everywhere else as if they were UTC — a ~5.5h-in-the-future skew on
-            // any diff/comparison against now() (found while building the pipeline health check
-            // below: last-activity timestamps looked like they were hours in the future). This
-            // forces the session to UTC so DB-level defaults line up with Laravel's own clock.
-            'timezone' => '+00:00',
+            // Server's system timezone is IST (Asia/Kolkata). MariaDB's own CURRENT_TIMESTAMP/
+            // useCurrent() column defaults (jobs.failed_at, activity_logs.created_at,
+            // document_status_histories.created_at — none of which go through Eloquent's own
+            // timestamp assignment) are written in whatever timezone this DB session is set to,
+            // but read back everywhere else (Eloquent's 'datetime' cast) as if they were in
+            // config('app.timezone'). Those two must always match, or every diff/comparison
+            // against now() (elapsed timers, activity log times, pipeline "last activity") skews
+            // by the difference — found twice: once assuming app.timezone was UTC while this was
+            // hardcoded '+00:00' (correct then), then again after APP_TIMEZONE was set to
+            // Asia/Kolkata without updating this to match (a ~5.5h skew reappeared). Derived from
+            // APP_TIMEZONE instead of hardcoded now, so it can't drift out of sync again.
+            'timezone' => (new DateTime('now', new DateTimeZone(env('APP_TIMEZONE', 'UTC'))))->format('P'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
