@@ -155,10 +155,6 @@ class UserManagementController extends Controller
                     'division_id'              => $request->division_id,
                 ];
 
-                if (filled($request->password)) {
-                    $data['password'] = $request->password;
-                }
-
                 $user->update($data);
             });
 
