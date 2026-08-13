@@ -63,16 +63,21 @@ new class extends Component
     }
 }; ?>
 
+<div>
 @if($this->isConverting)
+{{-- Elapsed ticks client-side via Alpine (bundled with Livewire) instead of the shared
+     startConversionPolling() JS helper — that helper also re-polls a status endpoint and
+     reloads the page on completion, which wire:poll="poll" above already does server-side. --}}
 <div id="markdown-card" wire:poll.3s="poll"
-     class="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl px-6 py-8 text-center"
-     data-started-at="{{ $this->conversionStartedAt->timestamp * 1000 }}">
+     x-data="{ startedAt: {{ $this->conversionStartedAt->timestamp * 1000 }}, elapsed: '0:00' }"
+     x-init="setInterval(() => { const s = Math.floor((Date.now() - startedAt) / 1000); elapsed = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }, 1000)"
+     class="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl px-6 py-8 text-center">
     <i class="ti ti-loader-2 animate-spin text-2xl text-indigo-500 dark:text-indigo-400"></i>
     <p class="mt-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">
         {{ $this->document->status === 'ocr_pending' ? 'Running OCR (Hindi + English)…' : 'Converting to Markdown…' }}
     </p>
     <p class="mt-1 text-xs text-indigo-500 dark:text-indigo-400">
-        Elapsed <span id="convert-elapsed">0:00</span> — OCR on scanned documents can take several minutes. This page updates automatically.
+        Elapsed <span x-text="elapsed">0:00</span> — OCR on scanned documents can take several minutes. This page updates automatically.
     </p>
     <p class="mt-1 text-xs text-amber-600 dark:text-amber-400 {{ $this->queuedBehindOtherJob ? '' : 'hidden' }}">
         Waiting in queue — other documents are ahead of this one.
@@ -90,3 +95,4 @@ new class extends Component
     <p class="mt-2 text-sm text-slate-400 dark:text-slate-500">Not yet converted to Markdown.</p>
 </div>
 @endif
+</div>

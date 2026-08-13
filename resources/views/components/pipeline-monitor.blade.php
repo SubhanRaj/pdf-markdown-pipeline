@@ -15,6 +15,9 @@ new class extends Component
     /** @var string[] */
     public array $pipelineStatuses = ['uploaded', 'processing', 'ocr_pending', 'review', 'failed'];
 
+    /** @var int[] */
+    public array $selected = [];
+
     public function mount(?string $activeStatus = null): void
     {
         $this->activeStatus = in_array($activeStatus, $this->pipelineStatuses, true) ? $activeStatus : null;
@@ -44,6 +47,20 @@ new class extends Component
         return $this->documents->contains(fn (Document $doc) => in_array($doc->status, ['processing', 'ocr_pending'], true));
     }
 
+    #[Computed]
+    public function convertibleIds(): array
+    {
+        return $this->documents
+            ->filter(fn (Document $doc) => in_array($doc->status, ['uploaded', 'failed'], true))
+            ->pluck('id')
+            ->all();
+    }
+
+    public function toggleSelectAll(bool $checked): void
+    {
+        $this->selected = $checked ? $this->convertibleIds : [];
+    }
+
     // Reuses DocumentController::convert()'s authorization check and status transition
     // verbatim (same route the old fetch()-based button hit) rather than re-deriving it here.
     public function convert(int $documentId): void
@@ -54,6 +71,17 @@ new class extends Component
             $message = json_decode($response->getContent(), true)['message'] ?? 'Could not start conversion.';
             $this->addError('convert', $message);
         }
+    }
+
+    // Same endpoint/auth gate as convert(), looped — mirrors the old bulk "Convert Selected"
+    // JS, minus the manual DOM patching wire:poll already replaces.
+    public function bulkConvert(): void
+    {
+        foreach ($this->selected as $documentId) {
+            app(DocumentController::class)->convert($documentId);
+        }
+
+        $this->selected = [];
     }
 }; ?>
 
@@ -90,6 +118,8 @@ new class extends Component
     @endforeach
 </div>
 
+@php $isAdmin = auth()->check() && auth()->user()->isAdmin(); @endphp
+
 @if($this->documents->isEmpty())
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center py-20 text-center">
     <i class="ti ti-checkbox text-3xl text-slate-200 dark:text-slate-600 mb-3"></i>
@@ -97,11 +127,29 @@ new class extends Component
     <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Everything is either verified or hasn't been uploaded yet.</p>
 </div>
 @else
+@if($isAdmin)
+<div class="{{ empty($selected) ? 'hidden' : '' }} mb-3 flex items-center justify-between gap-3 px-4 py-2.5 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl">
+    <span class="text-xs font-medium text-indigo-700 dark:text-indigo-300">{{ count($selected) }} selected</span>
+    <button type="button" wire:click="bulkConvert" wire:loading.attr="disabled" wire:target="bulkConvert"
+            class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors disabled:opacity-50">
+        <span wire:loading.remove wire:target="bulkConvert">Convert Selected</span>
+        <span wire:loading wire:target="bulkConvert">Starting…</span>
+    </button>
+</div>
+@endif
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
                 <tr class="border-b border-slate-200 dark:border-slate-700 text-left">
+                    @if($isAdmin)
+                    <th class="px-4 py-3 w-10">
+                        <input type="checkbox"
+                               @checked(! empty($this->convertibleIds) && ! array_diff($this->convertibleIds, $selected))
+                               wire:click="toggleSelectAll($event.target.checked)"
+                               class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600">
+                    </th>
+                    @endif
                     <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Title</th>
                     <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Context</th>
                     <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Status</th>
@@ -126,6 +174,14 @@ new class extends Component
                     $canConvert = in_array($doc->status, ['uploaded', 'failed'], true);
                 @endphp
                 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors" wire:key="doc-{{ $doc->id }}">
+                    @if($isAdmin)
+                    <td class="px-4 py-3">
+                        @if($canConvert)
+                        <input type="checkbox" value="{{ $doc->id }}" wire:model="selected"
+                               class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600">
+                        @endif
+                    </td>
+                    @endif
                     <td class="px-4 py-3">
                         <a href="{{ $docUrl }}" class="font-medium text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400">{{ $doc->title }}</a>
                         <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{{ \App\Models\Document::DOCUMENT_TYPES[$doc->document_type] ?? $doc->document_type }}</p>

@@ -77,3 +77,24 @@ test('convert transitions an admin-owned document to processing and dispatches c
     expect($doc->fresh()->status)->toBe('processing');
     Illuminate\Support\Facades\Queue::assertPushed(App\Jobs\ConvertDocumentToMarkdown::class);
 });
+
+test('bulkConvert converts every selected document and clears the selection', function () {
+    Illuminate\Support\Facades\Storage::fake('public');
+    Illuminate\Support\Facades\Queue::fake();
+
+    $admin = User::factory()->create(['role' => 'admin']);
+    $one   = pipelineDoc(['status' => 'uploaded']);
+    $two   = pipelineDoc(['status' => 'failed']);
+    Illuminate\Support\Facades\Storage::disk('public')->put($one->original_pdf_path, 'pdf-bytes');
+    Illuminate\Support\Facades\Storage::disk('public')->put($two->original_pdf_path, 'pdf-bytes');
+
+    Livewire::actingAs($admin)
+        ->test('pipeline-monitor')
+        ->set('selected', [$one->id, $two->id])
+        ->call('bulkConvert')
+        ->assertSet('selected', []);
+
+    expect($one->fresh()->status)->toBe('processing');
+    expect($two->fresh()->status)->toBe('processing');
+    Illuminate\Support\Facades\Queue::assertPushed(App\Jobs\ConvertDocumentToMarkdown::class, 2);
+});
