@@ -80,14 +80,10 @@
          got smaller. See CLAUDE.md's "Icon font" note before adding a new ti-* class. --}}
     <link rel="stylesheet" href="{{ asset('vendor/tabler-icons/tabler-icons.min.css') }}">
 
-    {{-- Alpine.js: lightweight reactive layer for polling-driven UI (elapsed timers, live
-         pipeline stats) and small interactive components (dropdowns), replacing hand-rolled
-         querySelector/addEventListener code. No build step, no JS framework. Livewire was
-         evaluated 2026-07-26 and rejected — see CLAUDE.md "Frontend interactivity" section.
-         Self-hosted (public/vendor/alpinejs/), not jsDelivr — same reasoning as Tabler Icons
-         above: avoid a third-party network hop on a flaky/restrictive connection. Version pin
-         (3.14.9) lives in the filename's absence; check CLAUDE.md before upgrading in place. --}}
-    <script defer src="{{ asset('vendor/alpinejs/alpine.min.js') }}"></script>
+    {{-- Alpine.js rides Livewire's bundled copy (livewire/livewire ^4.3) — no standalone Alpine
+         install. Loading both causes "Detected multiple instances of Alpine running" and
+         double-init bugs, so this app picks one. See LIVEWIRE_ADOPTION_PLAN.md. --}}
+    @livewireStyles
 
     {{-- Chart.js via jsDelivr --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>

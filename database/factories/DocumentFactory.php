@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Department;
 use App\Models\Document;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -17,8 +18,16 @@ class DocumentFactory extends Factory
      */
     public function definition(): array
     {
+        $title = fake()->unique()->sentence(4);
+
         return [
-            //
+            'department_id'      => Department::factory(),
+            'title'              => $title,
+            'slug'               => \Illuminate\Support\Str::slug($title),
+            'document_type'      => 'other',
+            'original_filename'  => 'document.pdf',
+            'original_pdf_path'  => 'documents/'.fake()->uuid().'.pdf',
+            'status'             => 'uploaded',
         ];
     }
 }

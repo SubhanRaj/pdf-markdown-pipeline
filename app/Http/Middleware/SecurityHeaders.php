@@ -34,6 +34,10 @@ class SecurityHeaders
         // already grants unsafe-inline (which permits arbitrary injected <script> content and
         // is the larger of the two holes), unsafe-eval is a comparatively small addition, not
         // a new category of risk. Revisit only if this app's CSP posture needs to get stricter.
+        // 2026-08-13: this app now also runs Livewire (^4.3) for wire:poll-driven pages; its
+        // bundled Alpine build is what actually loads (no more standalone alpinejs copy, see
+        // LIVEWIRE_ADOPTION_PLAN.md), and it needs this same unsafe-eval grant — don't drop it
+        // thinking only the old standalone copy needed it.
         // Sources are locked to self + known CDNs (jsDelivr, Tailwind CDN).
         // object-src and base-uri are fully locked down.
         $scriptSrc = "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net";
