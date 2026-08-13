@@ -178,9 +178,22 @@ queue worker:
       service: http://127.0.0.1:8080
     - service: http_status:404
   ```
-- **`pdf-pipeline-app.service`** (the old `artisan serve` systemd unit) is stopped and disabled
-  — Apache replaces it entirely. `pdf-pipeline-queue.service` (queue worker) and
-  `pdf-pipeline-tunnel.service` (cloudflared) are unaffected and still required.
+- **`pdf-pipeline-app.service`** (the old `artisan serve` systemd unit) is stopped, disabled, and
+  its unit file removed (2026-08-13) — Apache replaces it entirely. `pdf-pipeline-queue.service`
+  (queue worker) and `pdf-pipeline-tunnel.service` (cloudflared) are unaffected and still required.
+- **Blade view-cache gotcha (switching git branches on the live checkout)** — this app is served
+  directly from this working directory, so `git checkout`/`git pull` on it isn't a no-op for the
+  live site: it bumps every changed view file's mtime. Blade's compiler compares source vs.
+  compiled-cache mtimes on every request and, when the content hash still matches, tries to
+  `touch()` the *existing* compiled file forward instead of recompiling — but PHP's `touch()` with
+  an explicit timestamp needs **file ownership**, not just the group-write permission the
+  `775`/`www-data`-group setup above grants. Since both `subhan` (CLI: tests, `composer install`,
+  manual `artisan` commands) and `www-data` (Apache) write into `storage/framework/views/`, a
+  branch switch can leave compiled cache files owned by whichever user wrote them, and the *other*
+  user's next request throws `touch(): Utime failed: Operation not permitted` — a 500 on every
+  page, not just the changed ones, since it hits `head.blade.php`/`layout.blade.php` first. Fix is
+  one command: `php artisan view:clear`. Run it after any branch switch/pull on the live checkout,
+  before assuming a resulting 500 is a real regression.
 - **Cloudflare's own edge upload cap** — a hostname proxied through Cloudflare (which a Tunnel
   hostname always is) is subject to Cloudflare's per-plan max request body size **regardless of
   any origin/Apache/PHP setting**: Free/Pro = 100 MB, Business = 200 MB, Enterprise = up to 500 MB
@@ -253,7 +266,7 @@ checked with `systemctl --user status pdf-pipeline-queue` — plain `systemctl s
 pdf-pipeline-queue` (no `--user`) will report "could not be found" even though the unit is
 running, which caused exactly this confusion once already. `pdf-pipeline-tunnel.service`
 (Cloudflare Tunnel) is the same pattern; `pdf-pipeline-app.service` (the old `artisan serve` unit,
-replaced by Apache) is disabled but still present. Also required for these to start at boot
+replaced by Apache) has been removed entirely (2026-08-13), not just disabled. Also required for these to start at boot
 *before* any interactive login: `loginctl enable-linger subhan` (confirmed already set,
 `Linger=yes`) — without linger, user units only start once that user logs in, which defeats the
 point on a machine meant to run unattended overnight.
