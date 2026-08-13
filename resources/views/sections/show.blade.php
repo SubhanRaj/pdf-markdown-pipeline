@@ -199,6 +199,16 @@
                         <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Public documents are visible to all visitors. Authenticated Only restricts access to logged-in users.</p>
                     </div>
 
+                    {{-- Language --}}
+                    <div>
+                        <label for="doc-language" class="field-label">Language</label>
+                        <select id="doc-language" name="language" class="field-input">
+                            @foreach(\App\Models\Document::LANGUAGES as $key => $label)
+                            <option value="{{ $key }}" @selected($key === 'english')>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
                     {{-- Amends (optional parent link) --}}
                     <div>
                         <label for="doc-parent" class="field-label">Amends Previous Document <span class="text-slate-400 font-normal">(optional)</span></label>
@@ -634,6 +644,7 @@
 
         const type            = typeSelect.value;
         const visibility      = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+        const language        = form.querySelector('[name="language"]')?.value || 'english';
         const parentId        = parentSelect ? (parentSelect.value || '') : '';
         const contextInput    = form.querySelector('[name="section_id"]');
         const amendmentNumber = form.querySelector('[name="amendment_number"]')?.value?.trim() || '';
@@ -668,6 +679,7 @@
                 fd.append('title', title);
                 fd.append('document_type', type);
                 fd.append('visibility', visibility);
+                fd.append('language', language);
                 if (parentId)        fd.append('parent_id',        parentId);
                 if (amendmentNumber) fd.append('amendment_number', amendmentNumber);
                 if (effectiveYear)   fd.append('effective_year',   effectiveYear);

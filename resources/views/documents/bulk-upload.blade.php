@@ -118,6 +118,16 @@
             </div>
 
             <div>
+                <label for="doc-language" class="field-label">Language</label>
+                <select id="doc-language" name="language" class="field-input">
+                    @foreach(\App\Models\Document::LANGUAGES as $key => $label)
+                    <option value="{{ $key }}" @selected($key === 'english')>{{ $label }}</option>
+                    @endforeach
+                </select>
+                <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Applies to every file in this batch.</p>
+            </div>
+
+            <div>
                 <label for="doc-parent" class="field-label">Amends Previous Document <span class="text-slate-400 font-normal">(optional — makes this an amendment)</span></label>
                 <select id="doc-parent" class="field-input">
                     <option value="">— None (original document) —</option>
@@ -553,6 +563,7 @@
 
         const type            = typeSelect.value;
         const visibility      = document.querySelector('[name="visibility"]:checked')?.value || 'public';
+        const language        = document.querySelector('[name="language"]')?.value || 'english';
         const parentId        = parentSelect.value || '';
         const amendmentNumber = document.getElementById('doc-amendment-number').value.trim();
         const effectiveYear   = document.getElementById('doc-effective-year').value.trim();
@@ -586,6 +597,7 @@
                 fd.append('title', title);
                 fd.append('document_type', type);
                 fd.append('visibility', visibility);
+                fd.append('language', language);
                 if (parentId)        fd.append('parent_id',        parentId);
                 if (amendmentNumber) fd.append('amendment_number', amendmentNumber);
                 if (effectiveYear)   fd.append('effective_year',   effectiveYear);

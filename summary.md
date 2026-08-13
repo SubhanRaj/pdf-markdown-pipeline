@@ -3636,3 +3636,39 @@ override), `app/Providers/AppServiceProvider.php` (`password-reset` limiter),
 `resources/views/emails/reset-password.blade.php` (new), `resources/views/auth/login.blade.php`
 ("Forgot password?" link), `routes/web.php` (`password.*` route group), `claude.md`, `README.md`
 (auth section + route map updates).
+
+## M77 — Language field coverage: every upload/edit path, not just policy (COMPLETED 2026-08-13)
+
+Reported: every document showed "English" regardless of its actual language, with no way to set or
+correct it. Root cause: `documents.language` was always a real, validated column
+(`StoreDocumentRequest`/`UpdateDocumentRequest` both already accepted it), but the `<select>`/radio
+input was only ever wired into the Rule Set and Policy Document upload forms
+(`rule_sets/show.blade.php`, `policy_documents/create.blade.php`) — the Section, Division, Folder,
+Bulk Upload, and Quick Conversion "Save to…" forms never rendered it, so every upload through those
+paths silently fell through to `StoreDocumentRequest`'s `?? 'english'` default. Worse,
+`UpdateDocumentRequest` had no `language` rule at all, so an already-uploaded document's language
+could not be corrected through any UI, anywhere.
+
+- `UpdateDocumentRequest` gained `language` (`sometimes|nullable|string|in:english,hindi,both`) +
+  normalization — shared by all five `documents.*.update` route variants (section, division,
+  folder, rule-set, policy) since they all route through this one Form Request class, so this alone
+  fixed edit-after-upload everywhere at once.
+- New `language-form` on `documents/show.blade.php` (auto-submits on change, same pattern as the
+  existing `visibility-form` immediately above it) — the one shared view behind every
+  `documents.*.show` route, so one edit covered every document context.
+- `language` `<select>` (`Document::LANGUAGES`) added to the four upload forms that were missing
+  it: `sections/show.blade.php`, `divisions/show.blade.php`, `folders/show.blade.php`,
+  `documents/bulk-upload.blade.php` (applies to the whole batch), plus the `quick_conversions/show.blade.php`
+  "Save to…" modal (JSON POST body, not FormData — `PlaceQuickConversionRequest` already accepted
+  `language`, same story as `StoreDocumentRequest`).
+- No backend/persistence changes needed beyond the `UpdateDocumentRequest` rule — `Document::$fillable`
+  already included `language`, and `DocumentController::store()`/`update()` already passed validated
+  input straight through; this was purely a "the input was never on the page" gap.
+- Verified via Tinker against the live dev DB: `$document->update(['language' => 'hindi'])` →
+  persisted, read back correctly, restored to `english` afterward so no real document was left
+  altered. All six touched Blade views re-compiled cleanly via `Blade::compileString()`.
+
+**Files changed:** `app/Http/Requests/UpdateDocumentRequest.php`, `resources/views/documents/show.blade.php`,
+`resources/views/sections/show.blade.php`, `resources/views/divisions/show.blade.php`,
+`resources/views/folders/show.blade.php`, `resources/views/documents/bulk-upload.blade.php`,
+`resources/views/quick_conversions/show.blade.php`, `claude.md`.
