@@ -374,7 +374,7 @@ sections (States / Union Territories via `RuleSet::UNION_TERRITORIES`, see POLIC
 | **Text Extraction / OCR / Structure** | **`DocumentController` (`convert`, `convertOcr`, `conversionStatus`, `structureJson`, `updateMarkdown`, `discardMarkdown`)** | **Button-triggered Markdown conversion (`ConvertDocumentToMarkdown` job, now also runs a Docling structure-detection Pass 0) + on-demand OCR re-extraction (`RunOcrExtraction` job); Compare & Verify split-pane modal on `documents/show`; see dedicated section below** |
 | **Bulk Upload** | **`DocumentController@bulkUploadForm`** | **`GET /documents/bulk-upload` — single page to upload multiple files to any department/section/division/folder/rule-set the user is scoped to, with optional auto-convert per file** |
 | **New Conversion (standalone, M70)** | **`QuickConversionController`** | **`GET /conversions/new` — drop one file, no destination picked upfront; auto-converts via the same `PdfConversionEngine`; review page offers Save to… (promotes to a real `Document`), Download Markdown, or Discard; ephemeral `QuickConversion` row auto-expires (`PruneQuickConversion`, delayed job, 48h default) if left untouched — see the Text Extraction section below** |
-| **Conversion Pipeline monitor** | **`DocumentController@pipeline`** | **`GET /documents/pipeline` — table of every document not yet verified/archived (`uploaded`/`processing`/`ocr_pending`/`review`/`failed`), status tabs, live polling, per-row Convert/Retry** |
+| **Conversion Pipeline monitor** | **`DocumentController@pipeline`** | **`GET /documents/pipeline` — table of every document not yet verified/archived (`uploaded`/`processing`/`ocr_pending`/`review`/`failed`), status tabs, live polling, per-row and bulk-select Convert/Retry (updates rows in place, no page reload)** |
 
 ### Text Extraction & Markdown Conversion Pipeline
 
@@ -630,6 +630,19 @@ this. Not yet fixed; noted here so it isn't lost.
 on any row whose status is `processing`/`ocr_pending`. Viewing is unscoped (all authenticated
 users see all departments' pipeline items) — consistent with this codebase's existing rule that
 viewing is never scoped, only mutations are.
+
+Convert/Retry (single-row and bulk, both admin-gated the same as `convert()` itself) update the
+row in place instead of reloading the page (2026-08-13) — clicking Convert used to call
+`window.location.reload()` on success, which resets scroll position to the top of the page, a
+real problem on a long pipeline list where you'd have to scroll back down after every click.
+`markRowConverting()` now swaps the row's badge to "Processing" and clears its action cell
+directly; the poll loop re-queries `tr[data-poll="1"]` fresh on every 5s tick (rather than a
+one-time `querySelectorAll` snapshot at page load) so a row marked converting after the fact is
+picked up without any page reload. Bulk select — a `select-all` checkbox in the header plus one
+per convertible row (`uploaded`/`failed` only, admin-only column) — feeds a "Convert Selected"
+bar that fires the same `POST /documents/{id}/convert` sequentially per selected document (same
+pattern as the Approval Queue's bulk approve/reject), useful right after a multi-file bulk
+upload where auto-convert wasn't used or failed for some files.
 
 **Pipeline/server health check (`GET /documents/pipeline/health`, 2026-07-25)** —
 `DocumentController::pipelineHealth()`, same `auth`+`throttle:reads` gate as the monitor above.
