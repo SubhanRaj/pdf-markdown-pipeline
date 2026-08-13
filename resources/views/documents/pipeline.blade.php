@@ -17,6 +17,9 @@
         'indigo' => 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400',
         'red'    => 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
     ];
+    // Same gate the single Convert/Retry button already used — bulk-select reuses it rather
+    // than introducing a second authorization rule for the same action.
+    $isAdmin = auth()->check() && auth()->user()->isAdmin();
 @endphp
 
 {{-- ── Status tabs ──────────────────────────────────────────────────────────── --}}
@@ -43,11 +46,24 @@
     <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Everything is either verified or hasn't been uploaded yet.</p>
 </div>
 @else
+@if($isAdmin)
+<div id="bulk-convert-bar" class="hidden mb-3 flex items-center justify-between gap-3 px-4 py-2.5 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl">
+    <span class="text-xs font-medium text-indigo-700 dark:text-indigo-300"><span class="bulk-count">0</span> selected</span>
+    <button type="button" id="bulk-convert-btn" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+        Convert Selected
+    </button>
+</div>
+@endif
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
     <div class="overflow-x-auto">
         <table class="w-full text-sm" id="pipeline-table">
             <thead>
                 <tr class="border-b border-slate-200 dark:border-slate-700 text-left">
+                    @if($isAdmin)
+                    <th class="px-4 py-3 w-10">
+                        <input type="checkbox" id="select-all-convert" class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600">
+                    </th>
+                    @endif
                     <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Title</th>
                     <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Context</th>
                     <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Status</th>
@@ -72,6 +88,13 @@
                     $canConvert = in_array($doc->status, ['uploaded', 'failed'], true);
                 @endphp
                 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors" data-doc-row="{{ $doc->id }}" @if($isPolling) data-poll="1" @endif>
+                    @if($isAdmin)
+                    <td class="px-4 py-3">
+                        @if($canConvert)
+                        <input type="checkbox" class="convert-select w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-indigo-600" value="{{ $doc->id }}" data-convert-url="{{ route('documents.convert', $doc->id) }}">
+                        @endif
+                    </td>
+                    @endif
                     <td class="px-4 py-3">
                         <a href="{{ $docUrl }}" class="font-medium text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400">{{ $doc->title }}</a>
                         <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{{ \App\Models\Document::DOCUMENT_TYPES[$doc->document_type] ?? $doc->document_type }}</p>
@@ -98,14 +121,12 @@
                     </td>
                     <td class="px-4 py-3 text-right">
                         <div class="doc-actions inline-flex items-center gap-2">
-                            @auth
-                            @if(auth()->user()->isAdmin() && $canConvert)
+                            @if($isAdmin && $canConvert)
                             <button type="button" class="pipeline-convert-btn text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
                                     data-convert-url="{{ route('documents.convert', $doc->id) }}" data-doc-id="{{ $doc->id }}">
                                 {{ $doc->status === 'failed' ? 'Retry' : 'Convert' }}
                             </button>
                             @endif
-                            @endauth
                             <a href="{{ $docUrl }}" class="text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400">View</a>
                         </div>
                     </td>
@@ -138,60 +159,134 @@ try {
         failed:      { label: 'Failed',      color: 'red'    },
     };
 
+    // Marks a row as "now converting" in place — no reload, so the scroll position (and
+    // everyone else's place in a long list) doesn't jump back to the top. The polling loop
+    // below re-queries data-poll="1" rows on every tick, so a row marked here is picked up
+    // on the next 5s tick with no extra wiring.
+    function markRowConverting(row) {
+        const badge = row.querySelector('.doc-status-badge');
+        if (badge) {
+            badge.className = 'doc-status-badge inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ' + statusColorClasses.blue;
+            badge.innerHTML = '<i class="ti ti-loader-2 animate-spin text-[10px]"></i> Processing';
+        }
+        row.dataset.poll = '1';
+        const actionBtn = row.querySelector('.pipeline-convert-btn');
+        if (actionBtn) actionBtn.remove();
+        const checkbox = row.querySelector('.convert-select');
+        if (checkbox) checkbox.closest('td').innerHTML = '';
+    }
+
+    // Shared by the single Convert/Retry button and bulk "Convert Selected" — one fetch
+    // wrapper instead of two copies of the same request/error handling.
+    function convertDocument(url) {
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        }).then(res => res.json().then(data => ({ ok: res.ok, data })));
+    }
+
     document.querySelectorAll('.pipeline-convert-btn').forEach(btn => {
         btn.addEventListener('click', function () {
             btn.disabled = true;
             btn.textContent = 'Starting…';
-            fetch(btn.dataset.convertUrl, {
-                method: 'POST',
-                headers: {
-                    Accept: 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-            }).then(res => res.json().then(data => ({ ok: res.ok, data })))
-              .then(({ ok, data }) => {
-                  if (!ok) throw new Error(data.message || 'Could not start conversion.');
-                  window.location.reload();
-              })
-              .catch(err => {
-                  btn.disabled = false;
-                  btn.textContent = 'Retry';
-                  alert(err.message);
-              });
+            const row = btn.closest('tr');
+            convertDocument(btn.dataset.convertUrl)
+                .then(({ ok, data }) => {
+                    if (!ok) throw new Error(data.message || 'Could not start conversion.');
+                    markRowConverting(row);
+                })
+                .catch(err => {
+                    btn.disabled = false;
+                    btn.textContent = 'Retry';
+                    alert(err.message);
+                });
         });
     });
 
-    const pollRows = document.querySelectorAll('tr[data-poll="1"]');
-    if (pollRows.length) {
-        const interval = setInterval(() => {
-            let stillPolling = false;
-            const checks = Array.from(pollRows).map(row => {
-                const id = row.dataset.docRow;
-                return fetch(`/documents/${id}/convert-status`, { headers: { Accept: 'application/json' } })
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.status === 'processing' || data.status === 'ocr_pending') {
-                            stillPolling = true;
-                        } else {
-                            const badge = row.querySelector('.doc-status-badge');
-                            const meta = statusMeta[data.status] || { label: data.status, color: 'slate' };
-                            if (badge) {
-                                badge.className = 'doc-status-badge inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ' + statusColorClasses[meta.color];
-                                badge.textContent = meta.label;
-                            }
-                        }
-                    })
-                    .catch(() => {});
-            });
-            Promise.all(checks).then(() => {
-                if (!stillPolling) {
-                    clearInterval(interval);
-                    window.location.reload();
-                }
-            });
-        }, 5000);
+    // ── Bulk select + convert ────────────────────────────────────────────────
+    const selectAllCb  = document.getElementById('select-all-convert');
+    const bulkBar       = document.getElementById('bulk-convert-bar');
+    const bulkBtn       = document.getElementById('bulk-convert-btn');
+
+    function selectedCheckboxes() {
+        return Array.from(document.querySelectorAll('.convert-select:checked'));
     }
+
+    function refreshBulkBar() {
+        if (!bulkBar) return;
+        const count = selectedCheckboxes().length;
+        bulkBar.classList.toggle('hidden', count === 0);
+        const label = bulkBar.querySelector('.bulk-count');
+        if (label) label.textContent = count;
+    }
+
+    document.querySelectorAll('.convert-select').forEach(cb => {
+        cb.addEventListener('change', refreshBulkBar);
+    });
+
+    if (selectAllCb) {
+        selectAllCb.addEventListener('change', function () {
+            document.querySelectorAll('.convert-select').forEach(cb => { cb.checked = selectAllCb.checked; });
+            refreshBulkBar();
+        });
+    }
+
+    if (bulkBtn) {
+        bulkBtn.addEventListener('click', async function () {
+            const boxes = selectedCheckboxes();
+            if (!boxes.length) return;
+            bulkBtn.disabled = true;
+            bulkBtn.textContent = 'Starting…';
+
+            for (const cb of boxes) {
+                const row = cb.closest('tr');
+                try {
+                    const { ok, data } = await convertDocument(cb.dataset.convertUrl);
+                    if (ok) markRowConverting(row);
+                } catch (e) { /* leave this row as-is; user can retry individually */ }
+            }
+
+            bulkBtn.disabled = false;
+            bulkBtn.textContent = 'Convert Selected';
+            if (selectAllCb) selectAllCb.checked = false;
+            refreshBulkBar();
+        });
+    }
+
+    // ── Status polling — re-queries data-poll="1" rows fresh every tick, so rows marked
+    // converting after page load (single or bulk) are picked up without a page reload. ────
+    const interval = setInterval(() => {
+        const pollRows = document.querySelectorAll('tr[data-poll="1"]');
+        if (!pollRows.length) return;
+
+        let stillPolling = false;
+        const checks = Array.from(pollRows).map(row => {
+            const id = row.dataset.docRow;
+            return fetch(`/documents/${id}/convert-status`, { headers: { Accept: 'application/json' } })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'processing' || data.status === 'ocr_pending') {
+                        stillPolling = true;
+                    } else {
+                        delete row.dataset.poll;
+                        const badge = row.querySelector('.doc-status-badge');
+                        const meta = statusMeta[data.status] || { label: data.status, color: 'slate' };
+                        if (badge) {
+                            badge.className = 'doc-status-badge inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ' + statusColorClasses[meta.color];
+                            badge.textContent = meta.label;
+                        }
+                    }
+                })
+                .catch(() => {});
+        });
+        Promise.all(checks).then(() => {
+            if (!stillPolling) clearInterval(interval);
+        });
+    }, 5000);
 } catch (e) {
     console.error('Pipeline page init failed:', e);
 }
