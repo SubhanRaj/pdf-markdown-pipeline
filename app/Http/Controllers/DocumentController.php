@@ -61,28 +61,17 @@ class DocumentController extends Controller
         ]);
     }
 
-    /** Conversion-pipeline monitor — every document not yet verified/archived, with live status. */
-    public function pipeline(\Illuminate\Http\Request $request): View
+    /**
+     * Conversion-pipeline monitor — every document not yet verified/archived, with live status.
+     * Query/status logic lives in the pipeline-monitor Livewire component this view embeds
+     * (resources/views/components/pipeline-monitor.blade.php); this route just resolves the
+     * requested status tab for it.
+     */
+    public function pipeline(Request $request): View
     {
-        $pipelineStatuses = ['uploaded', 'processing', 'ocr_pending', 'review', 'failed'];
-
         $activeStatus = $request->query('status');
-        if (! in_array($activeStatus, $pipelineStatuses, true)) {
-            $activeStatus = null;
-        }
 
-        $counts = Document::whereIn('status', $pipelineStatuses)
-            ->selectRaw('status, count(*) as c')
-            ->groupBy('status')
-            ->pluck('c', 'status');
-
-        $documents = Document::with(['department', 'section', 'division', 'ruleSet', 'folder', 'user:id,name'])
-            ->whereIn('status', $activeStatus ? [$activeStatus] : $pipelineStatuses)
-            ->orderByDesc('updated_at')
-            ->paginate(30)
-            ->withQueryString();
-
-        return view('documents.pipeline', compact('documents', 'counts', 'activeStatus', 'pipelineStatuses'));
+        return view('documents.pipeline', compact('activeStatus'));
     }
 
     /**

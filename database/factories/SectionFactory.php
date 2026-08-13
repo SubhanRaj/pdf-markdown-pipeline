@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Department;
 use App\Models\Section;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -17,8 +18,12 @@ class SectionFactory extends Factory
      */
     public function definition(): array
     {
+        $name = fake()->unique()->jobTitle();
+
         return [
-            //
+            'department_id' => Department::factory(),
+            'name'          => $name,
+            'slug'          => \Illuminate\Support\Str::slug($name),
         ];
     }
 }

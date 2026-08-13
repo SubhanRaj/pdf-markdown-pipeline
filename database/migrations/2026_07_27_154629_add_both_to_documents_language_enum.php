@@ -12,12 +12,19 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE documents MODIFY language ENUM('english', 'hindi', 'both') NOT NULL DEFAULT 'english'");
+        // MySQL/MariaDB-only syntax — sqlite (used by the test suite) has no ENUM/MODIFY and
+        // already accepts any string in this column, so 'both' just works there with no DDL.
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE documents MODIFY language ENUM('english', 'hindi', 'both') NOT NULL DEFAULT 'english'");
+        }
     }
 
     public function down(): void
     {
         DB::statement("UPDATE documents SET language = 'english' WHERE language = 'both'");
-        DB::statement("ALTER TABLE documents MODIFY language ENUM('english', 'hindi') NOT NULL DEFAULT 'english'");
+
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE documents MODIFY language ENUM('english', 'hindi') NOT NULL DEFAULT 'english'");
+        }
     }
 };

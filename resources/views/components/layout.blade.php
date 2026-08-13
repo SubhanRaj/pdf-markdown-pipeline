@@ -154,5 +154,7 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
+@livewireScripts
+
 </body>
 </html>
