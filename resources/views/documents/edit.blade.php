@@ -146,6 +146,20 @@
                     @enderror
                 </div>
 
+                {{-- Language --}}
+                <div>
+                    <label for="language" class="field-label">Language</label>
+                    <select id="language" name="language"
+                            class="field-input mt-1 @error('language') border-red-400 dark:border-red-500 @enderror">
+                        @foreach(\App\Models\Document::LANGUAGES as $key => $label)
+                        <option value="{{ $key }}" @selected(old('language', $document->language) === $key)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    @error('language')
+                    <p class="field-err-msg">{{ $message }}</p>
+                    @enderror
+                </div>
+
                 {{-- Amendment number + effective date (rule/amendment docs only) --}}
                 @if(in_array($document->document_type, ['rule', 'rule_amendment']))
                 <div class="pt-3 border-t border-slate-100 dark:border-slate-700">

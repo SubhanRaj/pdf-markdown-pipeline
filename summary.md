@@ -3656,6 +3656,12 @@ could not be corrected through any UI, anywhere.
 - New `language-form` on `documents/show.blade.php` (auto-submits on change, same pattern as the
   existing `visibility-form` immediately above it) — the one shared view behind every
   `documents.*.show` route, so one edit covered every document context.
+- Missed on the first pass, added same day once reported: the real metadata **Edit Document** form
+  (`documents/edit.blade.php`, the `.../review` page reached from `documents.*.edit` — a full form
+  with Title/Type/Status/Visibility, distinct from the inline auto-submit widgets on `show.blade.php`)
+  also had no `language` field. Added a `language` `<select>` there too, right after Visibility,
+  same `old()`-aware pattern as the other fields on that form. This is likewise the one shared view
+  behind all five `documents.*.edit` routes, so one fix covered every context again.
 - `language` `<select>` (`Document::LANGUAGES`) added to the four upload forms that were missing
   it: `sections/show.blade.php`, `divisions/show.blade.php`, `folders/show.blade.php`,
   `documents/bulk-upload.blade.php` (applies to the whole batch), plus the `quick_conversions/show.blade.php`
@@ -3669,6 +3675,7 @@ could not be corrected through any UI, anywhere.
   altered. All six touched Blade views re-compiled cleanly via `Blade::compileString()`.
 
 **Files changed:** `app/Http/Requests/UpdateDocumentRequest.php`, `resources/views/documents/show.blade.php`,
-`resources/views/sections/show.blade.php`, `resources/views/divisions/show.blade.php`,
-`resources/views/folders/show.blade.php`, `resources/views/documents/bulk-upload.blade.php`,
-`resources/views/quick_conversions/show.blade.php`, `claude.md`.
+`resources/views/documents/edit.blade.php`, `resources/views/sections/show.blade.php`,
+`resources/views/divisions/show.blade.php`, `resources/views/folders/show.blade.php`,
+`resources/views/documents/bulk-upload.blade.php`, `resources/views/quick_conversions/show.blade.php`,
+`claude.md`.
