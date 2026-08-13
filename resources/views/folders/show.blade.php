@@ -223,6 +223,15 @@
                         </div>
                     </div>
 
+                    <div>
+                        <label for="fld-language" class="field-label">Language</label>
+                        <select id="fld-language" name="language" class="field-input">
+                            @foreach(\App\Models\Document::LANGUAGES as $key => $label)
+                            <option value="{{ $key }}" @selected($key === 'english')>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
                     <div class="bg-slate-50 dark:bg-slate-800/60 rounded-lg px-4 py-3">
                         <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">Saving to</p>
                         <p class="text-xs text-cyan-600 dark:text-cyan-400 font-medium">
@@ -474,6 +483,7 @@
         const contextFolderId   = form.querySelector('[name="folder_id"]');
         const parentInput       = form.querySelector('[name="parent_id"]');
         const visibility        = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+        const language          = form.querySelector('[name="language"]')?.value || 'english';
         const amendmentNumber   = form.querySelector('[name="amendment_number"]')?.value?.trim() || '';
         const effectiveYear     = form.querySelector('[name="effective_year"]')?.value?.trim()   || '';
         const effectiveMonth    = form.querySelector('[name="effective_month"]')?.value          || '';
@@ -503,6 +513,7 @@
                 fd.append('title', title);
                 fd.append('document_type', typeEl.value);
                 fd.append('visibility', visibility);
+                fd.append('language', language);
                 if (parentInput && parentInput.value) fd.append('parent_id',        parentInput.value);
                 if (amendmentNumber)                  fd.append('amendment_number', amendmentNumber);
                 if (effectiveYear)                    fd.append('effective_year',   effectiveYear);

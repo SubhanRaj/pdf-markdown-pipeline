@@ -1193,11 +1193,24 @@ free text by default), preventing "Excise Policy" / "excise policy" fragmenting 
 Pradesh'`), both with an `other` free-text escape hatch, sanitized and title-cased server-side —
 see `POLICY_PERIODS.md` for the full validation details.
 
-**Bilingual documents:** `documents.language` (`english` default | `hindi`) + nullable
-`sibling_document_id` self-FK. Uploading with language = "both" creates two independent `Document`
-rows (one per language, linked via `sibling_document_id`) rather than one row with two file slots —
-each language version has its own status/conversion/OCR lifecycle. Currently offered only on policy
-document uploads (`rule_sets/show.blade.php`'s upload modals, gated `@if($isPolicy)`).
+**Bilingual documents:** `documents.language` (`english` default | `hindi` | `both`) + nullable
+`sibling_document_id` self-FK (rule-set/policy uploads only — see `rule_sets/show.blade.php`;
+language = "both" there creates two independent `Document` rows, one per language, linked via
+`sibling_document_id`, each with its own status/conversion/OCR lifecycle, rather than one row with
+two file slots). Elsewhere `language` is a plain column with no sibling-splitting behavior.
+
+**Language field coverage (2026-08-13).** Originally offered only on policy/rule-set uploads —
+`StoreDocumentRequest`/`UpdateDocumentRequest` always accepted `language`, but the Section,
+Division, Folder, and Bulk Upload forms never rendered the input, so every document uploaded
+through those paths silently defaulted to `english` (`StoreDocumentRequest`'s `strtolower(trim($this->language ?? 'english'))`),
+and there was no way to correct it after the fact — `UpdateDocumentRequest` had no `language` rule
+at all. Fixed: a `language` `<select>` (`Document::LANGUAGES`) added to every upload entry point
+(`sections/show.blade.php`, `divisions/show.blade.php`, `folders/show.blade.php`,
+`documents/bulk-upload.blade.php`, `quick_conversions/show.blade.php`'s "Save to…" modal) and a
+new auto-submitting `language-form` on `documents/show.blade.php` (same pattern as the existing
+`visibility-form`) so it can also be corrected post-upload. `UpdateDocumentRequest` gained the
+`language` rule + normalization, shared by all five `documents.*.update` route variants since they
+all route through the same Form Request class.
 
 **Clickable pills → exact search filters:** the `document_type` and (for policy documents) `state`
 badges on `documents/show.blade.php` are links to `search.index` with `?document_type=`/`?state=`

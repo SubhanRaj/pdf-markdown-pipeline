@@ -260,6 +260,15 @@ $pageData = [
             </div>
 
             <div>
+                <label for="qc-language" class="field-label">Language</label>
+                <select id="qc-language" name="qc-language" class="field-input">
+                    @foreach(\App\Models\Document::LANGUAGES as $key => $label)
+                    <option value="{{ $key }}" @selected($key === 'english')>{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div>
                 <label for="qc-parent" class="field-label">Amends Previous Document <span class="text-slate-400 font-normal">(optional)</span></label>
                 <select id="qc-parent" class="field-input"><option value="">— None (original document) —</option></select>
             </div>
@@ -592,6 +601,7 @@ $pageData = [
                 title,
                 document_type: docType,
                 visibility: document.querySelector('[name="qc-visibility"]:checked')?.value || 'public',
+                language: document.getElementById('qc-language')?.value || 'english',
                 parent_id: parentSelect.value || null,
             };
 

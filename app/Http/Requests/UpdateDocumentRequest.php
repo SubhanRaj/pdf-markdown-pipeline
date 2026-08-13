@@ -34,6 +34,9 @@ class UpdateDocumentRequest extends FormRequest
         if ($this->has('visibility')) {
             $this->merge(['visibility' => strtolower(trim($this->input('visibility', 'public')))]);
         }
+        if ($this->has('language')) {
+            $this->merge(['language' => strtolower(trim($this->input('language', 'english')))]);
+        }
         if ($this->has('parent_id')) {
             $this->merge(['parent_id' => $this->parent_id ? (int) $this->parent_id : null]);
         }
@@ -60,6 +63,7 @@ class UpdateDocumentRequest extends FormRequest
             'document_type'    => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::DOCUMENT_TYPES))],
             'status'           => ['sometimes', 'required', 'string', 'in:' . implode(',', array_keys(Document::STATUSES))],
             'visibility'       => ['sometimes', 'nullable', 'string', 'in:public,authenticated'],
+            'language'         => ['sometimes', 'nullable', 'string', 'in:english,hindi,both'],
             'parent_id'        => ['sometimes', 'nullable', 'integer', 'exists:documents,id'],
             'amendment_number' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:999'],
             'effective_year'   => ['sometimes', 'nullable', 'integer', 'min:1900', 'max:2099'],

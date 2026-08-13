@@ -687,6 +687,19 @@
                     </div>
                 </form>
             </div>
+
+            {{-- Language control for admins --}}
+            <div class="px-5 pb-4 pt-1 border-t border-slate-100 dark:border-slate-700">
+                <p class="text-xs text-slate-400 dark:text-slate-500 mb-2">Language</p>
+                <form id="language-form" method="POST" action="{{ $updateRoute }}">
+                    @csrf @method('PATCH')
+                    <select name="language" id="language-select" class="field-input">
+                        @foreach(\App\Models\Document::LANGUAGES as $key => $label)
+                        <option value="{{ $key }}" @selected($document->language === $key)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </form>
+            </div>
             @endif
             @endauth
 
@@ -878,6 +891,17 @@ try {
     }
 } catch (e) {
     console.error('Visibility radio init failed:', e);
+}
+
+try {
+    const languageSelect = document.getElementById('language-select');
+    if (languageSelect) {
+        languageSelect.addEventListener('change', function () {
+            document.getElementById('language-form').submit();
+        });
+    }
+} catch (e) {
+    console.error('Language select init failed:', e);
 }
 
 try {
