@@ -275,6 +275,8 @@ Admin-managed presets mapping a real-world government post (Commissioner, HoD, S
 
 **Passwordless onboarding + email-OTP login (2026-07-26):** admins create a user with no password field at all — the account gets an unusable placeholder password and `email_verified_at = null` until the officer completes a one-time signed-link flow (`/onboarding/{user}`, 72h expiry, single-use via the `email_verified_at` gate) and sets their own password. Login is email+password followed by a 6-digit email OTP (`/login/otp`) before a session is granted — modeled on `github.com/SubhanRaj/pla`'s email-OTP pattern, rebuilt for this app's Tailwind/Alpine styling. Combined with the 7-day sliding session + remember-me below, OTP only fires on a genuine fresh login, not every visit. See `claude.md`'s "Auth & access control" section for the full flow.
 
+**Forgot / reset password (2026-08-13):** `/forgot-password` emails a single-use, 60-minute reset link via Laravel's core password-reset broker (the same mechanism Fortify wraps), re-skinned with this app's branded email template. Resetting never auto-logs in — it lands back on `/login` to re-enter the normal email+password+OTP sequence, and rotates the account's remember-me token so old "remember me" cookies stop working. Same email-enumeration protection as the login form (identical response whether or not the address has an account).
+
 **Privilege strings:** `documents.upload`, `documents.edit`, `documents.delete`, `documents.restore`, `documents.force-delete`, `documents.verify`, `documents.approve`, `organization.head`, `department.head`, `section.head`. Admins bypass all privilege checks unconditionally.
 
 ## 🗺️ Route Map
@@ -429,8 +431,15 @@ Approval routes use numeric `{id}` — reclassification changes context mid-flow
 |---|---|---|
 | `GET /` | `home` | Dashboard |
 | `GET /search?q=` | `search.index` | Public full-text search |
-| `GET /login`, `POST /login` | `login`, `login.store` | Fortify auth |
-| `POST /logout` | `logout` | Fortify auth |
+| `GET /login` | `login` | Custom email+password+OTP flow (not Fortify's routes, see `claude.md`) |
+| `POST /login` | `login.attempt` | Validates credentials, issues OTP — never calls `Auth::login()` |
+| `GET /login/otp` | `otp.show` | |
+| `POST /login/otp/verify` | `otp.verify` | Only place `Auth::login()` is called |
+| `POST /login/otp/resend` | `otp.resend` | 45s cooldown on top of the `two-factor` rate limiter |
+| `POST /logout` | `logout` | |
+| `GET/POST /forgot-password` | `password.request`, `password.email` | Request a reset link — same response whether or not the email exists |
+| `GET/POST /reset-password{/token}` | `password.reset`, `password.update` | Laravel's core `Password` broker; single-use, 60-min expiry; never auto-logs in — lands back on `/login` |
+| `GET/POST /onboarding/{user}` | `onboarding.show`, `onboarding.store` | Signed, single-use link mailed on admin-created accounts |
 | `GET/POST /user/confirm-password` | `password.confirm`, `password.confirm.store` | Fortify — re-confirms password before a sensitive action |
 | `GET /user/confirmed-password-status` | `password.confirmation` | Fortify |
 

@@ -162,6 +162,16 @@ class AppServiceProvider extends ServiceProvider
                 ->by($request->session()->get('login.id') . '|' . $request->ip());
         });
 
+        // ── Password reset request/submit — same dual-key shape as 'login', so an attacker
+        // can't hammer either the "send link" endpoint (email enumeration / mail-bomb) or the
+        // "submit new password" endpoint (token guessing) past a handful of tries per minute.
+        RateLimiter::for('password-reset', function (Request $request) {
+            return [
+                Limit::perMinute(5)->by($request->input('email') . '|' . $request->ip()),
+                Limit::perMinute(10)->by($request->ip()),
+            ];
+        });
+
         // ── General authenticated mutations ───────────────────────────────────
         // 60 state-changing requests per minute per user (sanity cap).
         RateLimiter::for('mutations', function (Request $request) {
