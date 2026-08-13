@@ -447,36 +447,8 @@
         @endif
 
         {{-- ── Conversion status strip — sits above the viewer so it's the first thing seen ──── --}}
-        @if($isConverting)
-        @php
-            // The conversion may have started well before this page load (e.g. the user hit
-            // refresh mid-OCR) — seed the elapsed timer from the last status-change timestamp
-            // instead of "now", or it wrongly resets to 0:00 on every refresh.
-            $conversionStartedAt = $document->statusHistory->sortByDesc('created_at')->first()?->created_at ?? now();
-        @endphp
-        <div id="markdown-card" class="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl px-6 py-8 text-center" data-poll-status-url="{{ route('documents.convert-status', $document->id) }}" data-started-at="{{ $conversionStartedAt->timestamp * 1000 }}">
-            <i class="ti ti-loader-2 animate-spin text-2xl text-indigo-500 dark:text-indigo-400"></i>
-            <p class="mt-2 text-sm font-medium text-indigo-700 dark:text-indigo-300">
-                {{ $document->status === 'ocr_pending' ? 'Running OCR (Hindi + English)…' : 'Converting to Markdown…' }}
-            </p>
-            <p class="mt-1 text-xs text-indigo-500 dark:text-indigo-400">
-                Elapsed <span id="convert-elapsed">0:00</span> — OCR on scanned documents can take several minutes. This page updates automatically.
-            </p>
-            <p id="convert-queue-note" class="mt-1 text-xs text-amber-600 dark:text-amber-400 hidden">
-                Waiting in queue — other documents are ahead of this one.
-            </p>
-        </div>
-        @elseif($document->status === 'failed')
-        <div id="markdown-card" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-6 py-8 text-center">
-            <i class="ti ti-alert-triangle text-2xl text-red-500 dark:text-red-400"></i>
-            <p class="mt-2 text-sm font-medium text-red-600 dark:text-red-400">Conversion failed.</p>
-            <p class="mt-1 text-xs text-red-500 dark:text-red-400">Use the "Retry Conversion" button above.</p>
-        </div>
-        @elseif(! $hasMarkdown)
-        <div id="markdown-card" class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-6 py-8 text-center">
-            <i class="ti ti-markdown-off text-2xl text-slate-300 dark:text-slate-600"></i>
-            <p class="mt-2 text-sm text-slate-400 dark:text-slate-500">Not yet converted to Markdown.</p>
-        </div>
+        @if($isConverting || $document->status === 'failed' || ! $hasMarkdown)
+        <livewire:conversion-status-card :document-id="$document->id" />
         @elseif(! $isVerified)
         {{-- Single consolidated banner — OCR is offered inside the Compare & Verify modal
              itself rather than as a second competing button here.
@@ -1419,14 +1391,6 @@ function startConversionPolling(card, elapsedElId) {
     }, 3000);
 }
 
-try {
-    const pollCard = document.getElementById('markdown-card');
-    if (pollCard && pollCard.dataset.pollStatusUrl) {
-        startConversionPolling(pollCard);
-    }
-} catch (e) {
-    console.error('Conversion status polling init failed:', e);
-}
 </script>
 @endpush
 
