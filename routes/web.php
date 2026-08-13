@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\DesignationController;
 use App\Http\Controllers\Admin\UserManagementController;
 use App\Http\Controllers\ApprovalController;
+use App\Http\Controllers\Auth\ForgotPasswordController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\OnboardingController;
 use App\Http\Controllers\DepartmentController;
@@ -36,6 +37,15 @@ Route::get('/login/otp',          [LoginController::class, 'showOtp'])->middlewa
 Route::post('/login/otp/verify',  [LoginController::class, 'verifyOtp'])->middleware(['guest', 'throttle:two-factor'])->name('otp.verify');
 Route::post('/login/otp/resend',  [LoginController::class, 'resendOtp'])->middleware(['guest', 'throttle:two-factor'])->name('otp.resend');
 Route::post('/logout',            [LoginController::class, 'logout'])->middleware('auth')->name('logout');
+
+// ── Forgot / reset password (Laravel's core Password broker — password_reset_tokens table,
+// single-use hashed token, 60-min expiry — with our own branded views/mail instead of
+// Fortify's). Never auto-authenticates on success; lands back on /login to re-enter the
+// normal email + password + OTP flow. ─────────────────────────────────────────────────────
+Route::get('/forgot-password',    [ForgotPasswordController::class, 'showRequestForm'])->middleware('guest')->name('password.request');
+Route::post('/forgot-password',   [ForgotPasswordController::class, 'sendResetLink'])->middleware(['guest', 'throttle:password-reset'])->name('password.email');
+Route::get('/reset-password/{token}', [ForgotPasswordController::class, 'showResetForm'])->middleware('guest')->name('password.reset');
+Route::post('/reset-password',    [ForgotPasswordController::class, 'reset'])->middleware(['guest', 'throttle:password-reset'])->name('password.update');
 
 // ── Onboarding (signed, single-use link mailed on admin-created accounts) ─────────────────────
 Route::get('/onboarding/{user}',  [OnboardingController::class, 'show'])->middleware('signed')->name('onboarding.show');

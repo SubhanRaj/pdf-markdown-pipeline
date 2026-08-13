@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Mail\ResetPassword;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 class User extends Authenticatable
@@ -63,6 +65,18 @@ class User extends Authenticatable
             'password'          => 'hashed',
             'privileges'        => 'array',
         ];
+    }
+
+    /**
+     * Overrides Notifiable's default reset notification (a queued Notification + Markdown mail)
+     * with our own branded Mailable, matching the LoginOtp/AccountOnboarding pattern already used
+     * elsewhere in this app instead of introducing a second, differently-styled mail mechanism.
+     */
+    public function sendPasswordResetNotification($token): void
+    {
+        $url = url(route('password.reset', ['token' => $token, 'email' => $this->email], false));
+
+        Mail::to($this->email)->send(new ResetPassword($this, $url));
     }
 
     // ── Relationships ────────────────────────────────────────────────────────

@@ -3586,3 +3586,53 @@ than waiting out the natural cache expiry.
 `public/vendor/tabler-icons/tabler-icons.min.css`,
 `public/vendor/tabler-icons/fonts/tabler-icons-subset.woff2`,
 `public/vendor/tabler-icons/fonts/tabler-icons-subset.woff`.
+
+## M76 — Forgot / reset password (COMPLETED 2026-08-13)
+
+Reported gap: no self-service way to recover a forgotten password — an officer locked out had no
+path back in short of an admin manually resetting the account. Investigated first whether Fortify
+had this ready to go; it does (`Features::resetPasswords()`), but this app's `FortifyServiceProvider`
+calls `Fortify::ignoreRoutes()` (login itself is fully custom, see M-era OTP work), so Fortify's own
+reset routes/controllers/views were never reachable. Rather than re-enabling a slice of Fortify's
+routing (risking route-name collisions with the custom `/login` flow) or building a second signed-URL
+scheme alongside onboarding's, used Laravel's core `Password` broker directly — the same
+`password_reset_tokens`-backed mechanism Fortify's feature itself wraps — with this app's own
+routes/controller/views/mail so the branding and flow match everything else here.
+
+- `App\Http\Controllers\Auth\ForgotPasswordController` — `showRequestForm()`/`sendResetLink()` (
+  `Password::sendResetLink()`, identical flash message regardless of whether the email matches an
+  account, closing the obvious enumeration hole) and `showResetForm()`/`reset()` (`Password::reset()`,
+  callback rotates `remember_token` too — invalidates any existing "remember me" cookie on the
+  account being reset).
+- `User::sendPasswordResetNotification($token)` overridden — sends `App\Mail\ResetPassword` (a plain
+  `->view()` Mailable, same pattern as `LoginOtp`/`AccountOnboarding`, same `emails.layout` wrapper)
+  instead of Fortify/Notifiable's default Markdown-mail notification style.
+- **Never auto-authenticates.** `Password::reset()`'s callback only saves the new password — the
+  controller always redirects to `/login` on success, so a reset re-enters the normal
+  email + password + OTP sequence from a clean slate, per explicit requirement.
+- New `password-reset` rate limiter (`AppServiceProvider`) — same dual-key shape as `login` (5/min
+  per email+IP, 10/min per IP) — guards both the "send link" endpoint (mail-bomb / enumeration) and
+  the "submit new password" endpoint (token guessing).
+- `resources/views/auth/{forgot-password,reset-password}.blade.php` — same card chrome as
+  `auth/login.blade.php`/`auth/otp.blade.php`; "Forgot password?" link added next to the Remember me
+  checkbox on the login form.
+- No schema migration needed — `password_reset_tokens` already existed in the base users migration,
+  unused until now.
+- Verified end-to-end via Tinker against the live dev DB (not a throwaway sandbox): `Password::sendResetLink()`
+  → `passwords.sent` status + a real token row written; a second pass created a raw token directly via
+  the broker, ran `Password::reset()` against it, confirmed the password hash actually changed, then
+  restored the original hash so the real dev account's login was left untouched.
+
+Separately, cleaned up `AUTH_ROLLING_SESSION.md` (an uncommitted investigation note from a false
+lead — a report that the 7-day rolling session/OTP-skip logic wasn't working here turned out, on
+inspection of the live `.env`/DB state, to be unfounded; the mechanism checks out identically to
+`excise-budget-tracker`'s). Removed rather than committed, along with the `claude.md` pointer line
+that referenced it.
+
+**Files changed:** `app/Http/Controllers/Auth/ForgotPasswordController.php` (new),
+`app/Mail/ResetPassword.php` (new), `app/Models/User.php` (`sendPasswordResetNotification()`
+override), `app/Providers/AppServiceProvider.php` (`password-reset` limiter),
+`resources/views/auth/forgot-password.blade.php`, `reset-password.blade.php` (new),
+`resources/views/emails/reset-password.blade.php` (new), `resources/views/auth/login.blade.php`
+("Forgot password?" link), `routes/web.php` (`password.*` route group), `claude.md`, `README.md`
+(auth section + route map updates).
