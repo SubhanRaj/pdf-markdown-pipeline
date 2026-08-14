@@ -12,12 +12,20 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE documents MODIFY language ENUM('english', 'hindi', 'both') NOT NULL DEFAULT 'english'");
+        // MySQL-only: SQLite (the test suite's driver) has no native ENUM type — the
+        // `language` column there is already an unconstrained TEXT column that accepts
+        // 'both' with no migration needed, so skip it there rather than break the whole
+        // migration chain (and every RefreshDatabase-backed test) on an incompatible ALTER.
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE documents MODIFY language ENUM('english', 'hindi', 'both') NOT NULL DEFAULT 'english'");
+        }
     }
 
     public function down(): void
     {
-        DB::statement("UPDATE documents SET language = 'english' WHERE language = 'both'");
-        DB::statement("ALTER TABLE documents MODIFY language ENUM('english', 'hindi') NOT NULL DEFAULT 'english'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("UPDATE documents SET language = 'english' WHERE language = 'both'");
+            DB::statement("ALTER TABLE documents MODIFY language ENUM('english', 'hindi') NOT NULL DEFAULT 'english'");
+        }
     }
 };
