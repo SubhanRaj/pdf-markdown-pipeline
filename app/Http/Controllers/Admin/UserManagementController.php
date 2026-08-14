@@ -8,8 +8,6 @@ use App\Http\Requests\Admin\UpdateUserRequest;
 use App\Http\Requests\UpdateProfileRequest;
 use App\Mail\AccountOnboarding;
 use App\Models\Department;
-use App\Models\Designation;
-use App\Models\Division;
 use App\Models\Section;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -25,24 +23,18 @@ class UserManagementController extends Controller
 {
     public function index(): View
     {
-        $users = User::with(['department', 'section', 'designation'])
-            ->latest()
-            ->paginate(20);
-
-        return view('admin.users.index', compact('users'));
+        return view('admin.users.index');
     }
 
     public function create(): View
     {
-        $departments   = Department::orderBy('name')->get(['id', 'name', 'level']);
-        $sections      = Section::orderBy('name')->get(['id', 'name', 'department_id']);
-        $divisions     = Division::orderBy('name')->get(['id', 'name', 'section_id']);
-        $designations  = Designation::orderBy('sort_order')->orderBy('name')->get(['id', 'name', 'department_id', 'default_scope', 'default_privileges']);
-
-        return view('admin.users.create', compact('departments', 'sections', 'divisions', 'designations'));
+        return view('admin.users.create');
     }
 
-    public function store(StoreUserRequest $request): RedirectResponse
+    // No return type: real routes get a RedirectResponse, but the user-form Livewire component
+    // calls these directly, and Livewire swaps the redirect() helper for its own Redirector
+    // (not a RedirectResponse) while a component method is executing.
+    public function store(StoreUserRequest $request)
     {
         try {
             $user = DB::transaction(function () use ($request) {
@@ -128,15 +120,10 @@ class UserManagementController extends Controller
 
     public function edit(User $user): View
     {
-        $departments   = Department::orderBy('name')->get(['id', 'name', 'level']);
-        $sections      = Section::orderBy('name')->get(['id', 'name', 'department_id']);
-        $divisions     = Division::orderBy('name')->get(['id', 'name', 'section_id']);
-        $designations  = Designation::orderBy('sort_order')->orderBy('name')->get(['id', 'name', 'department_id', 'default_scope', 'default_privileges']);
-
-        return view('admin.users.edit', compact('user', 'departments', 'sections', 'divisions', 'designations'));
+        return view('admin.users.edit', compact('user'));
     }
 
-    public function update(UpdateUserRequest $request, User $user): RedirectResponse
+    public function update(UpdateUserRequest $request, User $user)
     {
         try {
             DB::transaction(function () use ($request, $user) {
@@ -220,7 +207,7 @@ class UserManagementController extends Controller
         }
     }
 
-    public function destroy(User $user): RedirectResponse
+    public function destroy(User $user)
     {
         if ($user->id === auth()->id()) {
             flash()->warning('You cannot delete your own account.');

@@ -14,7 +14,9 @@ class UpdateUserRequest extends FormRequest
 
     public function rules(): array
     {
-        $userId = $this->route('user')?->id;
+        // route('user') resolves via real route-model binding; the user-form Livewire
+        // component isn't dispatched through that route, so it merges 'id' directly.
+        $userId = $this->route('user')?->id ?? $this->input('id');
 
         return [
             'name'          => ['required', 'string', 'max:100', 'regex:/^[\p{L}\s\'\-\.]+$/u'],

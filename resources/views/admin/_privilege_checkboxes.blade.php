@@ -1,8 +1,10 @@
 {{--
     Shared Granular Privileges checkbox panel.
     Params: $name (input name, e.g. "privileges" or "default_privileges"), $checked (array of
-    currently-checked privilege keys).
+    currently-checked privilege keys), $wireModel (optional — binds each checkbox to a Livewire
+    array property instead of relying on a plain form POST).
 --}}
+@php $wireModel = $wireModel ?? null; @endphp
 @php
 $privilegeLabels = [
     'documents.upload'       => ['label' => 'Upload documents',           'group' => 'Documents'],
@@ -25,7 +27,7 @@ $privGroups = collect($privilegeLabels)->groupBy(fn($v) => $v['group']);
     <label class="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer select-none p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
         <input
             type="checkbox"
-            name="{{ $name }}[]"
+            @if($wireModel) wire:model="{{ $wireModel }}" @else name="{{ $name }}[]" @endif
             value="{{ $key }}"
             {{ in_array($key, $checked ?? []) ? 'checked' : '' }}
             class="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-400 flex-shrink-0"

@@ -26,7 +26,9 @@ class UpdateDesignationRequest extends FormRequest
 
     public function rules(): array
     {
-        $designationId = $this->route('designation')?->id;
+        // route('designation') resolves via real route-model binding; the designation-manager
+        // Livewire component isn't dispatched through that route, so it merges 'id' directly.
+        $designationId = $this->route('designation')?->id ?? $this->input('id');
 
         return [
             'name'                => ['required', 'string', 'max:100'],

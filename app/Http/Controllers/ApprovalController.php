@@ -10,7 +10,6 @@ use App\Models\Document;
 use App\Models\DocumentStatusHistory;
 use App\Models\RuleSet;
 use App\Models\Section;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -78,7 +77,10 @@ class ApprovalController extends Controller
         ));
     }
 
-    public function approve(int $id, ApproveDocumentRequest $request): RedirectResponse
+    // No return type: real routes get a RedirectResponse, but Livewire's approval-actions
+    // component calls this directly, and Livewire swaps the redirect() helper for its own
+    // Redirector (not a RedirectResponse) while a component method is executing.
+    public function approve(int $id, ApproveDocumentRequest $request)
     {
         $document = Document::findOrFail($id);
 
@@ -115,7 +117,7 @@ class ApprovalController extends Controller
         return redirect()->route('approvals.index', ['tab' => 'pending']);
     }
 
-    public function reject(int $id, RejectDocumentRequest $request): RedirectResponse
+    public function reject(int $id, RejectDocumentRequest $request)
     {
         $document = Document::findOrFail($id);
 
@@ -152,7 +154,7 @@ class ApprovalController extends Controller
         return redirect()->route('approvals.index', ['tab' => 'pending']);
     }
 
-    public function reclassify(int $id, ReclassifyDocumentRequest $request): RedirectResponse
+    public function reclassify(int $id, ReclassifyDocumentRequest $request)
     {
         $document  = Document::with(['section.department', 'division', 'ruleSet.department'])->findOrFail($id);
         $validated = $request->validated();
@@ -305,7 +307,7 @@ class ApprovalController extends Controller
         return redirect()->route('approvals.index', ['tab' => 'pending']);
     }
 
-    public function resubmit(int $id): RedirectResponse
+    public function resubmit(int $id)
     {
         $document = Document::findOrFail($id);
         $user     = auth()->user();

@@ -356,9 +356,7 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'is_admin', 'throttl
     // Designations — admin-managed presets mapping real-world posts to default scope/privileges
     Route::prefix('designations')->name('designations.')->group(function () {
         Route::get('/',                  [DesignationController::class, 'index'])->name('index');
-        Route::get('/create',            [DesignationController::class, 'create'])->name('create');
         Route::post('/',                 [DesignationController::class, 'store'])->name('store');
-        Route::get('/{designation}/edit', [DesignationController::class, 'edit'])->name('edit');
         Route::patch('/{designation}',   [DesignationController::class, 'update'])->name('update');
         Route::delete('/{designation}',  [DesignationController::class, 'destroy'])->name('destroy');
     });
