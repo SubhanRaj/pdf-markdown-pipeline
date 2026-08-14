@@ -1273,6 +1273,43 @@ class DocumentController extends Controller
     }
 
     /**
+     * Accept a document's extracted Markdown as-is, no edits — the same "Verified" transition
+     * updateMarkdown() makes when its `verify` flag is set, but without requiring the caller to
+     * resubmit the (potentially multi-MB) Markdown content just to flip a status. Used by the
+     * Conversion Pipeline's per-row "Accept" button and its bulk "Verify Selected" action.
+     */
+    public function verify(int $id): JsonResponse
+    {
+        $document = Document::findOrFail($id);
+
+        if (! $this->canManageDocument($document)) {
+            abort(403);
+        }
+
+        if ($document->status !== 'review') {
+            return response()->json(['message' => 'Document is not awaiting review.'], 422);
+        }
+
+        if (! $document->markdown_path || ! Storage::disk('public')->exists($document->markdown_path)) {
+            return response()->json(['message' => 'No Markdown draft to verify.'], 422);
+        }
+
+        DB::transaction(function () use ($document) {
+            $document->update(['status' => 'verified']);
+
+            DocumentStatusHistory::create([
+                'document_id' => $document->id,
+                'actor_id'    => auth()->id(),
+                'from_status' => 'review',
+                'to_status'   => 'verified',
+                'note'        => 'Verified via Conversion Pipeline.',
+            ]);
+        });
+
+        return response()->json(['status' => 'verified']);
+    }
+
+    /**
      * Returns the compact Docling structure map (headings + table cells + bboxes) produced by
      * ConvertDocumentToMarkdown's Pass 0, for the informational "Structure" panel in the review
      * UI. Gated the same as every other document-mutation-adjacent endpoint in this
