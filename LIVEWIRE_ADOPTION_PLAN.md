@@ -162,3 +162,29 @@ including the `SupportRedirects`/`RedirectResponse` `TypeError` bug this pilot s
 any reused controller action typed `: RedirectResponse` when called from a Livewire component) and
 the FormRequest-reuse pattern (`$class::createFrom(...)->validateResolved()`) used to keep
 authorization/validation logic in one place rather than duplicating it into each component.
+
+**User-observed gap (2026-08-13):** after the above shipped, regular page-to-page navigation
+(sidebar links, breadcrumbs, list → edit page, etc.) still does a full browser reload — navbar
+included — confirmed even with a hard refresh / incognito, so it isn't a cache artifact. This is
+expected, not a regression: nothing above added `wire:navigate` to any `<a href>`. Only *actions
+inside* a page (approve/reject, save, delete, poll) moved to AJAX. Site-wide SPA-style navigation
+is Phase 3 below, not yet started.
+
+### Phase 3 — Site-wide `wire:navigate` (not started)
+
+The actual "no full page reload, SPA feel" behavior. Deliberately deferred out of every phase so
+far because it's a different shape of risk than everything above: Phases 1–2 each touched one
+isolated component's worth of surface, but this phase touches **every page's navigation chrome and
+every page's inline `<script>`/`@push('scripts')` block**, all at once, because `wire:navigate`
+swaps `<body>` content via AJAX and only re-runs `<head>` once — any script relying on
+`DOMContentLoaded` firing per-navigation goes dead the first time a user clicks a `wire:navigate`
+link to get there.
+
+Not yet scoped in detail — the next session should start by reading `resources/views/components/
+layout.blade.php` and `head.blade.php` in full, and every page with a nontrivial `@push('scripts')`
+block (at minimum `documents/show.blade.php`, `sections/show.blade.php`, `bulk-upload.blade.php`,
+`quick_conversions/show.blade.php`, `approvals/index.blade.php`, `admin/users/*`,
+`admin/designations/*`), before deciding on a rollout order. `excise-budget-tracker`'s
+`resources/views/components/layout.blade.php:195-198` already solved this same migration for a
+sibling app on this same stack and left comments about a dark-mode-flash bug it hit — read that
+file first as the reference implementation, not a blank-page design exercise.
