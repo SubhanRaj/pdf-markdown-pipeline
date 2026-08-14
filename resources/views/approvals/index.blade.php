@@ -9,6 +9,8 @@
         <span>Approval Queue</span>
     </x-slot:breadcrumb>
 
+    <livewire:approval-actions />
+
     {{-- JSON data islands --}}
     <script id="pending-docs-data"  type="application/json">@json($pendingData)</script>
     <script id="rejected-docs-data" type="application/json">@json($rejectedData)</script>
@@ -199,6 +201,7 @@
             const allDivisions = JSON.parse(document.getElementById('all-divisions-data').textContent);
             const allRuleSets  = JSON.parse(document.getElementById('all-rule-sets-data').textContent);
             const cfg          = JSON.parse(document.getElementById('approvals-config').textContent);
+            const wire         = Livewire.first();
 
             const docsByTab = { pending: pendingDocs, rejected: rejectedDocs, mine: myDocs };
 
@@ -343,13 +346,9 @@
                 if (! result.isConfirmed) return;
 
                 try {
-                    const fd = new FormData();
-                    fd.append('_token', cfg.csrf);
-                    if (result.value.note) fd.append('note', result.value.note);
-
-                    const res = await fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
-                    if (res.redirected || res.ok) { window.location.href = res.url || url.replace('/approve', '?tab=pending'); }
-                    else { Swal.fire({ icon: 'error', title: 'Failed', text: 'Could not approve. Please try again.', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#1e293b' }); }
+                    const outcome = await wire.approve(id, result.value.note || null);
+                    if (outcome.ok) { window.location.href = '{{ route('approvals.index') }}?tab=pending'; }
+                    else { Swal.fire({ icon: 'error', title: 'Failed', text: outcome.message || 'Could not approve. Please try again.', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#1e293b' }); }
                 } catch(e) {
                     console.error(e);
                     Swal.fire({ icon: 'error', title: 'Error', text: 'An unexpected error occurred.', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#1e293b' });
@@ -382,13 +381,9 @@
                 if (! result.isConfirmed) return;
 
                 try {
-                    const fd = new FormData();
-                    fd.append('_token', cfg.csrf);
-                    fd.append('reason', result.value.reason);
-
-                    const res = await fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
-                    if (res.redirected || res.ok) { window.location.reload(); }
-                    else { Swal.fire({ icon: 'error', title: 'Failed', text: 'Could not reject. Please try again.', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#1e293b' }); }
+                    const outcome = await wire.reject(id, result.value.reason);
+                    if (outcome.ok) { window.location.reload(); }
+                    else { Swal.fire({ icon: 'error', title: 'Failed', text: outcome.message || 'Could not reject. Please try again.', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#1e293b' }); }
                 } catch(e) {
                     console.error(e);
                     Swal.fire({ icon: 'error', title: 'Error', text: 'An unexpected error occurred.', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#1e293b' });
@@ -411,12 +406,9 @@
                 if (! result.isConfirmed) return;
 
                 try {
-                    const fd = new FormData();
-                    fd.append('_token', cfg.csrf);
-
-                    const res = await fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
-                    if (res.redirected || res.ok) { window.location.reload(); }
-                    else { Swal.fire({ icon: 'error', title: 'Failed', text: 'Could not resubmit. Please try again.', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#1e293b' }); }
+                    const outcome = await wire.resubmit(id);
+                    if (outcome.ok) { window.location.reload(); }
+                    else { Swal.fire({ icon: 'error', title: 'Failed', text: outcome.message || 'Could not resubmit. Please try again.', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#1e293b' }); }
                 } catch(e) {
                     console.error(e);
                 }
@@ -425,7 +417,7 @@
             // ── Reclassify modal ──────────────────────────────────────────────
             window.openReclassifyModal = function (doc) {
                 const modal = document.getElementById('modal-reclassify');
-                document.getElementById('reclassify-form').action = doc.reclassify_url;
+                document.getElementById('reclassify-form').dataset.docId = doc.id;
                 document.getElementById('rc-note').value = '';
                 const cbApprove = document.getElementById('rc-approve');
                 if (cbApprove) cbApprove.checked = false;
@@ -504,6 +496,23 @@
                 });
             }
 
+            document.getElementById('reclassify-form').addEventListener('submit', async function (e) {
+                e.preventDefault();
+                const isDark = document.documentElement.classList.contains('dark');
+                const id = parseInt(this.dataset.docId, 10);
+                const fd = new FormData(this);
+                const data = Object.fromEntries(fd.entries());
+
+                try {
+                    const outcome = await wire.reclassify(id, data);
+                    if (outcome.ok) { window.location.reload(); }
+                    else { Swal.fire({ icon: 'error', title: 'Failed', text: outcome.message || 'Could not reclassify. Please try again.', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#1e293b' }); }
+                } catch(e) {
+                    console.error(e);
+                    Swal.fire({ icon: 'error', title: 'Error', text: 'An unexpected error occurred.', background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#1e293b' });
+                }
+            });
+
             // ── Bulk approve / bulk reject ────────────────────────────────────
             function selectedIds(tabKey) {
                 const tableId = tabKey + '-table';
@@ -553,14 +562,13 @@
                 });
                 if (! result.isConfirmed) return;
 
-                for (const id of ids) {
+                const actionableIds = ids.filter(id => {
                     const doc = pendingDocs.find(d => d.id === id);
-                    if (! doc || ! doc.can_act) continue;
-                    try {
-                        const fd = new FormData(); fd.append('_token', cfg.csrf);
-                        await fetch(doc.approve_url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
-                    } catch(e) { console.error(e); }
-                }
+                    return doc && doc.can_act;
+                });
+                try {
+                    await wire.bulkApprove(actionableIds);
+                } catch(e) { console.error(e); }
                 window.location.reload();
             };
 
@@ -585,14 +593,13 @@
                 });
                 if (! result.isConfirmed) return;
 
-                for (const id of ids) {
+                const actionableIds = ids.filter(id => {
                     const doc = pendingDocs.find(d => d.id === id);
-                    if (! doc || ! doc.can_act) continue;
-                    try {
-                        const fd = new FormData(); fd.append('_token', cfg.csrf); fd.append('reason', result.value.reason);
-                        await fetch(doc.reject_url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd });
-                    } catch(e) { console.error(e); }
-                }
+                    return doc && doc.can_act;
+                });
+                try {
+                    await wire.bulkReject(actionableIds, result.value.reason);
+                } catch(e) { console.error(e); }
                 window.location.reload();
             };
 

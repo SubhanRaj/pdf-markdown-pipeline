@@ -136,3 +136,29 @@ Not part of this pass — listed here so the follow-on scope is visible, not so 
   respects the existing admin/`department.head` authorization check.
 - Manual smoke-test pass (this project has no automated browser test suite): a real logged-in pass
   through Pipeline Monitor with an in-flight conversion, in both light and dark mode.
+
+## Status (2026-08-13, `livewire-pilot` branch)
+
+Phases 0 and 1 shipped as planned. Phase 2's listed scope (Approval Queue actions) shipped too,
+plus two items not originally in Phase 2: Designation management and User management, both added
+after the pilot proved out cleanly. Site-wide `wire:navigate` and the Compare & Verify embedded
+status widget remain unbuilt, still deliberately out of scope.
+
+Delivered, each with Pest feature-test coverage (`tests/Feature/*Test.php`) and verified live
+against `docsrepo.exciseup.in` (this app's docroot is served directly from this checkout, so the
+pilot branch has been running live throughout):
+- **Pipeline Monitor** (`pipeline-monitor` component) — `wire:poll`-driven status list, bulk-select.
+- **Approval Queue actions** (`approval-actions` component) — approve/reject/reclassify/resubmit/
+  bulk, wired into the existing drawer/modal UI without touching it.
+- **Designation management** (`designation-manager` component) — full CRUD, replacing separate
+  create/edit pages with a modal.
+- **User management** (`user-list` + `user-form` components) — full CRUD (index/create/edit).
+- Login/OTP/password-reset were evaluated and explicitly declined — converting them would drop
+  `throttle:login`/`throttle:two-factor`/`throttle:password-reset` middleware, since Livewire's
+  update endpoint doesn't inherit page-route middleware. Left as plain Fortify-backed forms.
+
+See `claude.md`'s "Frontend interactivity: Alpine and Livewire" section for the full writeup,
+including the `SupportRedirects`/`RedirectResponse` `TypeError` bug this pilot surfaced (affects
+any reused controller action typed `: RedirectResponse` when called from a Livewire component) and
+the FormRequest-reuse pattern (`$class::createFrom(...)->validateResolved()`) used to keep
+authorization/validation logic in one place rather than duplicating it into each component.

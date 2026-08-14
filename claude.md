@@ -27,7 +27,7 @@ Core workflow: PDF upload → text extraction (or OCR fallback for scans) → hu
 | Framework | Laravel 13, PHP 8.4 |
 | Database | MariaDB 12 |
 | Web server | Apache (mod_php or php-fpm via mod_proxy_fcgi) — **no Nginx** |
-| Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Alpine.js (self-hosted, `public/vendor/alpinejs/`, `defer`) for client-side interactivity/polling, Parsedown (markdown render) — **no Node, no npm, no build step**. Livewire evaluated 2026-07-26 and deliberately rejected — see "Frontend interactivity: Alpine, not Livewire" below. |
+| Frontend | Blade templates, Tailwind CSS v4 (Play CDN), Alpine.js (bundled via Livewire, standalone copy removed), Livewire v4 (`^4.3`) for a scoped set of components — Pipeline Monitor, Approval Queue actions, Designation management, User management — Parsedown (markdown render) — **no Node, no npm, no build step**. Livewire evaluated 2026-07-26 and initially rejected, then re-adopted as a scoped pilot on the `livewire-pilot` branch — see "Frontend interactivity: Alpine and Livewire" below. |
 | Text extraction | Python `markitdown` (Microsoft, MIT), via [`innobrain/markitdown`](https://github.com/innobraingmbh/markitdown) Laravel package (self-managed venv, `php artisan markitdown:install`) |
 | Structure detection | [Docling](https://github.com/docling-project/docling) (IBM, Apache 2.0), own venv (`storage/app/private/ocr-engines/docling/`) — layout/table-structure model, runs automatically as Pass 0 of every "Convert to Markdown" click, after the quick text-layer pass (reordered M34). Detects headings and table cells with bounding boxes; stored as a compact sibling `.structure.json` and spliced into the rendered Markdown wherever the geometric heuristic missed a table (M33) or heading (M34) — see `STRUCTURE_RESEARCH.md`. |
 | OCR | Selectable engine — Tesseract (Google/HP, `hin`+`eng`, default), EasyOCR (JaidedAI), PaddleOCR (Baidu), or Surya (VikParuchuri, open source) — invoked via `symfony/process`. Triggered either automatically (M34: when the text-layer pass looks unreadable, `RunOcrExtraction` is auto-dispatched with no click needed) or manually via "Run OCR-Based Extraction" (with an engine dropdown) from a human reviewer. See "Text Extraction & Markdown Conversion Pipeline" below and `config/ocr.php`. |
@@ -719,7 +719,7 @@ authorization previously inlined in `StoreDocumentRequest` — was extracted int
 `documents.bulk-upload` is untouched and still the right flow for "I already know where this
 goes, and I have a batch of files." See `NEW_CONVERSION_PLAN.md` for the full design writeup.
 
-### Frontend interactivity: Alpine, not Livewire (2026-07-26)
+### Frontend interactivity: Alpine and Livewire (2026-07-26, revised 2026-08-13)
 
 Recurring complaint: several pages needed a manual refresh to show anything new — most visibly,
 the OCR elapsed-timer on `documents/show.blade.php` restarted from `0:00` every time the page was
@@ -728,13 +728,54 @@ reloaded mid-conversion, even though the job had actually been running for minut
 every 15s, which reads as the whole page "rebooting" rather than updating). This prompted
 evaluating whether to adopt the TALL stack (Tailwind, **Alpine**, **Livewire**, Laravel).
 
-**Livewire — evaluated and rejected.** This app already tried Livewire once, as Pulse's dependency
-(see above), and hit two real compatibility bugs in the few days it was installed — a CSP/Alpine
-`unsafe-eval` conflict and a v4.3.3 `unserialize()` bug requiring a downgrade pin. Livewire also
-solves a different problem than what was actually broken here: every interaction becomes a
-server round-trip with component-state serialization/hydration, which is real architectural
-weight for what turned out to be plain bugs (a client-side timer seeded from the wrong value, a
-`<meta refresh>` instead of a targeted fetch) — not a case where reactivity itself was missing.
+**Livewire — evaluated and rejected in 2026-07-26, re-adopted 2026-08-13 as a scoped pilot.** This
+app already tried Livewire once, as Pulse's dependency (see above), and hit two real compatibility
+bugs in the few days it was installed — a CSP/Alpine `unsafe-eval` conflict and a v4.3.3
+`unserialize()` bug requiring a downgrade pin. At the time, Livewire also seemed to solve a
+different problem than what was actually broken (a client-side timer seeded from the wrong value,
+a `<meta refresh>` instead of a targeted fetch — plain bugs, not missing reactivity).
+
+Revisited 2026-08-13 (`livewire-pilot` branch, see `LIVEWIRE_ADOPTION_PLAN.md`) once both original
+blockers stopped applying: `'unsafe-eval'` was already granted for Alpine's own use by then, and
+the sibling `excise-budget-tracker` project has run Livewire `^4.3` in production with none of the
+2026-07-26 issues resurfacing. `composer require livewire/livewire:^4.3`; the standalone
+`public/vendor/alpinejs/` include was removed from `head.blade.php` in favor of Livewire's bundled
+Alpine (loading both causes "multiple instances of Alpine" double-init bugs) — `@livewireStyles`/
+`@livewireScripts` added to `head.blade.php`/`layout.blade.php` instead. No CSP change needed.
+
+**Scope actually converted** (each a single-file Livewire component under
+`resources/views/components/`, page Blade files reduced to thin `<livewire:...>` wrappers):
+- `pipeline-monitor` — Pipeline Monitor list/tabs/bulk-select, replacing the hand-rolled
+  `setInterval`/`fetch()` polling loop that previously lived in `documents/pipeline.blade.php`.
+- `approval-actions` — a page-level, invisible component backing `approvals/index.blade.php`'s
+  existing drawer/modal/tab UI (left untouched); only the approve/reject/reclassify/resubmit/bulk
+  *actions* were rewired from `fetch()` calls to `$wire.methodName(...)`.
+- `designation-manager` — full CRUD for `admin/designations`, replacing separate create/edit pages
+  with a single modal-based component.
+- `user-list` + `user-form` — full CRUD for `admin/users` (index/create/edit), same modal/component
+  split as designations. `user-form` deliberately dropped the old inline blur-validation and
+  live-username-preview (both purely decorative — the FormRequest already enforces every rule
+  server-side); errors surface on submit instead.
+
+**Deliberately left out of this pass:**
+- Login/OTP/password-reset (Fortify-backed) pages — converting these to Livewire would move their
+  POST handling off the real routes and silently drop the `throttle:login`/`throttle:two-factor`/
+  `throttle:password-reset` rate-limiting middleware, since Livewire's `/livewire/update` endpoint
+  doesn't inherit page-route-specific middleware. Left as plain forms.
+- Site-wide `wire:navigate` (SPA-style navigation) — a separate, much larger effort touching every
+  page's `<script>`/`@push('scripts')` block; not bundled into this pass.
+
+**Load-bearing bug found during this pilot:** Livewire's `SupportRedirects` feature rebinds the
+`redirect()` helper to its own `Redirector` (not a real `Illuminate\Http\RedirectResponse`) for the
+duration of any component method call. Any *reused* controller action typed `: RedirectResponse`
+(the pattern this app already used everywhere for FormRequest reuse) throws a `TypeError` the
+moment it hits `redirect()->route(...)`/`redirect()->to(...)` from inside a Livewire component —
+which renders as a misleading blank/419 "Session Expired" page, not a visible PHP error, because
+Livewire reuses HTTP 419 for its own stale-component-snapshot case too. Fixed by dropping the
+`: RedirectResponse` return type hint on every controller method a Livewire component calls
+directly (`ApprovalController`, `DesignationController`, `UserManagementController`) — real
+HTTP routes still receive a genuine `RedirectResponse` at runtime either way. `back()` is unaffected
+(the base `Redirector::back()` isn't overridden by this feature).
 
 **Alpine.js — adopted.** Self-hosted (`public/vendor/alpinejs/alpine.min.js`, currently pinned to
 3.14.9 — check this note before upgrading in place), `<script defer>` include in

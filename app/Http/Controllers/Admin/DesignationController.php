@@ -5,9 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreDesignationRequest;
 use App\Http\Requests\Admin\UpdateDesignationRequest;
-use App\Models\Department;
 use App\Models\Designation;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
@@ -16,23 +14,13 @@ class DesignationController extends Controller
 {
     public function index(): View
     {
-        $designations = Designation::with('department')
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get()
-            ->groupBy(fn (Designation $d) => $d->department?->name ?? 'Generic (any department)');
-
-        return view('admin.designations.index', compact('designations'));
+        return view('admin.designations.index');
     }
 
-    public function create(): View
-    {
-        $departments = Department::orderBy('name')->get(['id', 'name', 'level']);
-
-        return view('admin.designations.create', compact('departments'));
-    }
-
-    public function store(StoreDesignationRequest $request): RedirectResponse
+    // No return type: real routes get a RedirectResponse, but the designation-manager Livewire
+    // component calls these directly, and Livewire swaps the redirect() helper for its own
+    // Redirector (not a RedirectResponse) while a component method is executing.
+    public function store(StoreDesignationRequest $request)
     {
         try {
             DB::transaction(fn () => Designation::create($request->validated()));
@@ -48,14 +36,7 @@ class DesignationController extends Controller
         }
     }
 
-    public function edit(Designation $designation): View
-    {
-        $departments = Department::orderBy('name')->get(['id', 'name', 'level']);
-
-        return view('admin.designations.edit', compact('designation', 'departments'));
-    }
-
-    public function update(UpdateDesignationRequest $request, Designation $designation): RedirectResponse
+    public function update(UpdateDesignationRequest $request, Designation $designation)
     {
         try {
             DB::transaction(fn () => $designation->update($request->validated()));
@@ -74,7 +55,7 @@ class DesignationController extends Controller
         }
     }
 
-    public function destroy(Designation $designation): RedirectResponse
+    public function destroy(Designation $designation)
     {
         try {
             DB::transaction(fn () => $designation->delete());
