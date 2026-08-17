@@ -28,6 +28,13 @@ class DownloadController extends Controller
     /** @return array<int, array{document: \App\Models\Document, dir: string}> */
     private function folderEntries(Folder $folder, string $dir): array
     {
+        // A guest can't browse this folder at all (FolderController::show() blocks it the same
+        // way) — a zip download must not become a side door around that, regardless of what any
+        // individual document's own visibility says.
+        if ($this->isGuest() && $folder->visibility === 'authenticated') {
+            return [];
+        }
+
         return $folder->documents()->publishable()
             ->when($this->isGuest(), fn ($q) => $q->where('visibility', 'public'))
             ->get()
@@ -41,7 +48,7 @@ class DownloadController extends Controller
         $isGuest = $this->isGuest();
 
         $entries = $division->documents()->publishable()
-            ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
+            ->when($isGuest, fn ($q) => $q->publiclyVisible())
             ->get()
             ->map(fn ($doc) => ['document' => $doc, 'dir' => $dir])
             ->all();
@@ -160,7 +167,7 @@ class DownloadController extends Controller
         $isGuest = $this->isGuest();
 
         $entries = $department->documents()->publishable()
-            ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
+            ->when($isGuest, fn ($q) => $q->publiclyVisible())
             ->get()
             ->map(fn ($doc) => ['document' => $doc, 'dir' => ''])
             ->all();

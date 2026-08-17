@@ -196,7 +196,7 @@ Unique constraint: `(department_id, wing, slug)`.
 | `name` | string | Display name (e.g. "Court Case – Liquor License Appeal 2024") |
 | `slug` | string | Auto-generated from name; immutable after creation |
 | `description` | text nullable | Optional summary (max 500 chars) |
-| `visibility` | string | `public` (default) \| `authenticated` — gates the folder page |
+| `visibility` | string | `public` (default) \| `authenticated` — gates the folder page, and is a hard ceiling on every contained document's effective visibility regardless of the document's own flag |
 | `requires_approval` | boolean | default false — uploads to this folder held for approval |
 | `metadata` | json nullable | Case number, year, tags, etc. |
 | timestamps + softDeletes | | |
@@ -334,7 +334,7 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | `/documents/trash/bulk-force-destroy` | DELETE | `documents.trash.bulk-force-destroy` | `documents.force-delete` privilege or admin |
 | `/documents/bulk-destroy` | POST | `documents.bulk-destroy` | Auth (scoped to user's upload/delete scope) |
 
-*Public routes 403 on `visibility = authenticated` documents for guests.
+*Public routes 403 for guests on `Document::isPubliclyVisible() === false` — the document's own `visibility` plus, if it's in a folder, that folder's `visibility` too (see `claude.md`'s "Document visibility" section).
 
 ### Conversion Pipeline (Markdown / OCR / Structure)
 

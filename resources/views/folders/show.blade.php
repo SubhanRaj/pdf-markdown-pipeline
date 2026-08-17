@@ -213,14 +213,19 @@
                         <label class="field-label">Visibility</label>
                         <div class="flex gap-3 mt-1">
                             <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" name="visibility" value="public" checked class="text-cyan-600 focus:ring-cyan-500">
+                                <input type="radio" name="visibility" value="public" id="fld-visibility-public" @checked($folder->visibility !== 'authenticated') class="text-cyan-600 focus:ring-cyan-500">
                                 <span class="text-sm text-slate-700 dark:text-slate-200 flex items-center gap-1"><i class="ti ti-world text-sm text-green-500"></i> Public</span>
                             </label>
                             <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" name="visibility" value="authenticated" class="text-cyan-600 focus:ring-cyan-500">
+                                <input type="radio" name="visibility" value="authenticated" @checked($folder->visibility === 'authenticated') class="text-cyan-600 focus:ring-cyan-500">
                                 <span class="text-sm text-slate-700 dark:text-slate-200 flex items-center gap-1"><i class="ti ti-lock text-sm text-amber-500"></i> Authenticated Only</span>
                             </label>
                         </div>
+                        @if($folder->visibility === 'authenticated')
+                        <p class="mt-1 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                            <i class="ti ti-alert-triangle text-sm"></i> This folder is Authenticated Only, so documents default to the same. Marking one Public here has no real effect — guests still can't reach it while the folder itself is restricted.
+                        </p>
+                        @endif
                     </div>
 
                     <div>
@@ -483,6 +488,21 @@
         const contextFolderId   = form.querySelector('[name="folder_id"]');
         const parentInput       = form.querySelector('[name="parent_id"]');
         const visibility        = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+
+        @if($folder->visibility === 'authenticated')
+        if (visibility === 'public') {
+            const { isConfirmed } = await Swal.fire({
+                icon: 'warning',
+                title: 'This folder is Authenticated Only',
+                text: 'Marking these documents Public won\'t make them visible to guests — the folder\'s own restriction still applies. Continue anyway?',
+                showCancelButton: true,
+                confirmButtonText: 'Upload as Public anyway',
+                cancelButtonText: 'Cancel',
+            });
+            if (!isConfirmed) return;
+        }
+        @endif
+
         const language          = form.querySelector('[name="language"]')?.value || 'english';
         const amendmentNumber   = form.querySelector('[name="amendment_number"]')?.value?.trim() || '';
         const effectiveYear     = form.querySelector('[name="effective_year"]')?.value?.trim()   || '';

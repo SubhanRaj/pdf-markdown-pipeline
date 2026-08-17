@@ -13,7 +13,7 @@ class FrontendController extends Controller
 
         // baseQuery scopes to public-only for guests; excludes pending/rejected docs from counts
         $baseQuery = fn () => $isGuest
-            ? Document::publishable()->where('visibility', 'public')
+            ? Document::publishable()->publiclyVisible()
             : Document::publishable();
 
         $user = auth()->user();
@@ -32,13 +32,13 @@ class FrontendController extends Controller
         ];
 
         $departments = Department::withCount([
-            'documents' => fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q,
+            'documents' => fn ($q) => $isGuest ? $q->publiclyVisible() : $q,
         ])->orderBy('name')->get();
 
         // Guests see only public documents in the recent feed; pending/rejected are hidden
-        $recentDocuments = Document::with(['department', 'section', 'ruleSet'])
+        $recentDocuments = Document::with(['department', 'section', 'ruleSet', 'folder'])
             ->publishable()
-            ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
+            ->when(! auth()->check(), fn ($q) => $q->publiclyVisible())
             ->latest()
             ->limit(8)
             ->get();

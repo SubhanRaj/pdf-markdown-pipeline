@@ -32,7 +32,7 @@ class SitemapController extends Controller
                 $urls[] = ['loc' => route('departments.rules.show', [$ruleSet->department->levelAlias(), $ruleSet->department, $ruleSet]), 'priority' => '0.7'];
             }
 
-            Document::where('visibility', 'public')
+            Document::publiclyVisible()
                 ->whereIn('status', ['review', 'verified'])
                 ->with(['department', 'section', 'ruleSet', 'division', 'folder'])
                 ->chunk(500, function ($documents) use (&$urls) {

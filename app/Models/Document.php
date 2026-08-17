@@ -54,6 +54,27 @@ class Document extends Model
         return $query->whereNotIn('status', ['pending_approval', 'rejected']);
     }
 
+    /**
+     * A document's own `visibility` isn't the whole story — a Public document dropped into an
+     * Authenticated-only folder (by mistake, via the upload form's default, or via direct API/
+     * import) must not leak through the folder's restriction just because its own flag says
+     * public. This is the single source of truth every guest-facing check should use instead of
+     * reading `visibility` directly.
+     */
+    public function isPubliclyVisible(): bool
+    {
+        return $this->visibility === 'public'
+            && (! $this->folder_id || $this->folder?->visibility === 'public');
+    }
+
+    /** Query-builder counterpart to isPubliclyVisible() — for guest-facing list/search/sitemap queries. */
+    public function scopePubliclyVisible(Builder $query): Builder
+    {
+        return $query->where('visibility', 'public')
+            ->where(fn (Builder $q) => $q->whereNull('folder_id')
+                ->orWhereHas('folder', fn (Builder $f) => $f->where('visibility', 'public')));
+    }
+
     public function getRouteKeyName(): string
     {
         return 'slug';

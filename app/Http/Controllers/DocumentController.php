@@ -233,7 +233,7 @@ class DocumentController extends Controller
             ->orderByDesc('created_at');
 
         if (! auth()->check()) {
-            $query->where('visibility', 'public');
+            $query->publiclyVisible();
         }
 
         $byDepartment = $query->get()->groupBy('department_id');
@@ -243,7 +243,7 @@ class DocumentController extends Controller
 
     public function show(string $level, Department $department, Section $section, Document $document): View
     {
-        if (! auth()->check() && $document->visibility !== 'public') {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
             abort(403);
         }
 
@@ -253,7 +253,7 @@ class DocumentController extends Controller
 
     public function pdf(string $level, Department $department, Section $section, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && $document->visibility !== 'public') {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
             abort(403);
         }
 
@@ -281,7 +281,7 @@ class DocumentController extends Controller
      */
     public function ogImage(Document $document): \Symfony\Component\HttpFoundation\StreamedResponse|RedirectResponse
     {
-        if ($document->visibility !== 'public' || ! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
+        if (! $document->isPubliclyVisible() || ! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
             return redirect(asset('og-default.jpg'));
         }
 
@@ -840,7 +840,7 @@ class DocumentController extends Controller
 
     public function showRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): View
     {
-        if (! auth()->check() && $document->visibility !== 'public') {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
             abort(403);
         }
 
@@ -850,7 +850,7 @@ class DocumentController extends Controller
 
     public function pdfRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && $document->visibility !== 'public') {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
             abort(403);
         }
 
@@ -934,7 +934,7 @@ class DocumentController extends Controller
 
     public function showDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): View
     {
-        if (! auth()->check() && $document->visibility !== 'public') {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
             abort(403);
         }
 
@@ -944,7 +944,7 @@ class DocumentController extends Controller
 
     public function pdfDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && $document->visibility !== 'public') {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
             abort(403);
         }
 
@@ -1028,7 +1028,7 @@ class DocumentController extends Controller
 
     public function showSectionFolderDoc(string $level, Department $department, Section $section, Folder $folder, Document $document): View
     {
-        if (! auth()->check() && $document->visibility !== 'public') {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
             abort(403);
         }
 
@@ -1038,7 +1038,7 @@ class DocumentController extends Controller
 
     public function pdfSectionFolderDoc(string $level, Department $department, Section $section, Folder $folder, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && $document->visibility !== 'public') {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
             abort(403);
         }
 
@@ -1122,7 +1122,7 @@ class DocumentController extends Controller
 
     public function showDivisionFolderDoc(string $level, Department $department, Section $section, Division $division, Folder $folder, Document $document): View
     {
-        if (! auth()->check() && $document->visibility !== 'public') {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
             abort(403);
         }
 
@@ -1132,7 +1132,7 @@ class DocumentController extends Controller
 
     public function pdfDivisionFolderDoc(string $level, Department $department, Section $section, Division $division, Folder $folder, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && $document->visibility !== 'public') {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
             abort(403);
         }
 

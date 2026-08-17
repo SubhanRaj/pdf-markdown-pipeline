@@ -3679,3 +3679,38 @@ could not be corrected through any UI, anywhere.
 `resources/views/divisions/show.blade.php`, `resources/views/folders/show.blade.php`,
 `resources/views/documents/bulk-upload.blade.php`, `resources/views/quick_conversions/show.blade.php`,
 `claude.md`.
+
+## M78 — Folder visibility wasn't actually enforced on its own documents (COMPLETED 2026-08-17)
+
+Reported as a design question, not a bug report: "if a folder is authenticated-only but a document
+inside it is public by mistake, is it visible?" Answer, before this fix: yes. `Document.visibility`
+and `Folder.visibility` are separate columns, and every guest-facing check — `DocumentController`'s
+ten show/PDF route variants (including the folder-specific ones, which had `$folder` in hand and
+simply never read it for this), `DownloadController`'s zip routes, `SearchController`,
+`SitemapController`, `FrontendController`'s homepage feed — gated only on the document's own
+`visibility`. A `public`-flagged document inside an `authenticated` folder was directly viewable,
+downloadable, search-indexed, and (worse) actively advertised in the public sitemap to crawlers.
+`DownloadController::folder()`/`divisionFolder()` had no folder-visibility guard at all, independent
+of the document-level bug — a guest zip-downloading an "Authenticated Only" folder got every
+`public`-flagged document inside it regardless.
+
+Fixed with a single source of truth: `Document::isPubliclyVisible()` (own visibility **and**, if it
+has a `folder_id`, the folder's visibility too) plus a matching `scopePubliclyVisible()` query
+scope, both used everywhere the old raw `visibility === 'public'` check used to be. Deliberately
+left unchanged: `SectionController`/`RuleSetController`/`DepartmentController`/`FolderController`'s
+own document-listing queries, since those already gate the containing folder before ever reaching
+the document query (rule sets don't have folders at all).
+
+UX companion, not the actual fix: `folders/show.blade.php`'s upload modal now defaults the
+visibility radio to Authenticated when the target folder is, and warns (doesn't block) if the
+uploader picks Public anyway — since the real fix above makes the override harmless regardless.
+
+Logged in `SECURITY.md` as Pass 6 / M-04 (MEDIUM) with the full writeup. 7 new tests in
+`tests/Feature/DocumentFolderVisibilityTest.php`; full suite green apart from the pre-existing,
+unrelated `ExampleTest` failure.
+
+**Files changed:** `app/Models/Document.php`, `app/Http/Controllers/DocumentController.php`,
+`app/Http/Controllers/DownloadController.php`, `app/Http/Controllers/FrontendController.php`,
+`app/Http/Controllers/SearchController.php`, `app/Http/Controllers/SitemapController.php`,
+`resources/views/folders/show.blade.php`, `tests/Feature/DocumentFolderVisibilityTest.php` (new),
+`claude.md`, `SECURITY.md`, `README.md`.
