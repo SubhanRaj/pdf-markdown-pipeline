@@ -165,7 +165,7 @@ Unique constraint: `(section_id, slug)`. Slug generated via `Division::uniqueSlu
 | `name` | string | Display name (e.g. "Court Case – Liquor License Appeal 2024") |
 | `slug` | string | Auto-generated from name; uses `HasUnicodeSlug` trait |
 | `description` | text nullable | Optional summary of the matter (max 500 chars) |
-| `visibility` | string | `public` (default) \| `authenticated` — gates the folder page; contained docs keep their own visibility |
+| `visibility` | string | `public` (default) \| `authenticated` — gates the folder page, and is a hard ceiling on every contained document's effective visibility regardless of the document's own flag (see "Document visibility" below) |
 | `requires_approval` | boolean | default false — any upload to this folder triggers `pending_approval` |
 | `metadata` | json nullable | Case number, year, tags, etc. |
 | `timestamps` + `softDeletes` | | |
@@ -870,7 +870,7 @@ Controller method signatures **must** declare `string $level` as their first par
 | POST | `/conversions/{quickConversion}/place` | `conversions.place` | Auth + owner + destination authorization |
 | DELETE | `/conversions/{quickConversion}` | `conversions.destroy` | Auth + owner |
 
-*Public routes 403 on `visibility = authenticated` documents for guests. Folder doc routes additionally 403 if the containing folder's visibility is `authenticated` and the user is a guest.
+*Public routes 403 for guests on `Document::isPubliclyVisible() === false` — a document's own `visibility` plus, if it has a `folder_id`, its containing folder's `visibility` too (see "Document visibility" below; folder doc routes weren't actually checking the folder's visibility here until 2026-08-17, despite this doc having claimed they did).
 
 **Note on `convert-status`:** any authenticated user can poll conversion status for any numeric document ID — it isn't scoped to visibility, department, or upload boundary. It only leaks processing metadata (`status`, `extraction_method`, `ocr_engine`, `needs_ocr_review`, `has_markdown`), never document content, but this is looser than every other document endpoint in this table. Flagged in `SECURITY.md` Pass 4 as a low-severity, not-yet-fixed information-disclosure gap.
 
@@ -1053,18 +1053,55 @@ Documents carry a `visibility` column independent of the processing-status workf
 | `public` (default) | All visitors, including unauthenticated guests |
 | `authenticated` | Logged-in users only |
 
-**Guest gate** — every public-facing query filters on `visibility = 'public'` for unauthenticated requests. The old `status = 'verified'` gate has been removed entirely. Applies to:
-- `DocumentController@index/show/pdf` and `@showRuleSetDoc/@pdfRuleSetDoc` — `show` and `showRuleSetDoc` abort(403) if the document's visibility is `authenticated` and the user is a guest
-- `SectionController@index/show` and `RuleSetController@show` — `withCount('documents')` and list queries are scoped to `visibility = 'public'` for guests
-- `DepartmentController@index/show` — `withCount('documents')` on department, section, and rule-set rows scoped per auth state
-- `FrontendController@dashboard` — stat counts (`total`, `uploaded`, `verified`) are scoped to public-only for guests; pipeline-only stats (`review`, `processing`, `failed`) return 0 to guests
-- `SearchController@index` — filters on `visibility = 'public'` for guests
+Folders carry their own, separate `visibility` column with the same two values — gating the
+folder's own browse page. Departments, sections, and divisions have no `visibility` column of
+their own at all (only `requires_approval`, an unrelated upload-workflow toggle).
 
-**Upload modals** — both section and rule-set upload modals include a visibility radio selector (defaults to Public). The `StoreDocumentRequest` validates and passes the value through to `Document::create()`.
+**Folder visibility is the ceiling on every document inside it, not a separate, independent
+check (fixed 2026-08-17).** A document's own `visibility` used to be the *only* thing every
+guest-facing check looked at — a document marked Public that lived inside an Authenticated-only
+folder was still directly viewable, downloadable, searchable, and sitemap-indexed by a guest who
+had (or found) its URL, even though the folder page itself correctly blocked guest browsing. Fixed
+by adding `Document::isPubliclyVisible(): bool` (checks the document's own `visibility` **and**,
+if it has a `folder_id`, that the folder's `visibility` is also `public`) and a matching
+`Document::scopePubliclyVisible()` query scope — every guest-facing check now goes through one of
+these instead of reading the `visibility` column directly:
+- `DocumentController@show/pdf/showRuleSetDoc/pdfRuleSetDoc/showDivisionDoc/pdfDivisionDoc/`
+  `showSectionFolderDoc/pdfSectionFolderDoc/showDivisionFolderDoc/pdfDivisionFolderDoc/ogImage/index`
+- `DownloadController` (zip downloads) — `folderEntries()` additionally short-circuits to an empty
+  zip for a guest if the folder itself is `authenticated`, since a zip download has no per-folder
+  page guard of its own to inherit; `divisionEntries()`/`department()` (whose direct-document
+  queries can include folder-attached documents) use the new scope
+- `FrontendController@dashboard` (stat counts, department counts, recent-documents feed)
+- `SearchController@index` (document results — folder search results were already correctly
+  scoped on the folder's own visibility, unaffected)
+- `SitemapController@index`
+- `SectionController@index/show`, `RuleSetController@show`, `DepartmentController@index/show`,
+  and `FolderController`'s own document-listing queries were **not** changed — each of these
+  already either has no folder-attached documents to worry about (rule sets don't have folders)
+  or already gates the containing folder itself before ever reaching the document query (so guests
+  only reach it when the folder is already known-public). See `tests/Feature/DocumentFolderVisibilityTest.php`.
 
-**`documents/show`** — green "Public" or amber "Authenticated Only" badge shown in the document header.
+**Upload modals** — section, rule-set, and folder upload modals include a visibility radio
+selector (defaults to Public). `folders/show.blade.php`'s modal is the one exception: since a
+folder is a known, fixed context there (unlike section/rule-set uploads, which never target a
+folder), the radio defaults to **Authenticated** instead when `$folder->visibility ===
+'authenticated'`, and picking Public anyway raises a SweetAlert2 warning ("won't make them visible
+to guests — the folder's own restriction still applies") before allowing the upload to proceed.
+This is UX sugar only, not the enforcement — the `isPubliclyVisible()` fix above is what actually
+prevents the leak regardless of what gets saved, so overriding the warning is safe by design, not
+just discouraged. `StoreDocumentRequest` validates and passes the value through to
+`Document::create()` unchanged; there's no server-side coercion forcing it to match the folder.
 
-**Key distinction:** `status` tracks the conversion pipeline (`uploaded → processing → review → verified`); `visibility` controls read access. A document can be `public` while still `uploaded` (guests can download the original PDF immediately), or `authenticated` while `verified` (internal-only even after full processing).
+**`documents/show`** — green "Public" or amber "Authenticated Only" badge shown in the document
+header, reflecting the document's own `visibility` value as-is (not the effective/inherited one) —
+worth remembering when reading that badge on a document inside an authenticated folder.
+
+**Key distinction:** `status` tracks the conversion pipeline (`uploaded → processing → review →
+verified`); `visibility` controls read access. A document can be `public` while still `uploaded`
+(guests can download the original PDF immediately), or `authenticated` while `verified`
+(internal-only even after full processing) — and, per the fix above, a document's *effective*
+public-ness is never looser than its folder's, even if its own flag says otherwise.
 
 ### Document views
 

@@ -10,6 +10,7 @@
 **Scope (Pass 3):** M29 Folders (Patravali) module — new controller, Form Requests, models, routes, views (2026-07-04)
 **Scope (Pass 4):** M30 Text Extraction & Markdown Conversion Pipeline — new jobs, controller methods, routes, views, Compare & Verify modal (2026-07-13)
 **Scope (Pass 5):** M31/M31.1 Policy Taxonomy — `RuleSet.kind` discriminator, department-scoped policy authorization, year-over-year supersession, controlled-vocabulary "other" free text (2026-07-15)
+**Scope (Pass 6):** Folder-visibility inheritance — every guest-facing document access path (view/PDF/edit routes, zip downloads, search, sitemap, homepage feed) (2026-08-17)
 
 ---
 
@@ -76,6 +77,17 @@ H-03 is a newly-introduced authorization bypass, caught during self-review of th
 | — | `policy_type_other`/`state_other` free-text fields — XSS / stored-script injection | — | **PASS** |
 | — | Blade output of new policy fields (`policy_type`, `state`, `effective_start_date`/`effective_end_date`) | — | **PASS (auto-escaped, no `{!! !!}`)** |
 | — | Department-scoped policy-type dropdown lock (client-side) re-verified as server-enforced | — | **PASS** |
+
+### Pass 6 — Folder-Visibility Inheritance (2026-08-17)
+
+| ID | Finding | Severity | Status |
+|----|---------|---------|--------|
+| M-04 | A `visibility=public` document inside an `visibility=authenticated` folder was fully guest-accessible anyway (direct view/PDF, search results, sitemap) — every guest-facing check read only the document's own `visibility`, never its folder's | MEDIUM | **FIXED** |
+
+M-04 was raised by the site owner as a design question ("if a folder is authenticated-only but a
+document inside it is public by mistake, is it visible?") rather than found in a formal audit
+pass — logged here under the same numbering as the others since it's a real access-control gap
+with the same shape as prior findings, not a cosmetic issue.
 
 ---
 
@@ -948,6 +960,65 @@ login rather than reopening the set-password form.
 
 ---
 
+### M-04 · Folder Visibility Wasn't Enforced On Its Own Documents
+
+**Severity:** MEDIUM
+**Status:** FIXED (2026-08-17)
+
+**Finding:**
+`Folder` and `Document` each carry their own, independent `visibility` column
+(`public`/`authenticated`). Every guest-facing document access path — `DocumentController`'s
+show/PDF/edit routes (all ten status-showing route variants: plain, rule-set, division,
+section-folder, division-folder), `DownloadController`'s zip-download routes, `SearchController`,
+`SitemapController`, and `FrontendController`'s homepage feed — gated guest access purely on
+`$document->visibility === 'public'`. None of them checked the containing folder's own
+`visibility`, even the folder-specific route variants (`showSectionFolderDoc`,
+`showDivisionFolderDoc`, and their `pdf*` counterparts) that already had `$folder` as a route
+parameter and simply never read it for this purpose.
+
+Concretely: an admin sets a folder to `Authenticated Only` — e.g. "Confidential Circulars" — to
+keep guests off its browse page (`FolderController::show()` does correctly 403 there). But if any
+document inside that folder has its own `visibility` left at (or set back to) the default
+`public` — the upload modal defaulted to Public regardless of the target folder's own setting, so
+this was one un-thought click away, not a deliberate bypass — that document was:
+- Directly viewable and PDF-downloadable via its own URL by an unauthenticated guest.
+- Returned in guest search results (`SearchController::index()`).
+- Included in the public `sitemap.xml` (`SitemapController::index()`) — meaning it was actively
+  advertised to search-engine crawlers, not merely reachable if the URL were somehow guessed.
+- Included in a guest's zip download of the folder, section, division, or department (worse:
+  `DownloadController::folder()`/`divisionFolder()` had **no folder-visibility guard of their
+  own at all** — a guest zip-downloading an entire Authenticated-only folder got every
+  `public`-flagged document inside it, independent of this bug's document-level fix, since the
+  route itself never asked whether the folder should be guest-reachable in the first place).
+
+**Fix:** added `Document::isPubliclyVisible(): bool` (true only if the document's own visibility
+is `public` **and**, when it has a `folder_id`, its folder's visibility is also `public`) and a
+matching `Document::scopePubliclyVisible()` query scope, and routed every guest-facing check above
+through one of the two instead of reading the `visibility` column directly. `DownloadController`'s
+`folder()`/`divisionFolder()` routes additionally now short-circuit to an empty zip for a guest
+when the folder itself is `authenticated`, closing the separate no-guard gap above.
+`SectionController`/`RuleSetController`/`DepartmentController`/`FolderController`'s own
+document-listing queries were deliberately left unchanged — each either has no folder-attached
+documents in play (rule sets don't have folders) or already gates the containing folder before
+ever reaching the document query, so a guest only reaches that query when the folder is already
+known-public.
+
+**UX companion (not a security control on its own):** `folders/show.blade.php`'s upload modal now
+defaults the visibility radio to Authenticated when the target folder is Authenticated, and shows
+a warning (does not block) if the uploader picks Public anyway — explaining that it won't actually
+change the document's real reachability. This reduces how often the mismatch gets created in the
+first place, but the `isPubliclyVisible()` fix above is what actually closes the gap regardless of
+what a user saves.
+
+**Files changed:** `app/Models/Document.php`, `app/Http/Controllers/DocumentController.php`,
+`app/Http/Controllers/DownloadController.php`, `app/Http/Controllers/FrontendController.php`,
+`app/Http/Controllers/SearchController.php`, `app/Http/Controllers/SitemapController.php`,
+`resources/views/folders/show.blade.php`, `tests/Feature/DocumentFolderVisibilityTest.php` (new,
+7 tests covering the model helper, the guest-403 behavior on folder-doc routes, guest search
+exclusion, and sitemap exclusion).
+
+---
+
 ## Passing Checks — Confirmed Pre-Existing (No Remediation Required)
 
 These are not vulnerabilities in the current state but should be addressed before the application handles sensitive classified data.
@@ -966,4 +1037,4 @@ These are not vulnerabilities in the current state but should be addressed befor
 
 ---
 
-*Audit and remediation completed 2026-06-24. Pass 3 (M29 Folders) added 2026-07-04, with H-03 left open. Pass 4 (M30 Text Extraction & Markdown Conversion Pipeline) added 2026-07-13, with L-04 left open. Pass 5 (passwordless onboarding + email-OTP login) added 2026-07-26. Re-audit recommended after any significant change to upload, authentication, or access-control logic.*
+*Audit and remediation completed 2026-06-24. Pass 3 (M29 Folders) added 2026-07-04, with H-03 left open. Pass 4 (M30 Text Extraction & Markdown Conversion Pipeline) added 2026-07-13, with L-04 left open. Pass 5 (passwordless onboarding + email-OTP login) added 2026-07-26. Pass 6 (folder-visibility inheritance, M-04) added and fixed 2026-08-17. Re-audit recommended after any significant change to upload, authentication, or access-control logic.*

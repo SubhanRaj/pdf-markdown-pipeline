@@ -56,9 +56,10 @@ class SearchController extends Controller
             ->when($documentType !== '', fn ($query) => $query->where('document_type', $documentType))
             ->when($state !== '', fn ($query) => $query->whereHas('ruleSet', fn ($r) => $r->where('state', $state)));
 
-        // Guests only see public documents
+        // Guests only see public documents — and only if the folder they live in (if any) is
+        // public too, since a document's own visibility can't override its folder's.
         if (! auth()->check()) {
-            $documentsQuery->where('visibility', 'public');
+            $documentsQuery->publiclyVisible();
         }
 
         $documents = $documentsQuery
