@@ -40,6 +40,32 @@ to the `jobs` table and it just sits there — nothing processes it until a work
 `queue:work` is what you'd actually run day-to-day since it doesn't reload and is measurably
 faster.
 
+**`php artisan serve` and large uploads (2026-08-19 gotcha).** Plain `php artisan serve` rejects
+anything over PHP's stock 64M `upload_max_filesize`/`post_max_size` with a 413 — and unlike
+production Apache, it does **not** read `public/.htaccess`'s 300M override at all, since that's an
+Apache-only mechanism. Worse, passing `-d upload_max_filesize=300M` etc. to `php artisan serve`
+itself does nothing either: Laravel's `ServeCommand` spawns its own internal `php -S ...`
+subprocess (`ServeCommand::serverCommand()`) with a hardcoded command array, ignoring whatever
+`-d` flags the outer `artisan serve` invocation was given. The fix that actually reaches the real
+listener is a `PHP_INI_SCAN_DIR` override, since the built-in server's subprocess still goes
+through PHP's normal ini-loading (main ini + scan-dir), just not through the parent's CLI flags:
+
+```bash
+PHP_INI_SCAN_DIR="/etc/php/8.5/cli/conf.d:$(pwd)/.dev-php-ini" php artisan serve
+```
+
+`.dev-php-ini/uploads.ini` (gitignored, project-local, no `sudo` needed) sets
+`upload_max_filesize`/`post_max_size = 300M`, `max_execution_time`/`max_input_time = 300`,
+`memory_limit = 512M` — same values `.htaccess` already uses in production. Keep the default
+scan-dir (`/etc/php/8.5/cli/conf.d`, path varies by distro/PHP version — check with
+`php -i | grep 'additional .ini'`) first in the colon-separated list, or every CLI extension
+(`mysqli`, `pdo`, `mbstring`, etc.) normally loaded from there silently stops loading instead.
+
+For anything actually **over** 300M, `artisan serve` isn't the right tool regardless — see
+"Cloudflare's own edge upload cap" below: on this box, uploading directly against the real
+production Apache vhost at `http://127.0.0.1:8080/` (bypassing both `artisan serve` and the
+Cloudflare tunnel) is simpler and exercises the real deployment, not a dev copy.
+
 Optional: `php artisan pail` in a third terminal for live log tailing instead of tailing
 `storage/logs/laravel.log` by hand.
 
