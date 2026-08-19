@@ -38,8 +38,11 @@ class DesignationSeeder extends Seeder
             'excise' => [
                 ['name' => 'Excise Commissioner',            'default_scope' => 'department', 'default_privileges' => ['department.head', 'documents.verify', 'documents.approve']],
                 ['name' => 'Additional Excise Commissioner', 'default_scope' => 'department', 'default_privileges' => ['department.head', 'documents.verify', 'documents.approve']],
-                ['name' => 'Deputy Commissioner (P&E)',      'default_scope' => 'section',    'default_privileges' => ['section.head', 'documents.verify']],
-                ['name' => 'Deputy Excise Commissioner (P)', 'default_scope' => 'section',    'default_privileges' => ['section.head', 'documents.verify']],
+                // Generic rank — the specific posting (P&E, P, etc.) belongs on the user's own
+                // `post` field, not as a separate Designation per posting (was two rows here,
+                // "Deputy Commissioner (P&E)" and "Deputy Excise Commissioner (P)", merged
+                // 2026-08-19 — see claude.md's designations section).
+                ['name' => 'Deputy Excise Commissioner',      'default_scope' => 'section',    'default_privileges' => ['section.head', 'documents.verify']],
             ],
             'sugarcane_sugar' => [
                 ['name' => 'Cane Commissioner',            'default_scope' => 'department', 'default_privileges' => ['department.head', 'documents.verify', 'documents.approve']],

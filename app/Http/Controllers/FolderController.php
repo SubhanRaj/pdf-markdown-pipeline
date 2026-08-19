@@ -154,6 +154,10 @@ class FolderController extends Controller
 
     private function renderShow(Request $request, Department $department, Section $section, ?Division $division, Folder $folder): View
     {
+        if (auth()->check() && ! auth()->user()->canView($division ?? $section)) {
+            abort(403);
+        }
+
         $sort       = $request->get('sort', 'amendment_number_desc');
         $filterYear = (int) $request->get('year', 0);
 

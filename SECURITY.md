@@ -11,6 +11,7 @@
 **Scope (Pass 4):** M30 Text Extraction & Markdown Conversion Pipeline — new jobs, controller methods, routes, views, Compare & Verify modal (2026-07-13)
 **Scope (Pass 5):** M31/M31.1 Policy Taxonomy — `RuleSet.kind` discriminator, department-scoped policy authorization, year-over-year supersession, controlled-vocabulary "other" free text (2026-07-15)
 **Scope (Pass 6):** Folder-visibility inheritance — every guest-facing document access path (view/PDF/edit routes, zip downloads, search, sitemap, homepage feed) (2026-08-17)
+**Scope (Pass 7):** Live account audit — `role=admin` misuse as a scope workaround (recurrence of the pattern M74/Designations was meant to close), the `canManageDocument()` authorization gap that caused it, and the complete absence of view-scoping for authenticated users (2026-08-19)
 
 ---
 
@@ -88,6 +89,215 @@ M-04 was raised by the site owner as a design question ("if a folder is authenti
 document inside it is public by mistake, is it visible?") rather than found in a formal audit
 pass — logged here under the same numbering as the others since it's a real access-control gap
 with the same shape as prior findings, not a cosmetic issue.
+
+### Pass 7 — Live Account Audit: `role=admin` Recurrence + View-Scoping Gap (2026-08-19)
+
+| ID | Finding | Severity | Status |
+|----|---------|---------|--------|
+| H-06 | 6 real officer accounts (beyond the IT account) were granted `role=admin`, the exact god-mode-as-scope-workaround pattern M74/Designations was built to close — full site console access + unconditional bypass of every scope check for each of them | HIGH | **FIXED** |
+| H-07 | `DocumentController::canManageDocument()` — the gate for Convert/OCR/verify/edit-Markdown/discard/revert-OCR/view-structure — only ever granted `isAdmin()` or a policy document's `department.head`; a normal section/GO/rule document could not be converted or verified by anyone except a true admin, which is what drove H-06 in the first place | HIGH | **FIXED** |
+| M-05 | Viewing was never scoped for authenticated users at all (a documented, deliberate prior decision) — any authenticated user, regardless of department/section assignment, could browse any other section's/division's/folder's document list and open any individual document | MEDIUM | **FIXED** |
+| L-05 | `documents.pipeline.health` (server/queue operational metadata) had no admin gate on the route itself — only the sidebar link was conditionally hidden; any authenticated user could reach it directly by URL | LOW | **FIXED** |
+
+H-06/H-07/M-05/L-05 were all raised by the site owner from real production usage (officer accounts
+onboarded, a section-scoped Deputy Excise Commissioner observed browsing into a sibling section),
+not a formal audit pass — logged here under the same severity/status convention as the others since
+they're real access-control gaps, not cosmetic issues.
+
+---
+
+### H-06 · `role=admin` Reused as a Scope Workaround, Recurrence of the M74 Pattern
+
+**Severity:** HIGH
+**Status:** FIXED
+
+**Finding:** A live query against the production `users` table found 7 accounts with `role=admin`
+— only one of which (the real IT/dev account) should have had it. The other 6 (a Finance
+Controller, an Additional Excise Commissioner, the Excise Commissioner, a Joint Excise
+Commissioner persona, a Deputy Excise Commissioner, and a PA to the Excise Commissioner) were all
+real officers who needed genuine document authority (upload/verify/convert) in their own
+department or section, but the only path that actually granted enough turned out to be the
+unconditional-bypass role. `role=admin` grants two independent things at once — the site
+console (`/admin/users`, `/admin/designations`, `/admin/activity-logs`,
+`documents.pipeline.health`) and a bypass of every organisational scope check — so every one of
+these accounts could also browse and act on every other department's/section's documents, not
+just their own. Concretely: a Deputy Excise Commissioner assigned to Establishment Section could
+freely browse into Camp Office Excise Commissioner Section, a completely unrelated section under
+the same department.
+
+**Root cause:** identical shape to the incident M74/`DESIGNATIONS_PLAN.md` already diagnosed and
+tried to fix — Designation presets kept under-granting privileges in practice (e.g. "Deputy
+Commissioner (P&E)" only ever granted `documents.verify`, never `upload`/`edit`), so whoever was
+onboarding these accounts hit a real capability wall and reached for `role=admin` as the only thing
+that reliably worked. M74 gave scope-holders a *named preset*; it never removed the temptation to
+reach for the god-mode role the moment a preset under-granted, because the underlying
+`role=admin` bypass was still there, still worked, and was still the fastest fix available.
+
+**Fix:** see H-07 below (the actual capability gap that motivated this) and the "Role Restructure"
+write-up in `summary.md`'s M79 entry for the full design — in short, `role` is now a 4-tier column
+(`system_admin` | `admin` | `operator` | `viewer`), `User::isAdmin()` was redefined to check
+`role === 'system_admin'` only (a single-point change — confirmed via `grep -rn "role === 'admin'"`
+that every bypass check in the codebase already routed through this one method), and the 6 officer
+accounts were moved to the new `role=admin` tier — full document authority via
+`User::ORG_ADMIN_PRIVILEGES`, auto-granted through `hasPrivilege()`, but **never** a scope bypass;
+they still only act within their own `department_id`/`section_id`/`division_id`.
+
+**Verification:** applied directly against the live production database via `php artisan tinker`
+(not a migration — this is account state, not schema), then verified: `IsAdmin` middleware
+reflection confirms the demoted DEC account gets `403` on `/admin/users` while the real IT account
+still passes; `User::canUploadTo()`/`canManageDocument()` reflection confirms the DEC can act on
+Establishment Section documents but not Camp Office Section's; the Excise Commissioner (department-
+scoped) can act on both, matching the intended "EC sees/manages the whole department" design.
+
+**Files affected:** `app/Models/User.php`, live `users` table data (not code).
+
+---
+
+### H-07 · Every Document-Lifecycle Authorization Check Independently Duplicated "Admin, or Policy Department Head" — Five Separate Spots, All Under-Granting the Same Way
+
+**Severity:** HIGH
+**Status:** FIXED
+
+**Finding:** `DocumentController::canManageDocument()` (Convert/OCR/verify/discard/revert-OCR/
+view-structure) was the first spot found, but the same "admin, or a policy document's
+department.head" pattern turned out to be **independently duplicated in four more places**, each
+its own hand-written copy rather than a shared check — every one of them left a normal (non-policy)
+document with no scoped management path at all, only a true admin:
+
+1. `DocumentController::canManageDocument()` — Convert, OCR, verify (via `documents.verify` route),
+   discard-draft, revert-OCR, view-structure.
+2. `UpdateDocumentMarkdownRequest::authorize()` — the actual "Save & Verify" action
+   (`PATCH /documents/{id}/markdown`), the single most important step in the whole review
+   workflow. Missed on the first pass specifically because it's a separate `FormRequest`, not a
+   call into `canManageDocument()` — the exact "authorization lives only in the paired
+   `FormRequest`" blind spot this codebase's own `claude.md` already warns about for H-04/H-05.
+3. `DocumentController::authorizeEdit()` — gates the GET edit-*form* routes (`edit()`,
+   `editRuleSetDoc()`, etc.).
+4. `UpdateDocumentRequest::authorize()` — gates the paired PATCH (document metadata: title, type,
+   status, visibility, language). Same "GET helper vs. PATCH FormRequest, two copies" split as #2/#3.
+5. `BulkDeleteDocumentsRequest::authorize()` — worse than the other four: **no per-document scope
+   check existed anywhere**, not even inside the controller loop (unlike its siblings
+   `bulkRestore()`/`bulkForceDestroy()`, which already do this correctly per H-02). The route
+   table's own documentation claimed `documents.bulk-destroy` was "scoped to user's upload/delete
+   scope" — it never actually was; the blanket `isAdmin()`-only gate just happened to make that
+   look true by accident, since only a true admin (who bypasses scope anyway) could reach it.
+
+This is the direct cause of H-06: every officer who needed any of these five actions, for documents
+squarely within their own section or department, had no option but `role=admin`.
+
+**Fix:** the same third branch added consistently across all five — any user holding the relevant
+privilege (`documents.verify` for #1/#2, `documents.edit` for #3/#4, `documents.delete` for #5; all
+three auto-granted to the new `role=admin` tier, or individually assignable to an `operator`),
+scoped via the already-existing `User::canUploadTo()`/`canDeleteFrom()` against the document's own
+resolved context (`division ?? section ?? ruleSet`). Reuses proven scope-matching logic verbatim —
+no new authorization primitive introduced anywhere.
+
+```php
+$context = $document->division ?? $document->section ?? $ruleSet;
+return $context !== null && $user->hasPrivilege('documents.verify') && $user->canUploadTo($context);
+```
+
+`BulkDeleteDocumentsRequest::authorize()` was changed from `isAdmin()`-only to a plain
+`hasPrivilege('documents.delete')` check, matching `BulkRestoreDocumentsRequest`'s existing shape;
+`DocumentController::bulkDestroy()`'s loop gained the actual per-document `canDeleteFrom()` check
+(admins bypass, others `continue` past an out-of-scope id) — copied directly from `bulkRestore()`'s
+already-correct pattern, closing the real gap rather than just the symptom.
+
+**Every one of these five is a hand-kept duplicate, not a shared call** — #1/#3 (controller
+helpers) and #2/#4 (paired FormRequests) are deliberately kept in sync by comment cross-reference
+rather than merged into one shared method, since `FormRequest::authorize()` runs before the
+controller method body and can't call a private controller method directly. **If this class of
+check is touched again, update all five together** — this is exactly how H-07 was able to exist
+half-fixed for a moment during this same remediation pass (the first fix only touched #1; ①③④⑤
+were found by deliberately re-grepping for the same duplicated phrase after the first fix landed,
+not from a fresh audit).
+
+**Verification:** exercised directly via `ReflectionMethod`/`Auth::login()` against the real
+production `Kumar Prabhat Chandra` (`role=admin`, Establishment Section) account — blocked
+(`false`) on an Accounts Section document, allowed (`true`) on an Establishment Section document;
+`hasPrivilege('documents.edit')`, `hasPrivilege('documents.delete')`, and
+`BulkDeleteDocumentsRequest::authorize()` all confirmed `true` for this account.
+`tests/Feature/DocumentVerifyTest.php` updated (its "admin can verify anything, unconditionally"
+cases now correctly require `role=system_admin`, since that's genuinely what they test) and
+passing; full suite re-run green (18/19, the one failure pre-existing and unrelated).
+
+**Files affected:** `app/Http/Controllers/DocumentController.php`,
+`app/Http/Requests/UpdateDocumentMarkdownRequest.php`, `app/Http/Requests/UpdateDocumentRequest.php`,
+`app/Http/Requests/BulkDeleteDocumentsRequest.php`.
+
+**Deliberately left unchanged:** `StoreRuleSetRequest`/`UpdateRuleSetRequest` (`kind=rules`
+container create/edit — creating a *new* Act/Rules container, not acting on an existing
+document, stays `isAdmin()`-only; this is a separate, pre-existing, intentional boundary per
+H-04's original writeup, not part of this incident) and `DeleteDocumentRequest` (single-document
+delete already correctly used `canDeleteFrom()` before this pass — only the *bulk* path had the gap).
+
+---
+
+### M-05 · Viewing Was Never Scoped For Authenticated Users
+
+**Severity:** MEDIUM
+**Status:** FIXED
+
+**Finding:** This codebase's own architecture notes stated, as a deliberate prior decision,
+"viewing is never scoped, only mutations are." In practice this meant any authenticated user —
+regardless of role, department, or section assignment — could browse to any Section/Division/
+Folder/Document page in the system and see its full content, independent of the `role=admin`
+bypass issue in H-06. A section-scoped officer with entirely legitimate, narrow document authority
+had exactly the same *browsing* reach as a department-wide Commissioner. Confirmed by the site
+owner as unwanted: "even the seeing permission can be granular, like EC can see all, but section
+level can see only their [own section]."
+
+**Fix:** new `User::canView(object $context): bool` — the same org-unit tiers already used for
+`canUploadTo()`/`uploadScope()` (global → department → section → division), refactored out of a
+shared `matchesOrgScope()` helper so the two share logic rather than duplicate it. Differs from
+`canUploadTo()` only in what an *unscoped* user resolves to: uploading default-denies for a user
+with no organisational assignment, viewing default-*allows* (preserves the existing "legacy
+operator anywhere" decision — this only adds a ceiling for users who already have a department/
+section/division assigned, it never narrows someone who has none). A matching
+`Document::scopeViewableBy()` query scope applies the same filtering at the list-query level.
+Deliberately **not** applied to Rule Sets/Policies — department-wide reference material with no
+section-level owner, confirmed with the site owner before implementation. Applied uniformly across
+every authenticated browsing surface: Section/Division/Folder show pages (403, mirroring the
+existing folder-visibility-ceiling pattern) and their listing pages (silently filtered, not left as
+dead 403 links); all 8 non-rule-set `DocumentController` show/PDF route variants; the documents
+index and Pipeline monitor; Search (documents + sections/divisions/folders); the dashboard's
+per-status counts and recent-documents feed; and every ZIP bulk-download route. Guest access
+(`visibility`/`isPubliclyVisible()`/public routes) is completely untouched — this is an additional
+ceiling for authenticated users layered on top, confirmed with the site owner as the intended
+tradeoff (a guest can still see whatever a document's own `visibility` flag already allows; an
+authenticated but narrowly-scoped user is additionally capped to their own org unit when browsing
+the app itself).
+
+**Verification:** new `tests/Feature/DocumentViewScopeTest.php` (5 tests) — a section-scoped admin
+blocked from a sibling section, a department-scoped admin (EC persona) seeing both, `system_admin`
+bypassing scoping entirely, an unscoped user still seeing everything, and the Pipeline monitor only
+listing a section-scoped admin's own section's documents. Full existing suite re-run and confirmed
+green apart from the pre-existing, unrelated `ExampleTest` failure.
+
+**Files affected:** `app/Models/User.php`, `app/Models/Document.php`,
+`app/Http/Controllers/{Section,Division,Folder,Document,Search,Frontend,Download}Controller.php`,
+`resources/views/components/sidebar.blade.php` (the Pipeline nav badge count was found unscoped in
+the same pass and fixed alongside the rest).
+
+---
+
+### L-05 · `documents.pipeline.health` Reachable By Any Authenticated User Via Direct URL
+
+**Severity:** LOW
+**Status:** FIXED
+
+**Finding:** The Pipeline Health dashboard (server load, memory, CPU temp, queue depth) sits in the
+same `auth`+`throttle:reads` route group as `pipeline`/`trash`/`convert-status` — all
+intentionally broad, since any authenticated user legitimately uses those. But
+`documents.pipeline.health` itself was only ever hidden from the *sidebar* for non-admins
+(`@if(auth()->user()->isAdmin())`) — the route carried no additional gate, so any authenticated
+user who knew or guessed the URL could load it directly. Not document content, but the site owner
+explicitly named this page as something only the real IT account should see.
+
+**Fix:** added `->middleware('is_admin')` to just this one route in `routes/web.php`, leaving the
+sibling routes in the same group unchanged.
+
+**Files affected:** `routes/web.php`.
 
 ---
 
@@ -1037,4 +1247,4 @@ These are not vulnerabilities in the current state but should be addressed befor
 
 ---
 
-*Audit and remediation completed 2026-06-24. Pass 3 (M29 Folders) added 2026-07-04, with H-03 left open. Pass 4 (M30 Text Extraction & Markdown Conversion Pipeline) added 2026-07-13, with L-04 left open. Pass 5 (passwordless onboarding + email-OTP login) added 2026-07-26. Pass 6 (folder-visibility inheritance, M-04) added and fixed 2026-08-17. Re-audit recommended after any significant change to upload, authentication, or access-control logic.*
+*Audit and remediation completed 2026-06-24. Pass 3 (M29 Folders) added 2026-07-04, with H-03 left open. Pass 4 (M30 Text Extraction & Markdown Conversion Pipeline) added 2026-07-13, with L-04 left open. Pass 5 (passwordless onboarding + email-OTP login) added 2026-07-26. Pass 6 (folder-visibility inheritance, M-04) added and fixed 2026-08-17. Pass 7 (role=admin misuse recurrence, canManageDocument() gap, view-scoping, H-06/H-07/M-05/L-05) added and fixed 2026-08-19 — see `summary.md`'s M79 entry for the full design writeup. Re-audit recommended after any significant change to upload, authentication, or access-control logic.*

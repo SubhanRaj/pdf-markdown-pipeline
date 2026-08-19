@@ -289,15 +289,24 @@ a password check, not a mutation).
 **Timezone note (2026-07-25, revised 2026-08-05):** `document_status_histories.created_at`, `activity_logs.created_at`, and `failed_jobs.failed_at` all use a MariaDB-level `useCurrent()` column default rather than Eloquent's own timestamp assignment (the first two have `$timestamps = false` on their models). MariaDB's `CURRENT_TIMESTAMP` evaluates using **whatever timezone the current DB session is set to**, while Eloquent's `datetime` cast reads the raw string back assuming `config('app.timezone')` — those two must always agree, or every diff/comparison against `now()` (elapsed-time timers, activity log times, pipeline "last activity") skews by the difference between them. The `'timezone'` entry on the `mariadb` connection in `config/database.php` pins the DB session to match. This was first fixed 2026-07-25 by hardcoding it to `'+00:00'`, correct at the time because `app.timezone` was `UTC` — then `APP_TIMEZONE` was changed to `Asia/Kolkata` in `.env` without updating this to match, silently reintroducing the exact same ~5.5h skew (caught 2026-08-05 via a document conversion's "Elapsed" timer reading 336 minutes instead of ~6). Fixed properly this time: `'timezone' => (new DateTime('now', new DateTimeZone(env('APP_TIMEZONE', 'UTC'))))->format('P')` derives the DB session timezone from `APP_TIMEZONE` directly, so the two can't drift out of sync again regardless of what `APP_TIMEZONE` is set to. Historical rows written under either mismatch remain skewed — no retroactive fix, same tradeoff as the original fix.
 
 ### `users`
-Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (free-text "Other" fallback designation, nullable — see `designations` below), `designation_id` (FK → designations, nullable, `nullOnDelete`, added M74), `role` (`admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings — see `User::PRIVILEGES` constant for the canonical whitelist), `uploads_require_approval` (boolean, default false — when true every document this user uploads goes to `pending_approval` regardless of context), `department_id` (FK → departments, nullable, `nullOnDelete`), `section_id` (FK → sections, nullable, `nullOnDelete`), `division_id` (FK → divisions, nullable, `nullOnDelete`). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true for admins unconditionally.
+Standard Laravel/Fortify users table extended with: `username` (unique), `mobile` (nullable, 10 digits, `+91`/`+91-` prefix stripped on save), `landline` (nullable, free-form STD+number e.g. `0522-223456`, max 20 chars), `post` (free-text supplementary posting, nullable, shown alongside `designation_id` — see `designations` below), `designation_id` (FK → designations, nullable, `nullOnDelete`, added M74), `role` (`system_admin` | `admin` | `operator` | `viewer`), `privileges` (JSON array of granular capability strings — see `User::PRIVILEGES` constant for the canonical whitelist), `uploads_require_approval` (boolean, default false — when true every document this user uploads goes to `pending_approval` regardless of context), `department_id` (FK → departments, nullable, `nullOnDelete`), `section_id` (FK → sections, nullable, `nullOnDelete`), `division_id` (FK → divisions, nullable, `nullOnDelete`). Public registration disabled — admin-created only. `User::isAdmin()` checks `role === 'system_admin'`; `User::isOrgAdmin()` checks `role === 'admin'`; `User::hasPrivilege($key)` returns true unconditionally for `isAdmin()`, and true for `isOrgAdmin()` on any privilege in `User::ORG_ADMIN_PRIVILEGES`.
 
-**`role = admin` is reserved for the site-manager/IT-dev account(s) only (M74 convention).** It is
-not a stand-in for real-world seniority (Commissioner, ACS, Secretary, etc.) — those get `role =
-operator` (or `viewer`) plus a `Designation` (see below) carrying whatever `department.head`/
-`organization.head`/document privileges their post actually needs. `role = admin` unconditionally
-grants `/admin/users`, `/admin/designations`, `/admin/activity-logs`, and every privilege check —
-handing it to a departmental officer as a scope shortcut also hands them the site-management
-console, which is the bug M74 exists to fix.
+**`role = system_admin` is reserved for the site-manager/IT-dev account(s) only (M74 convention,
+split further post-M74 after the same misuse pattern recurred with real officer accounts).** It is
+the only role that bypasses every privilege/scope check and reaches `/admin/users`,
+`/admin/designations`, `/admin/activity-logs`, and `documents.pipeline.health` (all still gated by
+the `IsAdmin` middleware, which calls `isAdmin()` — automatically system_admin-only). Real-world
+seniority (Commissioner, ACS, Secretary, etc.) gets `role = admin` instead — an org-scoped tier
+that auto-grants the full document-action bundle (`ORG_ADMIN_PRIVILEGES`: upload/edit/delete/
+restore/verify/approve) via `hasPrivilege()`, but *never* bypasses scope — a `role=admin` user
+still only acts within their own `department_id`/`section_id`/`division_id` (see `canUploadTo()`),
+and never sees the site console. This exists because the original M74 fix (Designation presets)
+kept under-granting privileges in practice — e.g. "Deputy Commissioner (P&E)" only ever granted
+`documents.verify`, not `upload`/`edit` — which pushed real accounts back toward `role=system_admin`
+as a shortcut the moment they hit a wall. `role = admin`/`operator`/`viewer` plus a `Designation`
+(see below) still carries whatever `department.head`/`section.head`/`organization.head` privilege
+(and hence scope) their post needs — `ORG_ADMIN_PRIVILEGES` only covers "can they act on documents
+at all," never "which department/section."
 
 ### `designations` (M74, 2026-08-03)
 A named, admin-managed preset mapping a real-world government post to a default scope + privilege
@@ -390,11 +399,14 @@ from approval. A **Convert to Markdown** button on `documents/show` (and a per-r
 button on the Pipeline monitor, and an **auto-convert** checkbox on the Bulk Upload page) calls
 `POST /documents/{id}/convert`, which dispatches `App\Jobs\ConvertDocumentToMarkdown`
 (`ShouldQueue`, `$timeout = 1200` — bumped from 900 to give the Docling structure pass below
-headroom). Both `convert()` and `convertOcr()` are gated by
-`auth()->user()->isAdmin()` directly in the controller — same pattern as other admin-only
-document mutations in this codebase (Form-Request-only or controller-only isAdmin() checks,
-not the stricter `is_admin` route-group middleware, which is reserved for `admin.*` user
-management routes).
+headroom). Both `convert()` and `convertOcr()` are gated by the shared private
+`canManageDocument()` helper (controller-only check, not the stricter `is_admin` route-group
+middleware, which is reserved for `admin.*` user management routes) — `system_admin`
+unconditionally, a policy document's `department.head`, or (M79, 2026-08-19) any user holding
+`documents.verify` scoped via `canUploadTo()` against the document's own division/section/rule-set
+context. See "View-scoping" above and `SECURITY.md` Pass 7 H-07 for why the third branch was
+added — before it, only a true admin could ever convert or verify a normal (non-policy) document,
+which is what pushed real officer accounts toward `role=system_admin` as a workaround.
 
 **Fixed 2026-07-16 — status wasn't persisted before dispatch.** Both `convert()` and
 `convertOcr()` used to only fake `status: 'processing'`/`'ocr_pending'` in their JSON response,
@@ -1343,7 +1355,7 @@ Upload → shouldRequireApproval()?
 
 ### Scope-Based Upload & Delete Permissions
 
-Every mutating action (upload, delete/archive, restore, force-delete) is scoped to the user's organisational assignment. Viewing is never scoped — all authenticated users can see all documents.
+Every mutating action (upload, delete/archive, restore, force-delete) is scoped to the user's organisational assignment. **Viewing is now also scoped for authenticated users (as of M79, 2026-08-19)** — see "View-scoping" immediately below; this section's own scope-tier table still applies unchanged to uploads/deletes.
 
 **User assignment → scope:**
 
@@ -1354,7 +1366,8 @@ Every mutating action (upload, delete/archive, restore, force-delete) is scoped 
 | `department_id` set, no `section_id` | All sections + divisions in that department | Same |
 | `department.head` privilege + `department_id` | Entire assigned department | Same |
 | `organization.head` privilege | Anywhere across all departments | Same |
-| Admin | Anywhere | Anywhere |
+| `role=system_admin` | Anywhere | Anywhere |
+| `role=admin` (org-scoped officer, M79) | Whatever their `department_id`/`section_id`/`division_id` + `.head` privilege resolves to (same tiers as any other role — `role=admin` itself grants no extra scope, only the document-action privilege bundle, see `ORG_ADMIN_PRIVILEGES`) | Same |
 | Operator with `documents.upload` and no dept/section/division | Anywhere (legacy mode — for initial data entry; scope to be tightened by revoking `documents.upload` once the initial load is complete) | Anywhere if also has `documents.delete` |
 
 Cross-section and cross-division mutations are blocked — a division user cannot touch another division's documents even within the same section.
@@ -1385,6 +1398,61 @@ For `Folder` contexts, `canUploadTo()` resolves the folder's owning section (or 
 - "Add Department" button on `departments/index` — visible to `organization.head`, or admin
 - Restore button on archive page — visible only if `hasPrivilege('documents.restore')` or admin
 - Permanent delete button on archive page — visible only if `hasPrivilege('documents.force-delete')` or admin
+
+### View-scoping (M79, 2026-08-19)
+
+Before this, viewing was explicitly unscoped for every authenticated user regardless of role — a
+documented architecture decision, reversed after the site owner reported a section-scoped Deputy
+Excise Commissioner browsing into a sibling section under the same department. Same org-unit tiers
+as upload scope (`global` → `department` → `section` → `division`), applied additively on top of
+the existing guest `visibility`/`isPubliclyVisible()` gate — guest access is completely untouched.
+
+**Helper methods:**
+```php
+User::canView(object $context): bool          // Section/Division/Folder — page-level 403 gate
+Document::scopeViewableBy(Builder $query, ?User $user): Builder  // list-query filter
+```
+
+Both share tier-matching logic with `canUploadTo()` via a private `matchesOrgScope()` helper on
+`User`, differing only in what an **unscoped** user (`uploadScope() === 'none'`) resolves to:
+`canUploadTo()` default-denies (no assignment ⇒ no mutation rights, unchanged from before);
+`canView()`/`scopeViewableBy()` default-**allow** — an unscoped user still sees everything, exactly
+as before M79. This only adds a ceiling for users who already have a department/section/division
+assigned; it never narrows someone who has none.
+
+**Deliberately not scoped: Rule Sets and Policies.** Acts/Rules/GOs-by-rule and named department
+policies are department-wide reference material with no section-level owner (confirmed with the
+site owner before building this) — `scopeViewableBy()` passes through any document carrying a
+`rule_set_id` at every tier, and `RuleSetController`/`PolicyDocumentController` were not touched at
+all. A section-scoped officer still sees every Rule Set/Policy in their department, same as a
+department-scoped one.
+
+**Where it's applied:**
+- `SectionController::show()`, `DivisionController::show()`, `FolderController`'s shared
+  `renderShow()` — `abort(403)` for an authenticated out-of-scope user, mirroring the pre-existing
+  folder-visibility-ceiling 403 pattern (M-04). `SectionController::index()` and the Search
+  controller's Sections/Divisions/Folders result blocks additionally filter the *listing* itself
+  (`->filter(fn ($s) => $user->canView($s))`), so a scoped user never sees a dead link to a section
+  they can't open.
+- `DocumentController` — new private `authorizeDocumentView(Document $document, object $context)`
+  helper wraps the existing guest `isPubliclyVisible()` check and adds the `canView()` ceiling for
+  authenticated users; used by all 8 non-rule-set show/PDF route variants (section, division,
+  section-folder, division-folder — **not** the 2 rule-set-doc variants, per the decision above).
+  `index()` and `pipeline()` chain `->viewableBy(auth()->user())` onto their existing queries.
+- `SearchController::index()` — documents via `viewableBy()`; Sections/Divisions/Folders filtered
+  post-fetch the same way; RuleSets left unscoped.
+- `FrontendController::dashboard()` — every per-status stat count and the recent-documents feed.
+- `DownloadController` — `folder()`/`divisionFolder()`/`division()`/`section()` gained a new
+  `authorizeZipView()` 403 gate (mirrors the page-level gate above); `department()` gained an
+  explicit tier check via `uploadScope()` directly (`canView()` doesn't resolve a bare `Department`
+  — only global/unscoped/matching-department may pull a whole-department export); `ruleSet()`/
+  `policyPeriod()`/`policyState()`/`rules()` stay unscoped.
+- Sidebar's own Pipeline nav badge count (`components/sidebar.blade.php`) — found unscoped in the
+  same pass (would have shown a department/system-wide number next to a link that, once clicked,
+  showed a correctly-narrowed list) and fixed to match.
+
+See `SECURITY.md` Pass 7 (M-05) and `summary.md`'s M79 entry for the full incident writeup, and
+`tests/Feature/DocumentViewScopeTest.php` for the regression coverage.
 
 ### User management & profile
 
@@ -1423,8 +1491,8 @@ Seeder is idempotent (`firstOrCreate` on email). Run with `php artisan db:seed -
 
 | Role | Email | Password | Privileges |
 |---|---|---|---|
-| Admin | `shubhanraj2002@gmail.com` | `Admin@1234` | `['*']` — primary dev account |
-| Admin (demo) | `admin.demo@excise.up.gov.in` | `Admin@1234` | `['*']` — Deputy Commissioner persona |
+| System Admin | `shubhanraj2002@gmail.com` | `Admin@1234` | `role=system_admin` — full technical bypass + site console, IT/dev only |
+| Admin (demo) | `admin.demo@excise.up.gov.in` | `Admin@1234` | `role=admin`, `['*']` privileges — org-scoped full document authority, no site console |
 | Operator (full) | `operator.full@excise.up.gov.in` | `Operator@1234` | upload + edit + delete + restore + verify |
 | Operator (upload-only) | `operator.upload@excise.up.gov.in` | `Operator@1234` | `['documents.upload']` only |
 | Operator (review/verify) | `operator.review@excise.up.gov.in` | `Operator@1234` | edit + verify only |
@@ -1448,7 +1516,7 @@ Seeder is idempotent (`firstOrCreate` on email). Run with `php artisan db:seed -
 
 **Browse Vault is fully dynamic** — `sidebar.blade.php` queries all `Department` records ordered by level then name. Icon and color resolved from a `$deptMeta` slug → `[icon, color]` map; unknown slugs fall back to a cycling palette. Slug keys use underscores (matching DB slugs), e.g. `sugarcane_sugar`.
 
-**Pipeline / Bulk Upload nav links** — `Pipeline` (linking to `documents.pipeline`) sits under the main document nav with an unscoped live count badge (`Document::whereIn('status', [...])->count()`, all departments, matching the "viewing is never scoped" rule). `Bulk Upload & Convert` (linking to `documents.bulk-upload`) sits under "Tools", visible only when `auth()->user()->uploadScope() !== 'none'`; the header's "New Conversion" CTA button links to the same route under the same gate. Both replace what were previously placeholder/"Coming soon" entries. `Pipeline Health` (linking to `documents.pipeline.health`, 2026-07-25) sits under "Manage", admin-only (`@if(auth()->user()->isAdmin())`) alongside Users/Activity Log — matches the operational, not document-browsing, nature of the page. (A `Pulse` link sat below it briefly, 2026-07-25 to 2026-07-26; removed along with Pulse itself.)
+**Pipeline / Bulk Upload nav links** — `Pipeline` (linking to `documents.pipeline`) sits under the main document nav with a live count badge, `Document::whereIn('status', [...])->viewableBy(auth()->user())->count()` (2026-08-19, M79 — previously unscoped across all departments; now agrees with what the Pipeline page itself shows once clicked, see "View-scoping" below). `Bulk Upload & Convert` (linking to `documents.bulk-upload`) sits under "Tools", visible only when `auth()->user()->uploadScope() !== 'none'`; the header's "New Conversion" CTA button links to the same route under the same gate. Both replace what were previously placeholder/"Coming soon" entries. `Pipeline Health` (linking to `documents.pipeline.health`, 2026-07-25) sits under "Manage", admin-only (`@if(auth()->user()->isAdmin())` — since M79, `isAdmin()` means `system_admin` only) alongside Users/Activity Log — matches the operational, not document-browsing, nature of the page; the route itself also carries `middleware('is_admin')` as of M79 (previously only the sidebar link was hidden, the raw URL was reachable by any authenticated user). (A `Pulse` link sat below it briefly, 2026-07-25 to 2026-07-26; removed along with Pulse itself.)
 
 ### Rate limiting
 

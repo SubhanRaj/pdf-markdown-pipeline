@@ -16,14 +16,17 @@ class SectionController extends Controller
 {
     public function index(string $level, Department $department): View
     {
-        $isGuest = ! auth()->check();
+        $user = auth()->user();
+        $isGuest = ! $user;
         $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
 
         $sections = $department->sections()
             ->withCount(['documents' => $visibilityScope])
             ->orderBy('wing')
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->filter(fn (Section $s) => $isGuest || $user->canView($s))
+            ->values();
 
         return view('sections.index', compact('department', 'sections'));
     }
@@ -70,7 +73,12 @@ class SectionController extends Controller
 
     public function show(Request $request, string $level, Department $department, Section $section): View
     {
-        $isGuest    = ! auth()->check();
+        $isGuest = ! auth()->check();
+
+        if (! $isGuest && ! auth()->user()->canView($section)) {
+            abort(403);
+        }
+
         $sort       = $request->get('sort', 'uploaded_desc');
         $filterYear = (int) $request->get('year', 0);
 

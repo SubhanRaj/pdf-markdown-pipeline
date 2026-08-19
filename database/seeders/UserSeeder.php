@@ -20,7 +20,7 @@ class UserSeeder extends Seeder
                     'mobile'            => null,
                     'password'          => Hash::make('Admin@1234'),
                     'post'              => 'Lead Engineer',
-                    'role'              => 'admin',
+                    'role'              => 'system_admin',
                     'privileges'        => ['*'],
                     'email_verified_at' => now(),
                 ],

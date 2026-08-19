@@ -64,6 +64,10 @@ class DivisionController extends Controller
 
     public function show(Request $request, string $level, Department $department, Section $section, Division $division): View
     {
+        if (auth()->check() && ! auth()->user()->canView($division)) {
+            abort(403);
+        }
+
         $sort       = $request->get('sort', 'amendment_number_desc');
         $filterYear = (int) $request->get('year', 0);
 

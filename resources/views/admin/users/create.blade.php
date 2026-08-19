@@ -130,13 +130,13 @@
                     @error('designation_id') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
 
-                {{-- Other post (free text, only used when no Designation fits) --}}
+                {{-- Post / Position — a specific posting shown alongside the Designation, or a free-text fallback if no Designation fits --}}
                 <div class="col-span-2 sm:col-span-1">
-                    <label for="post" class="field-label">Other post <span class="text-xs font-normal text-slate-400">(if not listed above)</span></label>
+                    <label for="post" class="field-label">Post / Position <span class="text-xs font-normal text-slate-400">(optional — e.g. "DEC (P&amp;E)", shown alongside the Designation)</span></label>
                     <input
                         id="post" name="post" type="text"
                         value="{{ old('post') }}"
-                        placeholder="e.g. Section Officer"
+                        placeholder="e.g. DEC (P&amp;E)"
                         class="field-input @error('post') field-error @enderror"
                         data-rule="post"
                     >
@@ -152,7 +152,12 @@
                         required
                     >
                         <option value="">— Select role —</option>
-                        @foreach(['admin' => 'Admin — Full access', 'operator' => 'Operator — Upload & convert', 'viewer' => 'Viewer — Read only'] as $val => $label)
+                        @foreach([
+                            'system_admin' => 'System Admin — full technical access (IT/dev only)',
+                            'admin'        => 'Admin — full document authority within their department/section',
+                            'operator'     => 'Operator — upload & convert, privilege-limited',
+                            'viewer'       => 'Viewer — read only',
+                        ] as $val => $label)
                         <option value="{{ $val }}" {{ old('role') === $val ? 'selected' : '' }}>{{ $label }}</option>
                         @endforeach
                     </select>

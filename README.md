@@ -268,10 +268,10 @@ Five-way context exclusivity — exactly one context group is active:
 | `created_at` | timestamp | Append-only — no `updated_at` |
 
 ### `users`
-Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digits, nullable), `landline` (free-form STD+number, nullable), `post` (free-text "Other" fallback), `designation_id` (FK → designations, nullable — see below), `role`, `uploads_require_approval` (boolean, default false — bulk-mode flag; all uploads from this user go to `pending_approval`), `privileges` (JSON — validated against `User::PRIVILEGES` whitelist), `department_id`, `section_id`, `division_id`. Public registration disabled — admin-created only.
+Standard Laravel/Fortify users table extended with `username`, `mobile` (10 digits, nullable), `landline` (free-form STD+number, nullable), `post` (free-text supplementary posting, shown alongside `designation_id` — e.g. "DEC (P&E)"), `designation_id` (FK → designations, nullable — see below), `role` (`system_admin` | `admin` | `operator` | `viewer`, see "Role summary" below), `uploads_require_approval` (boolean, default false — bulk-mode flag; all uploads from this user go to `pending_approval`), `privileges` (JSON — validated against `User::PRIVILEGES` whitelist), `department_id`, `section_id`, `division_id`. Public registration disabled — admin-created only.
 
 ### `designations` (M74)
-Admin-managed presets mapping a real-world government post (Commissioner, HoD, Section Officer, etc.) to a default scope + privilege bundle, so creating a user means picking a title from a dropdown instead of reverse-engineering privilege checkboxes. `id`, `department_id` (FK → departments, nullable — null = generic/any department), `name`, `slug` (unique per department), `default_scope` (`global`|`department`|`section`|`division`|`none`, informational), `default_privileges` (JSON subset of `User::PRIVILEGES`), `sort_order`, soft-deletes. Selecting one on the user form is a **one-time preset** — it pre-fills Department + privilege checkboxes but doesn't lock them, and editing a Designation later doesn't retroactively touch users who already picked it. `role = admin` is reserved for the site-manager/IT-dev account(s) only; real designations get `role = operator`/`viewer` plus whatever scope/privileges their post implies. See [DESIGNATIONS_PLAN.md](./DESIGNATIONS_PLAN.md) for the full rationale.
+Admin-managed presets mapping a real-world government post (Commissioner, HoD, Section Officer, etc.) to a default scope + privilege bundle, so creating a user means picking a title from a dropdown instead of reverse-engineering privilege checkboxes. `id`, `department_id` (FK → departments, nullable — null = generic/any department), `name`, `slug` (unique per department), `default_scope` (`global`|`department`|`section`|`division`|`none`, informational), `default_privileges` (JSON subset of `User::PRIVILEGES`), `sort_order`, soft-deletes. Selecting one on the user form is a **one-time preset** — it pre-fills Department + privilege checkboxes but doesn't lock them, and editing a Designation later doesn't retroactively touch users who already picked it. `role = system_admin` is reserved for the site-manager/IT-dev account(s) only (2026-08-19, M79 — split from the old `role = admin`, which real officer accounts kept reusing as a bypass once Designation presets under-granted in practice); real designations get `role = admin` (org-scoped, full document authority, no site console) or `operator`/`viewer` plus whatever scope/privileges their post implies. See [DESIGNATIONS_PLAN.md](./DESIGNATIONS_PLAN.md) for the full rationale and its 2026-08-19 follow-up.
 
 **Passwordless onboarding + email-OTP login (2026-07-26):** admins create a user with no password field at all — the account gets an unusable placeholder password and `email_verified_at = null` until the officer completes a one-time signed-link flow (`/onboarding/{user}`, 72h expiry, single-use via the `email_verified_at` gate) and sets their own password. Login is email+password followed by a 6-digit email OTP (`/login/otp`) before a session is granted — modeled on `github.com/SubhanRaj/pla`'s email-OTP pattern, rebuilt for this app's Tailwind/Alpine styling. Combined with the 7-day sliding session + remember-me below, OTP only fires on a genuine fresh login, not every visit. See `claude.md`'s "Auth & access control" section for the full flow.
 
@@ -287,6 +287,13 @@ component map — see [APP_FLOW.md](./APP_FLOW.md). The conversion pipeline itse
 structure) has its own dedicated diagram in `OCR_RESEARCH.md`.
 
 All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appear in URLs.
+
+**"Admin" in this table means `role=system_admin` (2026-08-19, M79)** — the true site/technical
+tier, reserved for the IT/dev account, that bypasses every scope check. A Commissioner, ACS, or
+Section Officer gets `role=admin` instead — real department/section-scoped document authority
+(upload/edit/delete/verify/approve), never a bypass — see `claude.md`'s "users" schema section and
+"View-scoping" for the full split. Route cells that say "Admin or `department.head`" already cover
+a `role=admin` officer holding that privilege; they don't need `role=system_admin`.
 
 `{level}` = `dept` (department_level) | `sectt` (secretariat_level) — disambiguates departments sharing a slug across levels.
 
@@ -341,8 +348,8 @@ All models use slug-based routing (`getRouteKeyName() = 'slug'`). IDs never appe
 | Route | Method | Name | Auth |
 |---|---|---|---|
 | `/documents/bulk-upload` | GET | `documents.bulk-upload` | Auth — scoped to the user's own upload permissions within the form itself |
-| `/documents/pipeline` | GET | `documents.pipeline` | Auth — shows every document across all departments, not scope-filtered |
-| `/documents/{id}/convert` | POST | `documents.convert` | Admin, or `department.head`/policy-manager for policy documents (`canManageDocument()`) |
+| `/documents/pipeline` | GET | `documents.pipeline` | Auth — scope-filtered (2026-08-19, M79) to the user's own department/section/division; global-scope and unscoped users see everything |
+| `/documents/{id}/convert` | POST | `documents.convert` | System Admin; a policy document's `department.head`; or (M79) any `documents.verify`-privileged user scoped via `canUploadTo()` (`canManageDocument()`) |
 | `/documents/{id}/convert-ocr` | POST | `documents.convert-ocr` | Same as above |
 | `/documents/{id}/revert-ocr` | POST | `documents.revert-ocr` | Same as above |
 | `/documents/{id}/structure` | GET | `documents.structure` | Same as above |
@@ -519,15 +526,16 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 
 | Role | Email | Password | Privileges |
 |---|---|---|---|
-| Admin | `shubhanraj2002@gmail.com` | `Admin@1234` | Full access (`*`) — primary dev account |
-| Admin (demo) | `admin.demo@excise.up.gov.in` | `Admin@1234` | Full access (`*`) — Deputy Commissioner persona |
+| System Admin | `shubhanraj2002@gmail.com` | `Admin@1234` | Full technical bypass + site console (`role=system_admin`) — IT/dev account only |
+| Admin (demo) | `admin.demo@excise.up.gov.in` | `Admin@1234` | Org-scoped full document authority (`role=admin`, `['*']` privileges) — Deputy Commissioner persona, no site console access |
 | Operator (full) | `operator.full@excise.up.gov.in` | `Operator@1234` | upload + edit + delete + restore + verify |
 | Operator (upload-only) | `operator.upload@excise.up.gov.in` | `Operator@1234` | `documents.upload` only — junior clerk |
 | Operator (review/verify) | `operator.review@excise.up.gov.in` | `Operator@1234` | edit + verify — QA reviewer |
 | Viewer | `viewer@excise.up.gov.in` | `Viewer@1234` | None — read-only authenticated access |
 
-**Role summary:**
-- **Admin** — complete system access including user management (`/admin/users`). `isAdmin()` unconditionally returns `true` for all privilege checks.
+**Role summary (updated 2026-08-19, M79):**
+- **System Admin** (`role=system_admin`) — complete system access including user management (`/admin/users`, `/admin/designations`, `/admin/activity-logs`, `documents.pipeline.health`). `isAdmin()` unconditionally returns `true` for all privilege checks. Reserved for the IT/dev account.
+- **Admin** (`role=admin`) — org-scoped officer tier (Commissioner, ACS, Section Officer, etc.). Full document authority (upload/edit/delete/restore/verify/approve, auto-granted via `User::ORG_ADMIN_PRIVILEGES`) within their own `department_id`/`section_id`/`division_id` — never a scope bypass, and no access to the site console.
 - **Operator** — authenticated mutations only; specific capabilities controlled by `privileges` JSON array. No user management access.
 - **Viewer** — can log in and view `authenticated`-visibility documents that guests cannot see, but cannot upload or mutate anything.
 
@@ -601,6 +609,31 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - Fixed a real, previously-invisible double-HTML-escaping bug affecting every page's `<title>`/subtitle (`&` was rendering as literal `&amp;`) — see `claude.md`'s SEO section for the Blade gotcha and the convention now used everywhere (`:title="..."` bound syntax, not `title="{{ ... }}"`).
 - Tabler Icons now served self-hosted instead of jsDelivr-primary-with-JS-fallback — the old fallback only checked whether the stylesheet (not the font file) had loaded, so a flaky network could silently show empty glyph boxes with no recovery.
 - A full sweep for URL/sharing edge cases: the app's fallback route was redirecting every malformed URL to `/login` instead of 404ing; the trailing-slash `.htaccess` rule was silently downgrading `https` to `http` (behind the Cloudflare Tunnel, breaking crawler previews for any URL shared with a trailing slash); all 8 HTTP error codes now render a proper branded page instead of Laravel's default; added a real favicon/PWA icon set (there wasn't one before); fixed one legacy document whose slug was its raw uploaded filename instead of a readable, title-derived one.
+
+**Completed (2026-08-19 — `role=admin` split into System Admin / Admin + view-scoping, M79):**
+- A live audit found 6 real officer accounts (beyond the IT account) with `role=admin`, granted
+  purely to get real document authority — the exact scope-workaround pattern the Designations
+  feature (M74) was meant to close, recurred. Root cause fixed at the source, not just the
+  accounts: `role` split into `system_admin` (true bypass + site console, IT/dev only) and `admin`
+  (org-scoped officer — full document authority via `User::ORG_ADMIN_PRIVILEGES`, never a scope
+  bypass); five independently-duplicated "admin, or policy department.head" authorization checks
+  across the document-conversion/verify/edit/bulk-delete lifecycle were unified onto the same
+  scoped pattern (`canManageDocument()`, `UpdateDocumentMarkdownRequest`, `authorizeEdit()`/
+  `UpdateDocumentRequest`, `BulkDeleteDocumentsRequest`) — this is what actually let real officers
+  do their job without needing the bypass role in the first place.
+- **Viewing is now scoped for authenticated users** (previously a deliberate "viewing is never
+  scoped" decision) — `User::canView()`/`Document::scopeViewableBy()` mirror the existing
+  upload-scope tiers (global/department/section/division) across every browse surface (Section/
+  Division/Folder/Document pages, Search, dashboard, Pipeline monitor, bulk ZIP downloads). Rule
+  Sets/Policies stay department-wide (no section-level owner); guest access is untouched.
+- Merged two over-specific Designations ("Deputy Commissioner (P&E)"/"(P)") into one generic
+  "Deputy Excise Commissioner"; the specific posting now lives on the user's own `post` field.
+- `documents.pipeline.health` gained an actual `is_admin` route gate (previously only the sidebar
+  link was hidden from non-admins; the URL itself was reachable by any authenticated user).
+- Smaller fixes in the same pass: the OCR engine picker no longer references `OCR_RESEARCH.md`;
+  the onboarding "set your password" page now has a show/hide-password toggle, matching login.
+- Full writeup: `SECURITY.md` Pass 7 (H-06/H-07/M-05/L-05), `summary.md`'s M79 entry, `claude.md`'s
+  "View-scoping" section. New `tests/Feature/DocumentViewScopeTest.php`.
 
 ## 🚀 Future Roadmap
 

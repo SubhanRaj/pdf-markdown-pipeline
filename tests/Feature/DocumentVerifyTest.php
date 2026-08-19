@@ -28,7 +28,7 @@ function makeReviewDocument(array $overrides = []): Document
 }
 
 test('admin can verify a document awaiting review', function () {
-    $admin = User::factory()->create(['role' => 'admin', 'username' => fake()->unique()->userName()]);
+    $admin = User::factory()->create(['role' => 'system_admin', 'username' => fake()->unique()->userName()]);
     $document = makeReviewDocument();
 
     $response = $this->actingAs($admin)->post(route('documents.verify', $document->id));
@@ -49,7 +49,7 @@ test('non-admin cannot verify a document', function () {
 });
 
 test('a document not awaiting review cannot be verified', function () {
-    $admin = User::factory()->create(['role' => 'admin', 'username' => fake()->unique()->userName()]);
+    $admin = User::factory()->create(['role' => 'system_admin', 'username' => fake()->unique()->userName()]);
     $document = makeReviewDocument(['status' => 'uploaded']);
 
     $this->actingAs($admin)->post(route('documents.verify', $document->id))
@@ -59,7 +59,7 @@ test('a document not awaiting review cannot be verified', function () {
 });
 
 test('a review document with no markdown draft cannot be verified', function () {
-    $admin = User::factory()->create(['role' => 'admin', 'username' => fake()->unique()->userName()]);
+    $admin = User::factory()->create(['role' => 'system_admin', 'username' => fake()->unique()->userName()]);
     $document = makeReviewDocument(['markdown_path' => null]);
 
     $this->actingAs($admin)->post(route('documents.verify', $document->id))

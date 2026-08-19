@@ -38,6 +38,7 @@ class SearchController extends Controller
         // show page), independent of and combinable with the free-text q search.
         $documentsQuery = Document::with(['department', 'section', 'division', 'ruleSet', 'folder'])
             ->publishable()
+            ->viewableBy(auth()->user())
             ->when($q !== '', fn ($query) => $query->where(fn ($sub) => $sub
                 ->where('title', 'LIKE', $term)
                 ->orWhere(fn ($sub) => $sub
@@ -71,12 +72,10 @@ class SearchController extends Controller
         // Sections/rule sets/divisions/folders only match against free-text q — an exact
         // document_type/state pill filter with no q has nothing meaningful to match here.
         if ($q !== '') {
-            $sections = Section::with('department')
-                ->where('name', 'LIKE', $term)
-                ->orderBy('name')
-                ->limit(20)
-                ->get();
+            $user = auth()->user();
 
+            // Rule sets are deliberately not org-scope-filtered — department-wide reference
+            // material (Acts/Rules/Policies) with no section-level owner, see User::canView().
             $ruleSets = RuleSet::with('department')
                 ->where('name', 'LIKE', $term)
                 ->orWhere('description', 'LIKE', $term)
@@ -84,22 +83,34 @@ class SearchController extends Controller
                 ->limit(20)
                 ->get();
 
+            $sections = Section::with('department')
+                ->where('name', 'LIKE', $term)
+                ->orderBy('name')
+                ->limit(20)
+                ->get()
+                ->filter(fn ($s) => ! $user || $user->canView($s))
+                ->values();
+
             $divisions = Division::with(['section.department'])
                 ->where('name', 'LIKE', $term)
                 ->orWhere('description', 'LIKE', $term)
                 ->orderBy('name')
                 ->limit(20)
-                ->get();
+                ->get()
+                ->filter(fn ($d) => ! $user || $user->canView($d))
+                ->values();
 
             $foldersQuery = Folder::with(['department', 'section', 'division'])
                 ->where('name', 'LIKE', $term)
                 ->orWhere('description', 'LIKE', $term);
 
-            if (! auth()->check()) {
+            if (! $user) {
                 $foldersQuery->where('visibility', 'public');
             }
 
-            $folders = $foldersQuery->orderBy('name')->limit(20)->get();
+            $folders = $foldersQuery->orderBy('name')->limit(20)->get()
+                ->filter(fn ($f) => ! $user || $user->canView($f))
+                ->values();
         } else {
             $sections = $ruleSets = $divisions = $folders = collect();
         }

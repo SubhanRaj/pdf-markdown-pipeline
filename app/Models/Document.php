@@ -75,6 +75,37 @@ class Document extends Model
                 ->orWhereHas('folder', fn (Builder $f) => $f->where('visibility', 'public')));
     }
 
+    /**
+     * Narrows a document list to what $user is allowed to *view*, per their org-unit scope tier
+     * (User::canView()/uploadScope() — global/department/section/division, mirroring the same
+     * tiers already used for upload/delete). A no-op for guests (pass null — guest visibility is
+     * governed entirely by scopePubliclyVisible()/isPubliclyVisible(), unrelated to this scope),
+     * global-scope users (admin/organization.head/legacy-global), and unscoped ('none') users —
+     * only department/section/division-scoped users get filtered. Deliberately does not narrow
+     * rule-set documents (Acts/Rules/Policies are department-wide reference material with no
+     * section-level owner — see User::canView()'s docblock) — a rule-set document only needs the
+     * department match, which the 'department' tier already provides and the 'section'/
+     * 'division' tiers pass through unfiltered by checking rule_set_id first.
+     */
+    public function scopeViewableBy(Builder $query, ?User $user): Builder
+    {
+        if (! $user) {
+            return $query;
+        }
+
+        $scope = $user->uploadScope();
+
+        return match ($scope) {
+            'global', 'none' => $query,
+            'department' => $query->where('department_id', $user->department_id),
+            'section'    => $query->where(fn (Builder $q) => $q->whereNotNull('rule_set_id')
+                ->orWhere('section_id', $user->section_id)),
+            'division'   => $query->where(fn (Builder $q) => $q->whereNotNull('rule_set_id')
+                ->orWhere('division_id', $user->division_id)),
+            default      => $query->whereRaw('1 = 0'),
+        };
+    }
+
     public function getRouteKeyName(): string
     {
         return 'slug';

@@ -35,6 +35,25 @@ class User extends Authenticatable
         'section.head',           // scoped to assigned section
     ];
 
+    /**
+     * Document-action privileges auto-granted to role=admin (org-scoped officer admin),
+     * regardless of their individual privileges JSON or Designation preset. Deliberately
+     * excludes organization.head/department.head/section.head — those still come from the
+     * user's actual assignment, since they determine *which* org unit the admin acts in, not
+     * *whether* they can act at all. See M74/DESIGNATIONS_PLAN.md — this exists because
+     * hand-curated per-Designation privilege lists kept under-granting (e.g. "Deputy
+     * Commissioner (P&E)" only ever granted documents.verify, not upload/edit), which is what
+     * pushed real accounts toward role=system_admin as a workaround.
+     */
+    public const ORG_ADMIN_PRIVILEGES = [
+        'documents.upload',
+        'documents.edit',
+        'documents.delete',
+        'documents.restore',
+        'documents.verify',
+        'documents.approve',
+    ];
+
     protected $fillable = [
         'name',
         'username',
@@ -108,7 +127,24 @@ class User extends Authenticatable
 
     // ── Role helpers ─────────────────────────────────────────────────────────
 
+    /**
+     * True site/technical administration — user management, designations, activity logs,
+     * pipeline health, and an unconditional bypass of every privilege/scope check. Reserved for
+     * IT/dev accounts only (role=system_admin). Departmental officers, however senior, get
+     * role=admin instead (see isOrgAdmin()) — real document authority, scoped to their own
+     * department/section, with no access to the site console.
+     */
     public function isAdmin(): bool
+    {
+        return $this->role === 'system_admin';
+    }
+
+    /**
+     * Org-scoped officer admin (Excise Commissioner, DEC, etc.) — full document authority
+     * within their assigned department/section/division, but never a site-console bypass.
+     * See ORG_ADMIN_PRIVILEGES.
+     */
+    public function isOrgAdmin(): bool
     {
         return $this->role === 'admin';
     }
@@ -116,6 +152,15 @@ class User extends Authenticatable
     public function isOperator(): bool
     {
         return $this->role === 'operator';
+    }
+
+    /** Human-readable role label for display — 'system_admin' otherwise reads as "System_admin". */
+    public function roleLabel(): string
+    {
+        return match ($this->role) {
+            'system_admin' => 'System Admin',
+            default         => ucfirst((string) $this->role),
+        };
     }
 
     /** Generate a username from full name + post, unique among all users (incl. soft-deleted). */
@@ -143,6 +188,10 @@ class User extends Authenticatable
     public function hasPrivilege(string $privilege): bool
     {
         if ($this->isAdmin()) {
+            return true;
+        }
+
+        if ($this->isOrgAdmin() && in_array($privilege, self::ORG_ADMIN_PRIVILEGES, true)) {
             return true;
         }
 
@@ -192,11 +241,14 @@ class User extends Authenticatable
     }
 
     /**
-     * Whether this user may upload documents to the given context.
-     * $context must be a Section, Division, RuleSet, or Folder model instance.
-     * A Folder resolves to its owning division (if any) or section.
+     * Shared tier-matching logic for canUploadTo()/canView() — same org-unit tiers
+     * (global > department > section > division), differing only in what an unscoped user
+     * ('none') resolves to: upload/delete must default-deny (no assignment = no mutation
+     * rights), but viewing defaults to "sees everything," matching the pre-existing "legacy
+     * operator anywhere" decision — an unscoped viewer isn't a narrower case than a scoped one,
+     * it's simply not opted into scoping at all.
      */
-    public function canUploadTo(object $context): bool
+    private function matchesOrgScope(object $context, bool $noneResult): bool
     {
         if ($context instanceof Folder) {
             $context = $context->division ?? $context->section;
@@ -209,7 +261,7 @@ class User extends Authenticatable
         }
 
         if ($scope === 'none') {
-            return false;
+            return $noneResult;
         }
 
         // Resolve the context's department_id, section_id, division_id
@@ -221,6 +273,31 @@ class User extends Authenticatable
             'division'   => $ctxDivision === $this->division_id,
             default      => false,
         };
+    }
+
+    /**
+     * Whether this user may upload documents to the given context.
+     * $context must be a Section, Division, RuleSet, or Folder model instance.
+     * A Folder resolves to its owning division (if any) or section.
+     */
+    public function canUploadTo(object $context): bool
+    {
+        return $this->matchesOrgScope($context, false);
+    }
+
+    /**
+     * Whether this user may view (browse to) a Section, Division, or Folder's own page and
+     * documents. Same org-unit tiers as canUploadTo() — a department-scoped user (e.g. Excise
+     * Commissioner) sees the whole department, a section-scoped user sees only their own
+     * section. Deliberately NOT applied to RuleSet (Acts/Rules/Policies) — those are
+     * department-wide reference material with no section-level owner, so department-tier
+     * scoping already covers them with nothing further to narrow. Unscoped users ('none' tier)
+     * see everything, same as today — this only adds a ceiling for users who already have an
+     * assigned department/section/division.
+     */
+    public function canView(object $context): bool
+    {
+        return $this->matchesOrgScope($context, true);
     }
 
     /**

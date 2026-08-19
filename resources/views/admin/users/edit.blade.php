@@ -122,7 +122,7 @@
                     <label for="designation_id" class="field-label">Designation</label>
                     <select id="designation_id" name="designation_id"
                         class="field-input @error('designation_id') field-error @enderror">
-                        <option value="">— None / see "Other post" —</option>
+                        <option value="">— None / see "Post / Position" —</option>
                         @foreach($designations->whereNull('department_id') as $d)
                         <option value="{{ $d->id }}" data-dept="" data-privileges="{{ json_encode($d->default_privileges ?? []) }}"
                             {{ old('designation_id', $user->designation_id) == $d->id ? 'selected' : '' }}>{{ $d->name }}</option>
@@ -137,10 +137,10 @@
                 </div>
 
                 <div class="col-span-2 sm:col-span-1">
-                    <label for="post" class="field-label">Other post <span class="text-xs font-normal text-slate-400">(if not listed above)</span></label>
+                    <label for="post" class="field-label">Post / Position <span class="text-xs font-normal text-slate-400">(optional — e.g. "DEC (P&amp;E)", shown alongside the Designation)</span></label>
                     <input id="post" name="post" type="text"
                         value="{{ old('post', $user->post) }}"
-                        placeholder="e.g. Section Officer"
+                        placeholder="e.g. DEC (P&amp;E)"
                         class="field-input @error('post') field-error @enderror"
                         data-rule="post">
                     @error('post') <p class="field-err-msg">{{ $message }}</p> @enderror
@@ -151,7 +151,12 @@
                     <select id="role" name="role"
                         class="field-input @error('role') field-error @enderror" required>
                         <option value="">— Select role —</option>
-                        @foreach(['admin' => 'Admin — Full access', 'operator' => 'Operator — Upload & convert', 'viewer' => 'Viewer — Read only'] as $val => $label)
+                        @foreach([
+                            'system_admin' => 'System Admin — full technical access (IT/dev only)',
+                            'admin'        => 'Admin — full document authority within their department/section',
+                            'operator'     => 'Operator — upload & convert, privilege-limited',
+                            'viewer'       => 'Viewer — read only',
+                        ] as $val => $label)
                         <option value="{{ $val }}" {{ old('role', $user->role) === $val ? 'selected' : '' }}>{{ $label }}</option>
                         @endforeach
                     </select>

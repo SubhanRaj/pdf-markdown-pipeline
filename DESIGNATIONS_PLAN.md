@@ -239,3 +239,44 @@ infer.
     `role = operator` + its correct Designation, and confirm no loss of document-side capability
     (spot-check upload/verify/approve on a document within their department) while `/admin/*`
     access is now correctly denied.
+
+---
+
+## Follow-up (2026-08-19, M79) — the workaround recurred, and needed a deeper fix
+
+This plan correctly diagnosed the problem and shipped the Designation preset layer, but did not
+close the door on the recurrence: six months later, a live audit found **7 accounts with
+`role = admin`**, only one of which should have had it — Designations existed, but Designation
+presets kept under-granting real capability (e.g. "Deputy Commissioner (P&E)" only ever granted
+`documents.verify`, never `upload`/`edit`), so whoever was onboarding these accounts hit a real
+wall and reached for `role = admin` again, because it was still the fastest thing that reliably
+worked. Naming this plainly: **a preset that can under-grant is not a fix for a bypass role that
+still exists and still works** — it only makes the bypass less *necessary* on average, not
+impossible to reach for under time pressure.
+
+**What changed, on top of this plan (not instead of it):**
+- `role` itself was split into a real fourth tier: `system_admin` (the true bypass this plan
+  always intended to reserve for IT/dev — `User::isAdmin()` now checks this value) and `admin`
+  (an org-scoped officer tier — `User::isOrgAdmin()` — that auto-grants a fixed, generous document
+  privilege bundle, `ORG_ADMIN_PRIVILEGES`, via `hasPrivilege()`, regardless of what a Designation
+  preset did or didn't include). This means an under-granting Designation can no longer strand an
+  officer without real capability — the *role* itself now guarantees the baseline document verbs
+  (upload/edit/delete/restore/verify/approve), and the Designation preset stays exactly what this
+  plan designed it to be: a scope/department-prefill convenience, not the sole source of privilege.
+- The actual root cause of the original wall — `DocumentController::canManageDocument()` only ever
+  allowing `isAdmin()` or a policy document's `department.head`, so a normal document had **no**
+  scoped conversion/verify path at all — is fixed directly (and four more independently-duplicated
+  copies of the same check found and fixed alongside it; see `SECURITY.md` Pass 7 H-07). This plan
+  never diagnosed this half of the problem; it only built the preset layer on the assumption that
+  scope + a privilege in `User::PRIVILEGES` would be enough, which turned out not to be true for
+  the document-lifecycle actions specifically.
+- Viewing (browsing) was also scoped for the first time (`User::canView()`,
+  `Document::scopeViewableBy()`) — unrelated to Designations directly, but discovered in the same
+  incident (a section-scoped officer could browse into a sibling section regardless of role).
+
+Full design and verification: `SECURITY.md` Pass 7 (H-06/H-07/M-05/L-05), `summary.md`'s M79 entry,
+`claude.md`'s "View-scoping" and updated "users"/"designations" schema sections. This plan's own
+seed data was also touched in the same pass — the two per-posting Deputy Excise Commissioner
+Designations ("(P&E)" and "(P)") were merged into one generic "Deputy Excise Commissioner", with
+the specific posting moved to the user's own `post` field instead — see `POLICY_PERIODS.md`-style
+per-user free text, not a new Designation per posting.

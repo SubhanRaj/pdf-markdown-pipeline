@@ -24,7 +24,7 @@ return [
             'venv' => base_path('storage/app/private/ocr-engines/paddleocr'),
         ],
         'surya' => [
-            'label' => 'Surya OCR (slow on CPU — see OCR_RESEARCH.md)',
+            'label' => 'Surya OCR',
             'venv' => base_path('storage/app/private/ocr-engines/surya'),
             // Surya's recognition step runs a real vision-LLM through llama.cpp, which needs
             // its own binary + shared libs — not a pip dependency, extracted manually from the
