@@ -417,11 +417,50 @@ class DocumentController extends Controller
             $slug = Document::uniqueSlugForSection($validated['title'], $section->id);
         }
 
-        $timestamp = now()->format('YmdHis');
-        $pdfPath   = $request->file('file')->storeAs($vaultDir, "{$slug}_{$timestamp}.pdf", 'public');
+        $timestamp   = now()->format('YmdHis');
+        $uploadedMime = $request->file('file')->getMimeType();
+        $storedName  = "{$slug}_{$timestamp}." . ($uploadedMime === 'application/pdf' ? 'pdf' : 'upload');
+        $storedPath  = $request->file('file')->storeAs($vaultDir, $storedName, 'public');
 
-        if (! $pdfPath) {
+        if (! $storedPath) {
             return response()->json(['message' => 'File could not be saved. Please try again.'], 500);
+        }
+
+        $pdfPath = "{$vaultDir}/{$slug}_{$timestamp}.pdf";
+
+        if ($uploadedMime === 'application/pdf') {
+            $pdfPath = $storedPath;
+        } else {
+            // Non-PDF accepted types (Word/Excel/PowerPoint/ODT/RTF/TXT/CSV/images) must be
+            // converted to a real PDF before the OCR/markdown pipeline (which expects actual
+            // PDF bytes) ever sees them — LibreOffice headless handles every accepted type,
+            // images included, via its Draw component.
+            $absoluteDir     = Storage::disk('public')->path($vaultDir);
+            $absoluteUpload  = Storage::disk('public')->path($storedPath);
+            // -env:UserInstallation avoids relying on a writable $HOME for the www-data user
+            // (it has none — /var/www is root-owned); a per-conversion profile dir under
+            // storage/app also keeps concurrent uploads from sharing/locking one profile.
+            $profileDir      = storage_path('app/soffice-profile-' . Str::random(16));
+            $convertResult   = Process::timeout(120)->run([
+                'soffice', '--headless', '--convert-to', 'pdf', '--outdir', $absoluteDir,
+                '-env:UserInstallation=file://' . $profileDir, $absoluteUpload,
+            ]);
+            (new \Illuminate\Filesystem\Filesystem())->deleteDirectory($profileDir);
+
+            $convertedPath = $absoluteDir . '/' . pathinfo($storedName, PATHINFO_FILENAME) . '.pdf';
+
+            if (! $convertResult->successful() || ! is_file($convertedPath)) {
+                Storage::disk('public')->delete($storedPath);
+                Log::error('Document upload PDF conversion failed', [
+                    'file'   => $storedName,
+                    'output' => $convertResult->errorOutput(),
+                ]);
+
+                return response()->json(['message' => 'Could not convert this file to PDF. Please try again or upload a PDF directly.'], 500);
+            }
+
+            rename($convertedPath, Storage::disk('public')->path($pdfPath));
+            Storage::disk('public')->delete($storedPath);
         }
 
         // Determine if this upload requires approval (bulk operator flag or context flag)

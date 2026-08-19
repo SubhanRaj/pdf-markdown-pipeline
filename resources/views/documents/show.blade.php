@@ -305,7 +305,7 @@
             <span class="hidden sm:inline">Edit</span>
         </span>
         @endif
-        @if(! $hasMarkdown)
+        @if(! $hasMarkdown || $document->status === 'failed')
         <button type="button" id="convert-doc-btn" data-convert-url="{{ route('documents.convert', $document->id) }}"
                 data-convert-status-url="{{ route('documents.convert-status', $document->id) }}"
                 @if($isConverting) disabled @endif

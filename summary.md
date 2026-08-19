@@ -3888,3 +3888,50 @@ downtime, no data loss (document/user counts unchanged throughout).
 `config/ocr.php`, `database/seeders/{DesignationSeeder,UserSeeder}.php`,
 `tests/Feature/DocumentVerifyTest.php`, `tests/Feature/DocumentViewScopeTest.php` (new),
 `claude.md`, `README.md`, `SECURITY.md`, `APP_FLOW.md`, `DESIGNATIONS_PLAN.md`.
+
+## M80 — Non-PDF uploads (Word/Excel/images/etc.) were never actually converted to PDF (COMPLETED 2026-08-19)
+
+Reported live: uploading a `.docx` produced a document stuck in `failed` status with no working
+retry. Root cause: `DocumentController@store` accepts Word/Excel/PowerPoint/ODT/ODS/ODP/RTF/TXT/CSV
+and images per `StoreDocumentRequest::ACCEPTED_MIMETYPES`, but the actual save line just renamed
+whatever bytes were uploaded to `{slug}_{timestamp}.pdf` — no conversion ever happened. For a real
+PDF upload this was harmless; for every other accepted type it silently produced a Word/Excel/image
+file mislabeled `.pdf`. The conversion pipeline (`pdftoppm`, pdfminer, Docling) would then choke on
+non-PDF bytes it had no way to detect as such ahead of time, landing the document in `failed` with
+`pdftoppm failed: ... Couldn't find trailer dictionary` in the log. This had been broken since
+non-PDF types were added to the accepted-mimetypes list — the whole "Documents / Excel / PowerPoint
+/ ODT / images" half of the upload UI's stated file-type support never actually worked.
+
+Fixed at the one place all five upload contexts (section/division/rule-set/folder/division-folder)
+share: `store()` now checks the upload's real MIME type (`getMimeType()`, fileinfo-based — the same
+signal `StoreDocumentRequest` already validates against, not the client-supplied extension). A real
+`application/pdf` upload is saved as before. Anything else is saved with a neutral `.upload`
+extension, run through `soffice --headless --convert-to pdf` (LibreOffice, already provisioned on
+the box; verified it handles every accepted type including images, via its Draw component, not just
+Office formats), and only the resulting real PDF is kept — the pre-conversion upload is deleted.
+Each conversion runs in its own `-env:UserInstallation` profile directory under
+`storage/app/soffice-profile-*` (deleted immediately after) since the web user has no writable
+`$HOME` and concurrent uploads must not share/lock one LibreOffice profile. A conversion failure
+deletes the temp upload and returns the existing 500 JSON error path — same UX contract as any other
+store failure, no new failure mode introduced.
+
+Companion fix, `resources/views/documents/show.blade.php`: the "Retry Conversion" button was gated
+on `! $hasMarkdown`, so a document that failed *after* a markdown file already existed (e.g. text
+extraction succeeded, a later OCR pass then failed on the mislabeled file) showed no retry button
+at all — exactly what was reported ("no button is there"). Changed the gate to also show whenever
+`status === 'failed'`, regardless of `$hasMarkdown`; `DocumentController@convert` already accepted
+`failed` as a re-convertible status and safely overwrites existing markdown, so no controller change
+was needed for this half.
+
+The one already-affected document (id 347, a `.docx` upload from the Bijai Chandra Jaiswal folder)
+was manually repaired: reconverted its stored (mislabeled) bytes via the same `soffice` command,
+re-dispatched `ConvertDocumentToMarkdown`, confirmed real extracted text and no failed queue jobs.
+
+**Verification:** manually ran the exact `soffice --headless --convert-to pdf -env:UserInstallation=...`
+command against both a `.docx` and a raw JPEG to confirm LibreOffice correctly detects real content
+by magic bytes regardless of the neutral `.upload` extension. `php artisan test --filter=DocumentVerifyTest`
+green (4/4). Live-verified: `php artisan view:clear`, `curl` 200 on `/`, document 347 now serves
+real markdown content, zero entries in `failed_jobs`.
+
+**Files changed:** `app/Http/Controllers/DocumentController.php`,
+`resources/views/documents/show.blade.php`, `claude.md`, `summary.md`.

@@ -458,7 +458,7 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - Database schema: `departments`, `sections`, `rule_sets`, `documents` (with `rule_set_id`, `title`, `document_type`), `document_status_histories`, `users`
 - Full CRUD for Documents, Departments, Sections, Rule Sets, and admin User Management — all with DB transactions, try/catch, and `$request->validated()` throughout
 - Dual document taxonomy: section-based (GOs, notices, circulars) and rule-set-based (Acts, Rules, amendments) with separate vault paths and URL structures
-- File upload: accepts PDF, Word, Excel, PowerPoint, ODT, JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC, RTF, TXT, CSV — validated against actual magic bytes (no extension spoofing); SVG explicitly excluded; stored directly in the vault directory as `{slug}_{YmdHis}.pdf`
+- File upload: accepts PDF, Word, Excel, PowerPoint, ODT, JPEG/PNG/WebP/GIF/TIFF/BMP/HEIC, RTF, TXT, CSV — validated against actual magic bytes (no extension spoofing); SVG explicitly excluded; non-PDF types are converted to a real PDF via `soffice --headless` before storage (M80) — stored in the vault directory as `{slug}_{YmdHis}.pdf`
 - Rate limiting: login brute-force (5/min per email+IP), general mutation cap (60/min/user), read/status-poll cap (600/min/user — pipeline monitor, convert-status, structure, trash listing), upload cap (20/min/user) — all named limiters
 - Sidebar fully dynamic: driven by DB records; no hardcoded department links
 - Level-aware department routing: `{level}` URL segment disambiguates departments sharing slugs across levels
@@ -634,6 +634,22 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
   the onboarding "set your password" page now has a show/hide-password toggle, matching login.
 - Full writeup: `SECURITY.md` Pass 7 (H-06/H-07/M-05/L-05), `summary.md`'s M79 entry, `claude.md`'s
   "View-scoping" section. New `tests/Feature/DocumentViewScopeTest.php`.
+
+**Completed (2026-08-19 — non-PDF uploads were never actually converted to PDF, M80):**
+- Reported live: a `.docx` upload landed in `failed` status with no working retry. Root cause:
+  `DocumentController@store` accepted Word/Excel/PowerPoint/ODT/ODS/ODP/RTF/TXT/CSV/images per
+  `StoreDocumentRequest`, but just renamed whatever bytes were uploaded to `.pdf` — no conversion
+  ever ran, so every accepted type except real PDF silently broke the whole downstream pipeline.
+- Fixed at the source: `store()` now converts any non-PDF upload via `soffice --headless
+  --convert-to pdf` (LibreOffice, handles every accepted type including images) before saving it,
+  using a scratch `-env:UserInstallation` profile dir per conversion.
+- The "Retry Conversion" button was also hidden whenever a partial markdown file already existed,
+  even if `status === 'failed'` — now shows whenever status is `failed`, matching what the convert
+  endpoint already accepted.
+- Scanned every document on disk for a mismatch between its `.pdf` extension and its real content —
+  one pre-existing casualty found and repaired (re-converted, re-run through the pipeline); no
+  others.
+- Full writeup: `summary.md`'s M80 entry, `claude.md`'s upload-flow section.
 
 ## 🚀 Future Roadmap
 

@@ -1006,10 +1006,12 @@ Upload is initiated from a section show page or rule set show page via a modal. 
 
 **Initial status decision (applies to all upload paths):** After resolving the context (`$division ?? $section ?? $ruleSet`), `DocumentController@store` calls `$user->shouldRequireApproval($context)`. If true, `status = 'pending_approval'` and the document is hidden from all public/browse views until approved. If false, `status = 'uploaded'` (existing behaviour). The flash message adapts accordingly.
 
+**Non-PDF → PDF normalization (M80, 2026-08-19, applies to all upload paths):** `StoreDocumentRequest::ACCEPTED_MIMETYPES` accepts Word/Excel/PowerPoint/ODT/ODS/ODP/RTF/TXT/CSV and images, but `original_pdf_path` and the whole conversion pipeline (`pdftoppm`, pdfminer, Docling) require actual PDF bytes. Before this fix, `store()` just renamed whatever was uploaded to `.pdf` — a docx upload became a Word file mislabeled `.pdf`, which failed loudly (and permanently — no working retry path) the moment the pipeline tried to read it. Fixed at the source: if the uploaded file's real MIME (via `getMimeType()`, fileinfo-based, same signal `StoreDocumentRequest` validates against) isn't `application/pdf`, it's first saved with a neutral `.upload` extension, run through `soffice --headless --convert-to pdf` (LibreOffice, handles every accepted type including images via its Draw component), and only the resulting real PDF is kept as `{slug}_{timestamp}.pdf`; the original upload is deleted. Each conversion gets its own `-env:UserInstallation` profile dir under `storage/app/soffice-profile-*` (deleted after) — needed because the web user has no writable `$HOME`, and to keep concurrent uploads from sharing/locking one LibreOffice profile. Conversion failure → the temp upload is deleted and the request returns a 500 with a clear message, same as any other store failure.
+
 **Section-based upload (per file):**
 1. Slug: `Document::uniqueSlugForSection($title, $section->id)`
 2. Vault dir: `document_vault/{dept.level}/{dept.slug}/{section.wing?}/{section.slug}`
-3. File stored: `{vaultDir}/{slug}_{YmdHis}.pdf` on `public` disk
+3. File stored: `{vaultDir}/{slug}_{YmdHis}.pdf` on `public` disk (converted from the original via `soffice` first if it wasn't already a real PDF — see the non-PDF normalization note above)
 4. DB transaction: `Document::create()` + `DocumentStatusHistory::create()`
 5. On failure: delete orphaned PDF; return 500 JSON
 6. On success: JSON `{'redirect': sections_url}`
