@@ -3935,3 +3935,31 @@ real markdown content, zero entries in `failed_jobs`.
 
 **Files changed:** `app/Http/Controllers/DocumentController.php`,
 `resources/views/documents/show.blade.php`, `claude.md`, `summary.md`.
+
+## M81 — `$canManageDoc` in the document view was a stale duplicate of `canManageDocument()` (COMPLETED 2026-08-19)
+
+Reported live: Ravi Prakash Gautam (PA to the Excise Commissioner, section-scoped `admin` per M79)
+opened a document in his own section (Camp Office Excise Commissioner) and saw only a "Share"
+button — no Convert to Markdown, Edit, or Delete, despite M79 having specifically fixed
+`DocumentController::canManageDocument()` to grant exactly this. Root cause: `$canManageDoc`, the
+variable that actually gates those buttons in `documents/show.blade.php`, is computed independently
+in the view's own `@php` block (it needs route-local `$division`/`$section`/`$ruleSet` context that
+only exists there), not by calling the controller's `canManageDocument()`. M79's sweep updated five
+duplicated authorization checks across controllers/Form Requests but missed this sixth one — it
+still only checked `isAdmin()` (`system_admin`) or a policy document's `department.head`, exactly
+the pre-M79 logic.
+
+Fixed by mirroring `canManageDocument()`'s third branch (`documents.verify` + `canUploadTo()` scoped
+to `$document->division ?? $document->section ?? $ruleSet`) directly in the Blade block, with a
+comment flagging it as a manually-synced mirror (no shared helper — the view's context variables
+aren't available outside the Blade render). Also found and fixed the identical stale pattern gating
+the document-delete button in `rule_sets/_doc_row.blade.php`, which the server (`DeleteDocumentRequest`)
+already allowed for scoped admins via `canDeleteFrom()` — same bug class, different file.
+
+**Verification:** confirmed via `php artisan tinker` against Ravi Prakash Gautam's real account
+(id 23) — `hasPrivilege('documents.verify')` and `canUploadTo()` both true for his own section's
+document context. `tests/Feature/DocumentVerifyTest.php` + `DocumentViewScopeTest.php` still green
+(9/9). `php artisan view:clear` run; site confirmed up (`curl` 200 on `/`).
+
+**Files changed:** `resources/views/documents/show.blade.php`,
+`resources/views/rule_sets/_doc_row.blade.php`, `claude.md`, `summary.md`.

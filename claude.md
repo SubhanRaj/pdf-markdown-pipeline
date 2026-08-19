@@ -1456,6 +1456,19 @@ department-scoped one.
 See `SECURITY.md` Pass 7 (M-05) and `summary.md`'s M79 entry for the full incident writeup, and
 `tests/Feature/DocumentViewScopeTest.php` for the regression coverage.
 
+**Follow-up gap found after M79 shipped (M81, 2026-08-19):** `canManageDocument()` in the controller
+was updated with the org-scoped-admin branch, but `documents/show.blade.php`'s own `$canManageDoc`
+— computed independently in the view, not via the controller method, since it needs route-local
+context variables — was not, leaving a 6th instance of the exact "admin, or policy department.head"
+duplicate the M79 sweep was supposed to have fully closed. Consequence: a scoped `admin` (e.g. the
+EC's PA, section-scoped) opening a document in their own section saw no Convert/Edit/Delete/Compare
+& Verify actions at all — only Share — despite the server-side action routes already accepting them.
+Fixed by mirroring `canManageDocument()`'s third branch in the Blade `@php` block (kept manually in
+sync, not extracted to a shared helper — the view needs `$document->division ?? $document->section
+?? $ruleSet`, which only exists after the route-context resolution above it). Also found and fixed
+the same pattern gating the document-delete button in `rule_sets/_doc_row.blade.php` (server already
+allows via `canDeleteFrom()`).
+
 ### User management & profile
 
 **Security model** — two distinct access tiers enforced at the route layer, not just in Form Requests:

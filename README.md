@@ -651,6 +651,16 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
   others.
 - Full writeup: `summary.md`'s M80 entry, `claude.md`'s upload-flow section.
 
+**Completed (2026-08-19 — document view's `$canManageDoc` was a stale duplicate, M81):**
+- A 6th instance of the "admin, or policy department.head" pattern M79 was supposed to fully close
+  survived in `documents/show.blade.php` — `$canManageDoc` is computed independently in the view
+  (needs route-local context), not via `canManageDocument()`, and M79's sweep missed it. Result: a
+  section-scoped `admin` opening a document in their own section saw only "Share" — no Convert/
+  Edit/Delete/Compare & Verify — despite the server already allowing all of it.
+  - Fixed by mirroring `canManageDocument()`'s scoped-admin branch in the Blade block; same stale
+  pattern also found and fixed on the delete button in `rule_sets/_doc_row.blade.php`.
+- Full writeup: `summary.md`'s M81 entry, `claude.md`'s View-scoping section follow-up note.
+
 ## 🚀 Future Roadmap
 
 Advanced enterprise features and security enhancements planned for SDC/NIC compliance and high-value bureaucratic workflows are documented in [ROADMAP.md](ROADMAP.md).

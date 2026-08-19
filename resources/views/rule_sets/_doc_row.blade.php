@@ -126,7 +126,8 @@
            title="View">
             <i class="ti ti-eye text-base"></i>
         </a>
-        @auth @if(auth()->user()->isAdmin() || ($ruleSet->kind === 'policy' && auth()->user()->canManagePolicy($ruleSet)))
+        {{-- Mirrors DeleteDocumentRequest::authorize() --}}
+        @auth @if($ruleSet->kind === 'policy' ? auth()->user()->canManagePolicy($ruleSet) : auth()->user()->canDeleteFrom($ruleSet))
         <button type="button"
                 class="doc-delete-btn inline-flex items-center justify-center w-8 h-8 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all"
                 data-action="{{ route("documents.{$ruleSet->kind}.destroy", [$department->levelAlias(), $department, $ruleSet, $doc]) }}"
