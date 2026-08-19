@@ -34,11 +34,16 @@
     $wing                = ($isRuleSetDoc || $isDivisionDoc || $isFolderDoc) ? null : ($section->wing ?? null);
 
     $isPolicyDoc = $isRuleSetDoc && $ruleSet->kind === 'policy';
-    // Policy documents are managed by admins or the owning department's department.head only —
-    // everyone else who could normally edit/convert/verify a document is view-only for policy.
+    // Mirrors DocumentController@canManageDocument (kept in sync manually — no shared helper
+    // since one lives on the model-less controller and this needs the already-resolved
+    // $ruleSet/$division/$section context variables from above). Policy documents are managed
+    // by admins or the owning department's department.head only; a normal section/division/
+    // rule document can also be managed by any documents.verify-privileged user scoped to it.
+    $manageContext = $document->division ?? $document->section ?? $ruleSet;
     $canManageDoc = auth()->check() && (
         auth()->user()->isAdmin()
         || ($isPolicyDoc && auth()->user()->canManagePolicy($ruleSet))
+        || (! $isPolicyDoc && $manageContext && auth()->user()->hasPrivilege('documents.verify') && auth()->user()->canUploadTo($manageContext))
     );
 
     if ($isRuleSetDoc) {
