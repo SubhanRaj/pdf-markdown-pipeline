@@ -45,6 +45,14 @@
         || ($isPolicyDoc && auth()->user()->canManagePolicy($ruleSet))
         || (! $isPolicyDoc && $manageContext && auth()->user()->hasPrivilege('documents.verify') && auth()->user()->canUploadTo($manageContext))
     );
+    // Convert/Retry only needs upload scope (mirrors DocumentController@canConvertDocument) —
+    // whoever can put a document in this section/division can run it through the pipeline;
+    // only the actual verify step above needs the stricter documents.verify.
+    $canConvertDoc = auth()->check() && (
+        auth()->user()->isAdmin()
+        || ($isPolicyDoc && auth()->user()->canManagePolicy($ruleSet))
+        || (! $isPolicyDoc && $manageContext && auth()->user()->hasPrivilege('documents.upload') && auth()->user()->canUploadTo($manageContext))
+    );
 
     if ($isRuleSetDoc) {
         $contextName    = $ruleSet->name;
@@ -295,6 +303,20 @@
         </div>
 
     @auth
+    @if($canConvertDoc && (! $hasMarkdown || $document->status === 'failed'))
+        <button type="button" id="convert-doc-btn" data-convert-url="{{ route('documents.convert', $document->id) }}"
+                data-convert-status-url="{{ route('documents.convert-status', $document->id) }}"
+                @if($isConverting) disabled @endif
+                class="flex-1 sm:flex-none min-w-[5rem] sm:min-w-0 inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            <i class="ti {{ $isConverting ? 'ti-loader-2 animate-spin' : 'ti-markdown' }} text-base" id="convert-doc-btn-icon"></i>
+            <span class="hidden sm:inline" id="convert-doc-btn-label">
+                @if($isConverting) Converting…
+                @elseif($document->status === 'failed') Retry Conversion
+                @else Convert to Markdown
+                @endif
+            </span>
+        </button>
+    @endif
     @if($canManageDoc)
     @php $ruleIsLocked = $document->document_type === 'rule' && $document->amendments->isNotEmpty(); @endphp
         @if(! $ruleIsLocked)
@@ -309,20 +331,6 @@
             <i class="ti ti-pencil text-base"></i>
             <span class="hidden sm:inline">Edit</span>
         </span>
-        @endif
-        @if(! $hasMarkdown || $document->status === 'failed')
-        <button type="button" id="convert-doc-btn" data-convert-url="{{ route('documents.convert', $document->id) }}"
-                data-convert-status-url="{{ route('documents.convert-status', $document->id) }}"
-                @if($isConverting) disabled @endif
-                class="flex-1 sm:flex-none min-w-[5rem] sm:min-w-0 inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-            <i class="ti {{ $isConverting ? 'ti-loader-2 animate-spin' : 'ti-markdown' }} text-base" id="convert-doc-btn-icon"></i>
-            <span class="hidden sm:inline" id="convert-doc-btn-label">
-                @if($isConverting) Converting…
-                @elseif($document->status === 'failed') Retry Conversion
-                @else Convert to Markdown
-                @endif
-            </span>
-        </button>
         @endif
         <button type="button" id="delete-doc-btn" @if($isConverting) disabled title="Wait for conversion to finish" @endif
                 class="flex-1 sm:flex-none min-w-[5rem] sm:min-w-0 inline-flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-red-400 dark:hover:border-red-500 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-3 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
