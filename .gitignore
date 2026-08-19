@@ -27,3 +27,6 @@ Homestead.yaml
 Thumbs.db
 __pycache__/
 *.pyc
+
+# Local-only PHP CLI-server ini overrides (large-upload testing, see DEPLOY.md)
+.dev-php-ini/
