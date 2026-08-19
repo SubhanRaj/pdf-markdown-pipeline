@@ -66,6 +66,20 @@ For anything actually **over** 300M, `artisan serve` isn't the right tool regard
 production Apache vhost at `http://127.0.0.1:8080/` (bypassing both `artisan serve` and the
 Cloudflare tunnel) is simpler and exercises the real deployment, not a dev copy.
 
+**`:8000` vs `:8080` — two unrelated servers, easy to mix up mid-troubleshooting.**
+`php artisan serve` binds `127.0.0.1:8000` only — loopback, not reachable from anywhere but this
+box itself, and it stays up independently of everything else (it's a manually-started foreground/
+background process, not a systemd service, so it keeps running across unrelated changes elsewhere
+until something actually stops it). Production Apache binds `*:8080` — all interfaces, reachable
+from this box, the LAN, or over Tailscale (`http://<tailscale-ip-or-magicdns>:8080/`). The
+Cloudflare Tunnel (`~/.cloudflared/config.yml`) only ever proxies `docsrepo.exciseup.in` to
+`:8080` — it has never pointed at `:8000` (the old `artisan serve`-backed systemd unit that used
+to sit behind it, `pdf-pipeline-app.service`, was removed 2026-08-13, see below). Both point at the same codebase and the same database (same `.env`), so data uploaded through
+one shows up through the other too — but they're still two independent PHP processes with their
+own ini settings, own request handling, and own uptime. So: `:8000` being reachable and
+`:8080`/the tunnel being reachable are two unrelated facts — neither one starting, stopping, or
+working correctly says anything about the other.
+
 Optional: `php artisan pail` in a third terminal for live log tailing instead of tailing
 `storage/logs/laravel.log` by hand.
 
