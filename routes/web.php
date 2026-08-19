@@ -172,7 +172,7 @@ Route::prefix('departments')->name('departments.')->group(function () {
 Route::middleware(['auth', 'throttle:reads'])->prefix('documents')->name('documents.')->group(function () {
     Route::get('/bulk-upload',         [DocumentController::class, 'bulkUploadForm'])->name('bulk-upload');
     Route::get('/pipeline',            [DocumentController::class, 'pipeline'])->name('pipeline');
-    Route::get('/pipeline/health',     [DocumentController::class, 'pipelineHealth'])->name('pipeline.health');
+    Route::get('/pipeline/health',     [DocumentController::class, 'pipelineHealth'])->name('pipeline.health')->middleware('is_admin');
     Route::get('/trash',               [DocumentController::class, 'trash'])->name('trash');
     Route::get('/trash/{id}/pdf',      [DocumentController::class, 'trashedPdf'])->name('trashed.pdf');
     Route::get('/{id}/convert-status', [DocumentController::class, 'conversionStatus'])->where('id', '[0-9]+')->name('convert-status');

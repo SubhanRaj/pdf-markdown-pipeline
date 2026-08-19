@@ -6,9 +6,18 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class BulkDeleteDocumentsRequest extends FormRequest
 {
+    /**
+     * Privilege-only gate — same shape as BulkRestoreDocumentsRequest. Per-document *scope* is
+     * enforced inside DocumentController::bulkDestroy()'s loop (canDeleteFrom() per document,
+     * admins bypass), not here; a blanket isAdmin()-only gate here would have (as of M79) let
+     * only system_admin bulk-delete anything, leaving a scoped admin/operator with a real
+     * documents.delete privilege unable to bulk-delete even their own section's documents.
+     */
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() ?? false;
+        $user = $this->user();
+
+        return $user && $user->hasPrivilege('documents.delete');
     }
 
     protected function prepareForValidation(): void

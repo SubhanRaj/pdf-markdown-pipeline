@@ -24,7 +24,7 @@ class UpdateUserRequest extends FormRequest
             'landline'      => ['nullable', 'string', 'max:20', 'regex:/^[\d\s\-\+\(\)]{7,20}$/'],
             'post'          => ['nullable', 'string', 'max:100', 'regex:/^[\p{L}\s\'\-\.&\/\(\)]+$/u'],
             'designation_id'           => ['nullable', 'integer', 'exists:designations,id'],
-            'role'                     => ['required', 'in:admin,operator,viewer'],
+            'role'                     => ['required', 'in:system_admin,admin,operator,viewer'],
             'uploads_require_approval' => ['nullable', 'boolean'],
             'privileges'               => ['nullable', 'array'],
             'privileges.*'             => ['string', 'in:' . implode(',', User::PRIVILEGES)],

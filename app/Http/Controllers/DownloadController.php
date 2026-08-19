@@ -104,23 +104,39 @@ class DownloadController extends Controller
             ->all();
     }
 
+    /** Org-scope ceiling for authenticated non-global users — mirrors the show-page 403 gate. */
+    private function authorizeZipView(object $context): void
+    {
+        if (auth()->check()) {
+            abort_unless(auth()->user()->canView($context), 403);
+        }
+    }
+
     public function folder(string $level, Department $department, Section $section, Folder $folder)
     {
+        $this->authorizeZipView($folder);
+
         return $this->zipDocuments("{$folder->slug}.zip", $this->folderEntries($folder, ''));
     }
 
     public function divisionFolder(string $level, Department $department, Section $section, Division $division, Folder $folder)
     {
+        $this->authorizeZipView($folder);
+
         return $this->zipDocuments("{$folder->slug}.zip", $this->folderEntries($folder, ''));
     }
 
     public function division(string $level, Department $department, Section $section, Division $division)
     {
+        $this->authorizeZipView($division);
+
         return $this->zipDocuments("{$division->slug}.zip", $this->divisionEntries($division, ''));
     }
 
     public function section(string $level, Department $department, Section $section)
     {
+        $this->authorizeZipView($section);
+
         return $this->zipDocuments("{$section->slug}.zip", $this->sectionEntries($section, ''));
     }
 
@@ -164,6 +180,18 @@ class DownloadController extends Controller
     /** Everything in the department: direct documents, every section, every rule set, every policy. */
     public function department(string $level, Department $department)
     {
+        // Whole-department bulk export — only a department-wide-or-broader scope may pull this;
+        // canView() itself doesn't resolve a bare Department (it's built for Section/Division/
+        // Folder), so check the tier directly rather than force a context it isn't meant for.
+        if (auth()->check()) {
+            $user  = auth()->user();
+            $scope = $user->uploadScope();
+            abort_unless(
+                $scope === 'global' || $scope === 'none' || ($scope === 'department' && $user->department_id === $department->id),
+                403
+            );
+        }
+
         $isGuest = $this->isGuest();
 
         $entries = $department->documents()->publishable()

@@ -36,16 +36,21 @@
                 <label for="password" class="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5 uppercase tracking-wide">
                     New password
                 </label>
-                <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    required
-                    autofocus
-                    autocomplete="new-password"
-                    placeholder="••••••••"
-                    class="w-full px-4 py-2.5 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent @error('password') border-red-400 dark:border-red-500 bg-red-50 dark:bg-red-900/20 @enderror"
-                >
+                <div class="relative">
+                    <input
+                        id="password"
+                        name="password"
+                        type="password"
+                        required
+                        autofocus
+                        autocomplete="new-password"
+                        placeholder="••••••••"
+                        class="w-full px-4 pr-10 py-2.5 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent @error('password') border-red-400 dark:border-red-500 bg-red-50 dark:bg-red-900/20 @enderror"
+                    >
+                    <button type="button" onclick="togglePassword('password', 'eye-icon-1')" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors" title="Toggle password visibility">
+                        <i id="eye-icon-1" class="ti ti-eye text-sm"></i>
+                    </button>
+                </div>
                 <p class="text-xs text-slate-400 dark:text-slate-500 mt-1.5">Min 8 chars · uppercase · lowercase · number · symbol.</p>
             </div>
 
@@ -53,15 +58,20 @@
                 <label for="password_confirmation" class="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5 uppercase tracking-wide">
                     Confirm password
                 </label>
-                <input
-                    id="password_confirmation"
-                    name="password_confirmation"
-                    type="password"
-                    required
-                    autocomplete="new-password"
-                    placeholder="••••••••"
-                    class="w-full px-4 py-2.5 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                >
+                <div class="relative">
+                    <input
+                        id="password_confirmation"
+                        name="password_confirmation"
+                        type="password"
+                        required
+                        autocomplete="new-password"
+                        placeholder="••••••••"
+                        class="w-full px-4 pr-10 py-2.5 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    >
+                    <button type="button" onclick="togglePassword('password_confirmation', 'eye-icon-2')" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors" title="Toggle password visibility">
+                        <i id="eye-icon-2" class="ti ti-eye text-sm"></i>
+                    </button>
+                </div>
             </div>
 
             <button
@@ -79,6 +89,16 @@
     </p>
 
 </div>
+
+<script>
+    function togglePassword(inputId, iconId) {
+        const input = document.getElementById(inputId);
+        const icon  = document.getElementById(iconId);
+        const isHidden = input.type === 'password';
+        input.type = isHidden ? 'text' : 'password';
+        icon.className = isHidden ? 'ti ti-eye-off text-sm' : 'ti ti-eye text-sm';
+    }
+</script>
 
 </body>
 </html>

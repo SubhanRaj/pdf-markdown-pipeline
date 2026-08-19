@@ -36,6 +36,12 @@ class DocumentController extends Controller
      * Same authorize() logic as UpdateDocumentRequest, duplicated here because the review/edit
      * GET forms render outside a FormRequest. See SECURITY.md H-04.
      */
+    /**
+     * Mirrors UpdateDocumentRequest::authorize() exactly (this gates the GET edit-form routes,
+     * that gates the PATCH) — system_admin unconditionally; a policy document's department.head;
+     * or (M79, 2026-08-19) any user holding documents.edit scoped via canUploadTo() against the
+     * document's own context. Kept in sync by hand; if this drifts, merge the two.
+     */
     private function authorizeEdit(Document $document): void
     {
         $user = auth()->user();
@@ -46,7 +52,13 @@ class DocumentController extends Controller
 
         $ruleSet = $document->ruleSet;
 
-        abort_unless($ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet), 403);
+        if ($ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet)) {
+            return;
+        }
+
+        $context = $document->division ?? $document->section ?? $ruleSet;
+
+        abort_unless($context !== null && $user->hasPrivilege('documents.edit') && $user->canUploadTo($context), 403);
     }
 
     public function bulkUploadForm(): View
@@ -72,12 +84,14 @@ class DocumentController extends Controller
         }
 
         $counts = Document::whereIn('status', $pipelineStatuses)
+            ->viewableBy(auth()->user())
             ->selectRaw('status, count(*) as c')
             ->groupBy('status')
             ->pluck('c', 'status');
 
         $documents = Document::with(['department', 'section', 'division', 'ruleSet', 'folder', 'user:id,name'])
             ->whereIn('status', $activeStatus ? [$activeStatus] : $pipelineStatuses)
+            ->viewableBy(auth()->user())
             ->orderByDesc('updated_at')
             ->paginate(30)
             ->withQueryString();
@@ -230,6 +244,7 @@ class DocumentController extends Controller
     public function index(): View
     {
         $query = Document::with(['department', 'section', 'division', 'ruleSet', 'folder', 'user:id,name'])
+            ->viewableBy(auth()->user())
             ->orderByDesc('created_at');
 
         if (! auth()->check()) {
@@ -241,11 +256,27 @@ class DocumentController extends Controller
         return view('documents.index', compact('byDepartment'));
     }
 
+    /**
+     * Guest check (Document::isPubliclyVisible()) plus, for authenticated non-global users, an
+     * org-scope ceiling (User::canView()) against the document's own section/division —
+     * mirrors the folder-visibility-ceiling pattern (M-04/SECURITY.md) but for organisational
+     * scope instead of the public/authenticated visibility flag. Never applied to rule-set
+     * documents (Acts/Rules/Policies stay department-wide — see User::canView()'s docblock),
+     * so callers for those routes keep the plain guest-only check inline instead of calling this.
+     */
+    private function authorizeDocumentView(Document $document, object $context): void
+    {
+        if (! auth()->check()) {
+            abort_unless($document->isPubliclyVisible(), 403);
+            return;
+        }
+
+        abort_unless(auth()->user()->canView($context), 403);
+    }
+
     public function show(string $level, Department $department, Section $section, Document $document): View
     {
-        if (! auth()->check() && ! $document->isPubliclyVisible()) {
-            abort(403);
-        }
+        $this->authorizeDocumentView($document, $section);
 
         $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,status,visibility,created_at', 'siblingDocument:id,title,slug,language,rule_set_id,section_id,division_id,folder_id']);
         return view('documents.show', compact('document', 'department', 'section'));
@@ -253,9 +284,7 @@ class DocumentController extends Controller
 
     public function pdf(string $level, Department $department, Section $section, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && ! $document->isPubliclyVisible()) {
-            abort(403);
-        }
+        $this->authorizeDocumentView($document, $section);
 
         if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
             abort(404, 'PDF file not found.');
@@ -629,17 +658,27 @@ class DocumentController extends Controller
 
     public function bulkDestroy(BulkDeleteDocumentsRequest $request): RedirectResponse
     {
-        $ids    = $request->validated()['ids'];
-        $reason = $request->validated()['reason'];
-        $actor  = auth()->id();
+        $ids      = $request->validated()['ids'];
+        $reason   = $request->validated()['reason'];
+        $actor    = auth()->id();
+        $authUser = auth()->user();
 
         $archived = [];
         $deleted  = 0;
 
         try {
-            DB::transaction(function () use ($ids, $reason, $actor, &$archived, &$deleted) {
+            DB::transaction(function () use ($ids, $reason, $actor, $authUser, &$archived, &$deleted) {
                 foreach ($ids as $id) {
                     $document = Document::findOrFail($id);
+
+                    // Enforce scope: same boundary as single-delete and canDeleteFrom() —
+                    // admins bypass unconditionally, matching bulkRestore()/bulkForceDestroy().
+                    if (! $authUser->isAdmin()) {
+                        $context = $document->division ?? $document->section ?? $document->ruleSet;
+                        if ($context && ! $authUser->canDeleteFrom($context)) {
+                            continue;
+                        }
+                    }
 
                     DocumentStatusHistory::create([
                         'document_id' => $document->id,
@@ -934,9 +973,7 @@ class DocumentController extends Controller
 
     public function showDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): View
     {
-        if (! auth()->check() && ! $document->isPubliclyVisible()) {
-            abort(403);
-        }
+        $this->authorizeDocumentView($document, $division);
 
         $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,status,visibility,created_at', 'siblingDocument:id,title,slug,language,rule_set_id,section_id,division_id,folder_id']);
         return view('documents.show', compact('document', 'department', 'section', 'division'));
@@ -944,9 +981,7 @@ class DocumentController extends Controller
 
     public function pdfDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && ! $document->isPubliclyVisible()) {
-            abort(403);
-        }
+        $this->authorizeDocumentView($document, $division);
 
         if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
             abort(404, 'PDF file not found.');
@@ -1028,9 +1063,7 @@ class DocumentController extends Controller
 
     public function showSectionFolderDoc(string $level, Department $department, Section $section, Folder $folder, Document $document): View
     {
-        if (! auth()->check() && ! $document->isPubliclyVisible()) {
-            abort(403);
-        }
+        $this->authorizeDocumentView($document, $section);
 
         $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,status,visibility,created_at', 'siblingDocument:id,title,slug,language,rule_set_id,section_id,division_id,folder_id']);
         return view('documents.show', compact('document', 'department', 'section', 'folder'));
@@ -1038,9 +1071,7 @@ class DocumentController extends Controller
 
     public function pdfSectionFolderDoc(string $level, Department $department, Section $section, Folder $folder, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && ! $document->isPubliclyVisible()) {
-            abort(403);
-        }
+        $this->authorizeDocumentView($document, $section);
 
         if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
             abort(404, 'PDF file not found.');
@@ -1122,9 +1153,7 @@ class DocumentController extends Controller
 
     public function showDivisionFolderDoc(string $level, Department $department, Section $section, Division $division, Folder $folder, Document $document): View
     {
-        if (! auth()->check() && ! $document->isPubliclyVisible()) {
-            abort(403);
-        }
+        $this->authorizeDocumentView($document, $division);
 
         $document->load(['user:id,name', 'statusHistory.actor:id,name', 'parentDocument:id,title,slug,created_at', 'amendments:id,parent_id,title,slug,status,visibility,created_at', 'siblingDocument:id,title,slug,language,rule_set_id,section_id,division_id,folder_id']);
         return view('documents.show', compact('document', 'department', 'section', 'division', 'folder'));
@@ -1132,9 +1161,7 @@ class DocumentController extends Controller
 
     public function pdfDivisionFolderDoc(string $level, Department $department, Section $section, Division $division, Folder $folder, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        if (! auth()->check() && ! $document->isPubliclyVisible()) {
-            abort(403);
-        }
+        $this->authorizeDocumentView($document, $division);
 
         if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
             abort(404, 'PDF file not found.');
@@ -1215,9 +1242,10 @@ class DocumentController extends Controller
     // ── Markdown conversion (button-triggered, applies to all five doc contexts) ──
 
     /**
-     * Admin, or (for a policy-kind rule-set document only) the owning department's
-     * department.head — same lifecycle-management gate used by convert/convertOcr/revertOcr/
-     * discardMarkdown/updateMarkdown. Everyone else is view-only.
+     * System admin; or (for a policy-kind rule-set document only) the owning department's
+     * department.head; or any user holding documents.verify scoped to this document's own
+     * context (division/section/rule-set) — same lifecycle-management gate used by
+     * convert/convertOcr/revertOcr/discardMarkdown/updateMarkdown. Everyone else is view-only.
      */
     private function canManageDocument(Document $document): bool
     {
@@ -1229,7 +1257,13 @@ class DocumentController extends Controller
 
         $ruleSet = $document->ruleSet;
 
-        return $ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet);
+        if ($ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet)) {
+            return true;
+        }
+
+        $context = $document->division ?? $document->section ?? $ruleSet;
+
+        return $context !== null && $user->hasPrivilege('documents.verify') && $user->canUploadTo($context);
     }
 
     public function convert(int $id): JsonResponse

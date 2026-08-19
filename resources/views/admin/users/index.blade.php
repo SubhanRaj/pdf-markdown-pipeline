@@ -45,9 +45,10 @@
                 @foreach($users as $user)
                 @php
                     $roleMap = [
-                        'admin'    => 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400',
-                        'operator' => 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400',
-                        'viewer'   => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
+                        'system_admin' => 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-400',
+                        'admin'        => 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400',
+                        'operator'     => 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400',
+                        'viewer'       => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
                     ];
                 @endphp
                 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
@@ -73,7 +74,7 @@
                     </td>
                     <td class="px-5 py-3">
                         <span class="badge {{ $roleMap[$user->role] ?? 'bg-slate-100 text-slate-600' }}">
-                            {{ ucfirst($user->role) }}
+                            {{ $user->roleLabel() }}
                         </span>
                         @if($user->designation?->name ?? $user->post)
                         <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{{ $user->designation?->name ?? $user->post }}</p>

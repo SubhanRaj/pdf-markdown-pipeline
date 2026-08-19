@@ -1,6 +1,6 @@
 # Application Flow — Diagrams
 
-**Date:** 2026-07-17
+**Date:** 2026-07-17 (Authorization diagram §4 updated 2026-08-19, M79 — System Admin/Admin role split + view-scoping)
 **Purpose:** Visual map of how a request moves through this app — upload, taxonomy resolution,
 approval, conversion, review, verify/archive — plus authorization and the component map. Kept in
 its own file since `README.md` is already long; linked from there. For the Markdown/OCR/structure
@@ -178,34 +178,42 @@ flowchart TD
 
     R[Any route] --> A{Guest or authenticated}
     A -->|guest| G[Public routes only, 403 on authenticated-only documents]
-    A -->|authenticated| B{Admin}
-    B -->|yes| ALL[Full access, bypasses every scope check]
-    B -->|no| C{Which action}
+    A -->|authenticated| B{System Admin}
+    B -->|yes, role=system_admin| ALL[Full access, bypasses every scope check + site console]
+    B -->|no| V{Which action}
+    V -->|browse a Section, Division, Folder, or Document| VS[canView scope check — global/dept/section/division tier, unscoped users still see everything]
+    V -->|upload, delete, or mutate| C{Which mutation}
     C -->|upload or delete| D[User scope check against department, section, division]
     C -->|create edit destroy on dept, section, division, folder| E[Per-controller authorization helper]
-    C -->|convert, OCR, structure, markdown edit| F[Admin, or department head for policy documents only]
+    C -->|convert, OCR, structure, verify, markdown edit| F[documents.verify/edit privilege scoped via canUploadTo, OR admin/policy department head]
     C -->|approve reject reclassify| Gp[documents.approve privilege, scoped to approver own org boundary]
     C -->|convert-status poll| H[Auth only, no scope check, documented low-severity gap]
 
     class R entry
-    class A,B,C decision
+    class A,B,V,C decision
     class ALL good
-    class G,D,E,F,Gp scoped
+    class G,D,E,F,Gp,VS scoped
     class H warn
 ```
 
 `E` closes a real gap found in `SECURITY.md` H-04/H-05 (these routes had no authorization check
-beyond the blanket `auth` middleware before that fix). `H` is the still-open `SECURITY.md` L-04
-gap: any logged-in user can poll any document's conversion status by ID.
+beyond the blanket `auth` middleware before that fix). `F` closes a later gap, `SECURITY.md`
+H-07/M79 (2026-08-19) — five independently-duplicated "admin, or policy department.head" checks
+(`canManageDocument()`, `UpdateDocumentMarkdownRequest`, `authorizeEdit()`/`UpdateDocumentRequest`,
+`BulkDeleteDocumentsRequest`) all under-granted the same way; a normal (non-policy) document had no
+scoped management path at all before this fix. `VS` is new as of the same pass — viewing was
+previously **completely unscoped** for every authenticated user (see the note below); `H` is the
+still-open `SECURITY.md` L-04 gap: any logged-in user can poll any document's conversion status by ID.
 
-**Note on `B` (Admin) vs. departmental authority (M74):** `B` is deliberately narrow — it gates
-only the site-management console (`/admin/users`, `/admin/designations`, `/admin/activity-logs`)
-and the privilege-editing UI itself. A Commissioner, ACS, or Section Officer does **not** need to
-be `role = admin` to get department/section-wide document authority — that comes from `C`'s scope
-check (`department.head`/`section.head`/`organization.head` privileges + `department_id`/
-`section_id`), which a **Designation** preset (`/admin/designations`) now fills in correctly when
-an admin creates their account, instead of `role = admin` being used as a scope workaround. See
-[DESIGNATIONS_PLAN.md](DESIGNATIONS_PLAN.md).
+**Note on `B` (System Admin) vs. departmental authority (M74, split further M79):** `B` gates only
+the site-management console (`/admin/users`, `/admin/designations`, `/admin/activity-logs`,
+`documents.pipeline.health`) and an unconditional bypass of every check — reserved for the real
+IT/dev account (`role=system_admin`). A Commissioner, ACS, or Section Officer gets `role=admin`
+instead (M79) — real document authority (`ORG_ADMIN_PRIVILEGES`, auto-granted) scoped to their own
+department/section via `department_id`/`section_id` + a **Designation** preset
+(`/admin/designations`), same as before, but **never** a bypass of `V`'s scope checks, including
+the new `VS` viewing check. See [DESIGNATIONS_PLAN.md](DESIGNATIONS_PLAN.md) for the original M74
+rationale and its 2026-08-19 follow-up note on why the split needed a second, deeper pass.
 
 ## 5. Component map
 

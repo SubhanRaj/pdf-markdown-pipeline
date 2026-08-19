@@ -7,6 +7,12 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateDocumentRequest extends FormRequest
 {
+    /**
+     * Mirrors DocumentController::authorizeEdit() exactly (that gates the GET edit-form routes,
+     * this gates the PATCH) — system_admin unconditionally; a policy document's department.head;
+     * or (M79, 2026-08-19) any user holding documents.edit scoped via canUploadTo() against the
+     * document's own context. Kept in sync by hand; if this drifts, merge the two.
+     */
     public function authorize(): bool
     {
         $user = $this->user();
@@ -18,12 +24,16 @@ class UpdateDocumentRequest extends FormRequest
             return true;
         }
 
-        // Editing document metadata is otherwise admin-only, except a policy-kind rule-set
-        // document may also be managed by the owning department's department.head.
         $document = $this->route('document');
         $ruleSet  = $document instanceof Document ? $document->ruleSet : null;
 
-        return $ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet);
+        if ($ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet)) {
+            return true;
+        }
+
+        $context = $document instanceof Document ? ($document->division ?? $document->section ?? $ruleSet) : null;
+
+        return $context !== null && $user->hasPrivilege('documents.edit') && $user->canUploadTo($context);
     }
 
     protected function prepareForValidation(): void

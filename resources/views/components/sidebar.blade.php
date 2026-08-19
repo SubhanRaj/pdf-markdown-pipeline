@@ -60,7 +60,9 @@
         </a>
 
         @php
-            $pipelineCount = \App\Models\Document::whereIn('status', ['uploaded', 'processing', 'ocr_pending', 'review', 'failed'])->count();
+            $pipelineCount = \App\Models\Document::whereIn('status', ['uploaded', 'processing', 'ocr_pending', 'review', 'failed'])
+                ->viewableBy(auth()->user())
+                ->count();
         @endphp
         <a href="{{ route('documents.pipeline') }}"
            data-tooltip="Conversion Pipeline"
@@ -217,7 +219,7 @@
         <a href="{{ $profileRoute }}"
            class="sidebar-user-text flex-1 min-w-0 group hover:opacity-80 transition-opacity">
             <p class="text-sm font-medium text-slate-200 truncate group-hover:text-white">{{ auth()->user()->name }}</p>
-            <p class="text-xs text-slate-500 truncate">{{ ucfirst(auth()->user()->role) }}</p>
+            <p class="text-xs text-slate-500 truncate">{{ auth()->user()->roleLabel() }}</p>
         </a>
         <form method="POST" action="{{ route('logout') }}" class="sidebar-user-text flex-shrink-0">
             @csrf

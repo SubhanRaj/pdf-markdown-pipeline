@@ -3714,3 +3714,177 @@ unrelated `ExampleTest` failure.
 `app/Http/Controllers/SearchController.php`, `app/Http/Controllers/SitemapController.php`,
 `resources/views/folders/show.blade.php`, `tests/Feature/DocumentFolderVisibilityTest.php` (new),
 `claude.md`, `SECURITY.md`, `README.md`.
+
+## M79 — `role=admin` split into System Admin / Admin, org-scoped viewing, and officer-facing UI cleanup (COMPLETED 2026-08-19)
+
+Reported live, from real onboarding: an officer's PA (Ravi Prakash Gautam) and a Deputy Excise
+Commissioner (Kumar Prabhat Chandra, Establishment Section) had both been made `role=admin` purely
+to get real document authority in their own area — the exact scope-workaround pattern M74
+(Designations) was supposed to have closed. A live audit found **6 accounts beyond the real IT
+account** carrying `role=admin`: Manoj Kumar Tiwari, Navneet Sehara, Dr. Adarsh Singh (Excise
+Commissioner), Joint Excise Commissioner Task Force, Kumar Prabhat Chandra, and Ravi Prakash
+Gautam. Consequence: every one of them could reach `/admin/users`, `/admin/designations`,
+`/admin/activity-logs`, `documents.pipeline.health`, and — since `role=admin` unconditionally
+bypassed every scope check — every other department's/section's documents, not just their own
+(concretely: KP Chandra, assigned to Establishment Section, could freely browse Camp Office Excise
+Commissioner's section too).
+
+**Root cause of the recurrence, not just the symptom.** `DocumentController::canManageDocument()`
+— the gate for Convert/OCR/verify/edit-Markdown/discard/revert-OCR/view-structure — only ever
+returned `true` for `isAdmin()` or a policy document's `department.head`. A normal section/GO/rule
+document **could not be converted or verified by anyone except a true admin**, full stop. That wall
+is what pushed real officers toward `role=admin` in the first place; fixing the account without
+fixing this would have just broken their ability to do their job.
+
+**Fix — split `admin` into two real tiers, not just a UI relabel:**
+- New migration `2026_08_19_140000_add_system_admin_to_users_role_enum.php` widens
+  `users.role` from `enum('admin','operator','viewer')` to
+  `enum('system_admin','admin','operator','viewer')` via raw `ALTER TABLE ... MODIFY COLUMN`
+  (same pattern as the earlier `documents.language` enum widening) — **note for any future enum
+  migration on this app:** the guard must check `in_array(DB::getDriverName(), ['mysql', 'mariadb'])`,
+  not just `'mysql'` — this app's `DB_CONNECTION=mariadb` reports its driver name as `'mariadb'`
+  under Laravel 13's native MariaDB driver, so a `mysql`-only guard silently no-ops the `ALTER`
+  while the migration still records itself as run. Caught live when the very next `UPDATE`
+  hit "Data truncated for column 'role'" against an enum that `SHOW COLUMNS` still reported as
+  the old 3-value list — the corrected guard was applied directly via `DB::statement()` to bring
+  the schema in line with what the fixed migration file now says, no rollback needed.
+- `User::isAdmin()` now checks `role === 'system_admin'` (was `'admin'`) — since every bypass check
+  in the codebase already routed through this one method (confirmed by grep — zero direct
+  `role === 'admin'` checks anywhere outside it), this single-line change redefined "true god-mode"
+  everywhere at once. `system_admin` is reserved for the real IT/dev account only (Subhan Raj, id 1).
+- New `User::isOrgAdmin(): bool` (`role === 'admin'`) — an officer tier that auto-grants a fixed
+  privilege bundle via `hasPrivilege()` (`User::ORG_ADMIN_PRIVILEGES`: upload/edit/delete/restore/
+  verify/approve) regardless of what's in their `privileges` JSON or Designation preset, but
+  **never bypasses scope** — a `role=admin` user still only acts within their own
+  `department_id`/`section_id`/`division_id` via the existing `canUploadTo()`/`uploadScope()`
+  machinery. This exists because the M74 Designation presets kept under-granting in practice —
+  e.g. "Deputy Commissioner (P&E)" only ever granted `documents.verify`, never `upload`/`edit` —
+  which is exactly what pushed accounts back toward `role=system_admin` the moment they hit a wall.
+- `DocumentController::canManageDocument()` gained a third branch: any user holding
+  `documents.verify` (auto-granted to every `role=admin`), scoped via the existing
+  `canUploadTo()` against the document's own division/section/rule-set context. This is what
+  actually lets a department-wide officer (EC) or a section-scoped one (DEC) convert/verify
+  documents in their own area without needing `system_admin`.
+- **The same "admin, or a policy department.head" pattern turned out to be independently
+  duplicated in four more spots**, found by re-grepping after the first fix landed, not from a
+  fresh audit: `UpdateDocumentMarkdownRequest::authorize()` (the actual "Save & Verify" action —
+  missed on the first pass specifically because it's a separate `FormRequest`, not a call into
+  `canManageDocument()`, the exact H-04/H-05-style blind spot `claude.md` already warns about),
+  `DocumentController::authorizeEdit()` + `UpdateDocumentRequest::authorize()` (the GET edit-form
+  route and its paired PATCH — document metadata: title/type/status/visibility/language), and
+  `BulkDeleteDocumentsRequest::authorize()` (worse than the other three: no per-document scope
+  check existed *anywhere*, not even inside the controller loop, unlike its already-correct
+  siblings `bulkRestore()`/`bulkForceDestroy()` — the route table's own claim that
+  `documents.bulk-destroy` was "scoped to user's upload/delete scope" was never actually true, the
+  blanket `isAdmin()`-only gate just made it look that way by accident). All five now share the
+  identical third-branch shape (privilege + `canUploadTo()`/`canDeleteFrom()`), kept in sync by
+  hand across controller-helper/FormRequest pairs since `FormRequest::authorize()` runs before the
+  controller body and can't call a private controller method directly — flagged in each one's own
+  docblock so a future edit to one prompts checking the other four. See `SECURITY.md` Pass 7 H-07
+  for the full per-spot writeup.
+- Data fix applied directly (not a migration — real account state, not schema): Subhan Raj →
+  `system_admin`; the other 6 → `admin`, keeping their existing department/section assignment.
+  Ravi Prakash Gautam had no department/section at all — assigned to Excise Department / Camp
+  Office Excise Commissioner Section (id 14), matching what was actually asked for. Verified live
+  via `php artisan tinker` (role/scope values, `canUploadTo()`/`canManageDocument()` reflection
+  checks) and via `IsAdmin` middleware directly (KP Chandra → 403 on `/admin/users`; Subhan → OK).
+
+**View-scoping — viewing was never scoped at all before this (a documented, deliberate decision
+until now).** New `User::canView(object $context): bool` — same org-unit tiers as `canUploadTo()`
+(global/department/section/division), refactored out of a shared private `matchesOrgScope()` so
+the two don't duplicate logic; differs only in what an **unscoped** user resolves to —
+`canUploadTo()` default-denies (`'none'` scope ⇒ no mutation rights), `canView()` default-allows
+(`'none'` ⇒ sees everything, preserving the pre-existing "legacy operator anywhere" decision for
+anyone not yet assigned an org unit). New `Document::scopeViewableBy(Builder $query, ?User $user)`
+mirrors it at the query level (no-op for guests/global/unscoped; filters by `department_id`/
+`section_id`/`division_id` for scoped tiers) — deliberately **passes through any document with a
+`rule_set_id`** at every tier, since Rule Sets/Policies are department-wide reference material
+with no section-level owner (confirmed with the user before building — Acts/Rules/Policies stay
+visible to the whole department regardless of which section a viewer belongs to).
+
+Applied to every authenticated browsing surface, confirmed with the user this should be uniform
+rather than partial:
+- `SectionController::show()`/`index()`, `DivisionController::show()`, `FolderController`'s shared
+  `renderShow()` — 403 (page-level, mirrors the existing folder-visibility-ceiling 403 pattern) for
+  an out-of-scope authenticated user; the section/folder/division listing pages additionally filter
+  out cards the viewer can't open, rather than leaving dead 403 links in a list.
+- `DocumentController`'s 8 section/division/folder show+PDF route variants (new shared private
+  `authorizeDocumentView()` helper — guest check unchanged, adds the `canView()` ceiling for
+  authenticated users) — the 2 rule-set-doc variants are deliberately untouched, per the
+  department-wide-reference-material decision above. `index()`/`pipeline()` chain
+  `->viewableBy(auth()->user())` onto their existing queries.
+- `SearchController::index()` — documents via `viewableBy()`; Sections/Divisions/Folders results
+  filtered post-fetch the same way (`RuleSet` results deliberately left unscoped, same reasoning).
+- `FrontendController::dashboard()` — every per-status count and the recent-documents feed now
+  chains `viewableBy($user)`.
+- `DownloadController` — `folder()`/`divisionFolder()`/`division()`/`section()` gained a new
+  `authorizeZipView()` 403 gate; `department()` gained an explicit tier check (`canView()` itself
+  doesn't resolve a bare `Department`, so this checks `uploadScope()` directly — only
+  global/unscoped/matching-department may pull a whole-department export); `ruleSet()`/
+  `policyPeriod()`/`policyState()`/`rules()` stay unscoped, consistent with the rest.
+- **Caught in the same pass, not originally scoped:** the sidebar's own Pipeline nav badge count
+  (`components/sidebar.blade.php`) was still an unscoped raw `Document::whereIn(...)->count()` —
+  would have shown a department/system-wide number next to a link that, once clicked, showed a
+  correctly-narrowed list. Fixed to chain `->viewableBy(auth()->user())` too, so the badge and the
+  page it links to always agree.
+- **Also caught: `documents.pipeline.health` had no admin gate on the route itself** — only the
+  sidebar link was hidden from non-`isAdmin()` users (automatic, once `isAdmin()` was redefined to
+  `system_admin`-only); the raw URL was still reachable by any authenticated user under the
+  `auth`+`throttle:reads` group it shared with `pipeline`/`trash`/`convert-status`. Since this is
+  server/queue operational metadata (load, memory, CPU temp, queue depth), not document content,
+  and the user explicitly named "pipeline health" as Subhan-only, added `->middleware('is_admin')`
+  to just this one route in `routes/web.php` — the sibling routes in the same group stay
+  intentionally broader (any authenticated user legitimately uses bulk-upload/pipeline/trash).
+
+**Designation cleanup.** Per-posting Designations were too specific — "Deputy Commissioner (P&E)"
+and "Deputy Excise Commissioner (P)" (the latter confirmed unused, 0 holders) merged into one
+generic "Deputy Excise Commissioner" in both `DesignationSeeder` (for fresh installs) and the live
+`designations` table (rename + `forceDelete` the unused duplicate). The specific posting now lives
+on the user's own `post` field instead — KP Chandra's `post` set to "DEC (P&E)". Relabeled the
+create/edit user form's `post` field from "Other post (if not listed above)" to "Post / Position
+(optional — e.g. \"DEC (P&E)\", shown alongside the Designation)" — same field, same validation,
+just corrected framing (it was never actually restricted to "no Designation selected," the label
+just implied it was).
+
+**Smaller, explicitly-requested fixes in the same pass:**
+- `config/ocr.php` — Surya's dropdown label no longer says "(slow on CPU — see OCR_RESEARCH.md)";
+  reviewers (who are no longer just `system_admin`, now also scoped `admin`/`operator` users with
+  `documents.verify`) shouldn't see an internal doc reference in a plain engine picker.
+- `resources/views/auth/onboarding.blade.php` — the "set your password" page reached from the
+  emailed activation link had no show/hide-password eye toggle, unlike `login.blade.php` and
+  `reset-password.blade.php`. Copied the existing two-field `togglePassword(inputId, iconId)`
+  pattern already proven on `reset-password.blade.php` verbatim.
+- `roleLabel()` added to `User` (`system_admin` → "System Admin", others → `ucfirst($role)`) so
+  `admin/users/index.blade.php`'s role badge and the sidebar's own role line don't render the raw
+  `system_admin` DB value as "System_admin".
+
+**Verification:** `tests/Feature/DocumentVerifyTest.php` — 3 existing tests asserted the *old*
+"`role=admin` verifies anything, unconditionally" behavior; updated their fixtures to
+`role=system_admin`, since that's genuinely what they were testing (universal bypass), not
+scoped officer authority. New `tests/Feature/DocumentViewScopeTest.php` (5 tests) covers: a
+section-scoped admin blocked from a sibling section; a department-scoped admin (EC persona)
+seeing both; `system_admin` bypassing scoping entirely; an unscoped user still seeing everything;
+the pipeline monitor only listing a section-scoped admin's own section's documents. Full suite:
+18/19 green, the one failure (`ExampleTest`) confirmed pre-existing and unrelated (bare SQLite test
+DB with no migrations run — `RefreshDatabase` has been commented out in `tests/Pest.php` since
+before this session; reproduced identically on a clean `git stash`). Live-verified end-to-end
+against the real production DB and vhost (`docsrepo.exciseup.in`): role/scope values, 403s, and
+`canManageDocument()` all checked directly via `php artisan tinker` and `IsAdmin` middleware
+reflection against the actual demoted accounts, plus `curl` spot-checks of `/`, `/login`,
+`/departments`, and the now-gated `/documents/pipeline/health` before and after each phase — no
+downtime, no data loss (document/user counts unchanged throughout).
+
+**Files changed:** `database/migrations/2026_08_19_140000_add_system_admin_to_users_role_enum.php`
+(new), `app/Models/User.php`, `app/Models/Document.php`,
+`app/Http/Controllers/DocumentController.php`, `app/Http/Controllers/SectionController.php`,
+`app/Http/Controllers/DivisionController.php`, `app/Http/Controllers/FolderController.php`,
+`app/Http/Controllers/SearchController.php`, `app/Http/Controllers/FrontendController.php`,
+`app/Http/Controllers/DownloadController.php`, `app/Http/Requests/Admin/StoreUserRequest.php`,
+`app/Http/Requests/Admin/UpdateUserRequest.php`,
+`app/Http/Requests/UpdateDocumentMarkdownRequest.php`, `app/Http/Requests/UpdateDocumentRequest.php`,
+`app/Http/Requests/BulkDeleteDocumentsRequest.php`, `routes/web.php`,
+`resources/views/admin/users/{create,edit,index}.blade.php`,
+`resources/views/components/sidebar.blade.php`, `resources/views/auth/onboarding.blade.php`,
+`config/ocr.php`, `database/seeders/{DesignationSeeder,UserSeeder}.php`,
+`tests/Feature/DocumentVerifyTest.php`, `tests/Feature/DocumentViewScopeTest.php` (new),
+`claude.md`, `README.md`, `SECURITY.md`, `APP_FLOW.md`, `DESIGNATIONS_PLAN.md`.

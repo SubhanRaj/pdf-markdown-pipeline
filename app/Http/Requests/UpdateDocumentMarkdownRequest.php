@@ -8,9 +8,12 @@ use Illuminate\Foundation\Http\FormRequest;
 class UpdateDocumentMarkdownRequest extends FormRequest
 {
     /**
-     * Editing extracted Markdown during review is admin-only, same gate as Edit/Delete/Convert —
-     * except for a policy-kind rule-set document, where the owning department's department.head
-     * may also manage the full lifecycle (see RuleSet::kind, User::canManagePolicy()).
+     * Same gate as convert/OCR/discard/revert (DocumentController::canManageDocument()) —
+     * system_admin unconditionally; a policy-kind rule-set document's owning department.head;
+     * or (M79, 2026-08-19) any user holding documents.verify scoped via canUploadTo() against
+     * the document's own division/section/rule-set context. Duplicated here (not delegated to
+     * the controller helper) because FormRequest::authorize() runs before the controller method
+     * body — kept in sync by hand; if this drifts from canManageDocument() again, merge them.
      */
     public function authorize(): bool
     {
@@ -26,7 +29,13 @@ class UpdateDocumentMarkdownRequest extends FormRequest
         $document = Document::find($this->route('id'));
         $ruleSet  = $document?->ruleSet;
 
-        return $ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet);
+        if ($ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet)) {
+            return true;
+        }
+
+        $context = $document?->division ?? $document?->section ?? $ruleSet;
+
+        return $context !== null && $user->hasPrivilege('documents.verify') && $user->canUploadTo($context);
     }
 
     protected function prepareForValidation(): void
