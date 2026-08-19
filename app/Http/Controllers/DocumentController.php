@@ -1283,8 +1283,8 @@ class DocumentController extends Controller
     /**
      * System admin; or (for a policy-kind rule-set document only) the owning department's
      * department.head; or any user holding documents.verify scoped to this document's own
-     * context (division/section/rule-set) — same lifecycle-management gate used by
-     * convert/convertOcr/revertOcr/discardMarkdown/updateMarkdown. Everyone else is view-only.
+     * context (division/section/rule-set) — gate for the actual approval action (verify()).
+     * Everyone else is view-only for approval.
      */
     private function canManageDocument(Document $document): bool
     {
@@ -1305,11 +1305,38 @@ class DocumentController extends Controller
         return $context !== null && $user->hasPrivilege('documents.verify') && $user->canUploadTo($context);
     }
 
+    /**
+     * Same shape as canManageDocument(), but for producing/refining the Markdown draft —
+     * convert/convertOcr/revertOcr/discardMarkdown/structureJson — which only needs upload
+     * scope, not the stricter documents.verify approval privilege. Whoever can put a document
+     * in this section/division should be able to run it through the pipeline; only the final
+     * "mark verified" step (verify(), UpdateDocumentMarkdownRequest's Save & Verify) needs
+     * documents.verify.
+     */
+    private function canConvertDocument(Document $document): bool
+    {
+        $user = auth()->user();
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        $ruleSet = $document->ruleSet;
+
+        if ($ruleSet !== null && $ruleSet->kind === 'policy' && $user->canManagePolicy($ruleSet)) {
+            return true;
+        }
+
+        $context = $document->division ?? $document->section ?? $ruleSet;
+
+        return $context !== null && $user->hasPrivilege('documents.upload') && $user->canUploadTo($context);
+    }
+
     public function convert(int $id): JsonResponse
     {
         $document = Document::findOrFail($id);
 
-        if (! $this->canManageDocument($document)) {
+        if (! $this->canConvertDocument($document)) {
             abort(403);
         }
 
@@ -1393,7 +1420,7 @@ class DocumentController extends Controller
     {
         $document = Document::findOrFail($id);
 
-        if (! $this->canManageDocument($document)) {
+        if (! $this->canConvertDocument($document)) {
             abort(403);
         }
 
@@ -1411,7 +1438,7 @@ class DocumentController extends Controller
     {
         $document = Document::findOrFail($id);
 
-        if (! $this->canManageDocument($document)) {
+        if (! $this->canConvertDocument($document)) {
             abort(403);
         }
 
@@ -1452,7 +1479,7 @@ class DocumentController extends Controller
     {
         $document = Document::findOrFail($id);
 
-        if (! $this->canManageDocument($document)) {
+        if (! $this->canConvertDocument($document)) {
             abort(403);
         }
 
@@ -1584,7 +1611,7 @@ class DocumentController extends Controller
     {
         $document = Document::findOrFail($id);
 
-        if (! $this->canManageDocument($document)) {
+        if (! $this->canConvertDocument($document)) {
             abort(403);
         }
 

@@ -661,6 +661,17 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
   pattern also found and fixed on the delete button in `rule_sets/_doc_row.blade.php`.
 - Full writeup: `summary.md`'s M81 entry, `claude.md`'s View-scoping section follow-up note.
 
+**Completed (2026-08-19 — Convert to Markdown split off `documents.verify`, gated on `documents.upload`, M82):**
+- Direct follow-up to M81: the underlying rule was still wrong, not just Ravi's account — Convert
+  to Markdown required `documents.verify`, so any upload-only account couldn't run its own uploads
+  through the pipeline at all.
+- Split `canManageDocument()` (still `documents.verify`, now used only by the actual approve action
+  `verify()`) from a new `canConvertDocument()` (`documents.upload`, used by
+  convert/convertOcr/revertOcr/discardMarkdown/structureJson — everything that produces or refines
+  the draft rather than approving it). Blade mirrors this as `$canConvertDoc`/`$canManageDoc`.
+  `UpdateDocumentMarkdownRequest`'s Save & Verify is untouched.
+- Full writeup: `summary.md`'s M82 entry, `claude.md`'s conversion-trigger section.
+
 ## 🚀 Future Roadmap
 
 Advanced enterprise features and security enhancements planned for SDC/NIC compliance and high-value bureaucratic workflows are documented in [ROADMAP.md](ROADMAP.md).

@@ -399,14 +399,28 @@ from approval. A **Convert to Markdown** button on `documents/show` (and a per-r
 button on the Pipeline monitor, and an **auto-convert** checkbox on the Bulk Upload page) calls
 `POST /documents/{id}/convert`, which dispatches `App\Jobs\ConvertDocumentToMarkdown`
 (`ShouldQueue`, `$timeout = 1200` — bumped from 900 to give the Docling structure pass below
-headroom). Both `convert()` and `convertOcr()` are gated by the shared private
-`canManageDocument()` helper (controller-only check, not the stricter `is_admin` route-group
-middleware, which is reserved for `admin.*` user management routes) — `system_admin`
-unconditionally, a policy document's `department.head`, or (M79, 2026-08-19) any user holding
-`documents.verify` scoped via `canUploadTo()` against the document's own division/section/rule-set
-context. See "View-scoping" above and `SECURITY.md` Pass 7 H-07 for why the third branch was
-added — before it, only a true admin could ever convert or verify a normal (non-policy) document,
-which is what pushed real officer accounts toward `role=system_admin` as a workaround.
+headroom). `convert()`, `convertOcr()`, `revertOcr()`, `discardMarkdown()`, and `structureJson()` —
+everything that produces or refines the Markdown *draft* — are gated by the shared private
+`canConvertDocument()` helper (controller-only check, not the stricter `is_admin` route-group
+middleware, which is reserved for `admin.*` user management routes): `system_admin`
+unconditionally, a policy document's `department.head`, or (M79, then loosened M82, 2026-08-19) any
+user holding **`documents.upload`** scoped via `canUploadTo()` against the document's own
+division/section/rule-set context. See "View-scoping" above and `SECURITY.md` Pass 7 H-07 for why
+the scoped branch was added — before it, only a true admin could ever convert a normal (non-policy)
+document, which is what pushed real officer accounts toward `role=system_admin` as a workaround.
+
+**`documents.verify` stays the gate for the actual approval step, not conversion (M82, 2026-08-19).**
+Originally (M79) the scoped branch above required `documents.verify`, on the theory that
+convert/verify were one lifecycle. Reported live: an upload-only account (no `documents.verify`)
+couldn't even run Convert on their own upload. Split into two private helpers —
+`canManageDocument()` (unchanged: `documents.verify`, used only by `verify()`, the "Accept as-is"
+quick-approve action) and `canConvertDocument()` (`documents.upload`, used by the five draft-
+producing actions above). `UpdateDocumentMarkdownRequest`'s Save & Verify keeps its own
+`documents.verify` check, untouched. Net effect: anyone who can upload into a section can also run
+that upload through OCR/Markdown conversion; turning the draft into a `verified` document still
+needs the separate privilege. `documents/show.blade.php` mirrors this as two variables,
+`$canConvertDoc` (Convert/Retry button) and `$canManageDoc` (Edit/Delete buttons, Compare & Verify
+modal) — kept in sync with the controller manually, same caveat as the M81 note below.
 
 **Fixed 2026-07-16 — status wasn't persisted before dispatch.** Both `convert()` and
 `convertOcr()` used to only fake `status: 'processing'`/`'ocr_pending'` in their JSON response,
@@ -863,7 +877,7 @@ Controller method signatures **must** declare `string $level` as their first par
 | POST | `/documents/{id}/convert-ocr` | `documents.convert-ocr` | Admin (controller check) |
 | POST | `/documents/{id}/revert-ocr` | `documents.revert-ocr` | Admin (controller check) |
 | GET | `/documents/{id}/convert-status` | `documents.convert-status` | Auth (unscoped — see note) |
-| GET | `/documents/{id}/structure` | `documents.structure` | Admin/policy-manager (`canManageDocument()`) |
+| GET | `/documents/{id}/structure` | `documents.structure` | Admin/policy-manager/upload-scoped (`canConvertDocument()`, M82) |
 | PATCH | `/documents/{id}/markdown` | `documents.markdown.update` | Admin (Form Request check) |
 | DELETE | `/documents/{id}/markdown` | `documents.markdown.discard` | Admin (controller check) |
 

@@ -3963,3 +3963,36 @@ document context. `tests/Feature/DocumentVerifyTest.php` + `DocumentViewScopeTes
 
 **Files changed:** `resources/views/documents/show.blade.php`,
 `resources/views/rule_sets/_doc_row.blade.php`, `claude.md`, `summary.md`.
+
+## M82 — Convert to Markdown split off from `documents.verify`, gated on `documents.upload` instead (COMPLETED 2026-08-19)
+
+Direct follow-up to M81's fix: once Ravi Prakash Gautam could see the document actions again, the
+site owner flagged that the underlying rule was still wrong in general — Convert to Markdown had
+been (since M79) gated on `documents.verify`, meaning any account with upload rights but not verify
+rights couldn't run their own uploads through the pipeline at all. Convert/OCR is a natural
+continuation of uploading, not an approval action; approving (marking `verified`) is the thing that
+should stay behind the stricter privilege.
+
+Split `DocumentController`'s single `canManageDocument()` into two: `canManageDocument()` — unchanged,
+`documents.verify`-gated, now used only by `verify()` (the "Accept as-is" quick-approve action used
+by the Pipeline monitor's per-row Accept and bulk Verify) — and a new `canConvertDocument()` —
+`documents.upload`-gated, otherwise identical (same `isAdmin()`/policy-`department.head`/scoped
+branches) — used by `convert()`, `convertOcr()`, `revertOcr()`, `discardMarkdown()`, and
+`structureJson()`, i.e. every action that produces or refines the Markdown draft rather than
+approving it. `UpdateDocumentMarkdownRequest`'s Save & Verify path is untouched — still
+`documents.verify`. `documents/show.blade.php` mirrors the split as `$canConvertDoc` (gates the
+Convert/Retry button, pulled out of the old combined `@if($canManageDoc)` block) and `$canManageDoc`
+(unchanged — gates Edit/Delete/Compare & Verify).
+
+Also stopped a stray "Quick Conversion" (`/conversions`) Ravi had separately started on the same
+source PDF before his document-page Convert button worked — deleted `QuickConversion` id 18 and its
+files; the in-flight `RunQuickConversionOcrExtraction` job for it uses `QuickConversion::find()`
+(not `findOrFail`), so it no-ops harmlessly rather than failing when it finishes.
+
+**Verification:** rendered `documents.show` directly via `php artisan tinker` as Ravi's real account
+against document 348 — confirmed "Convert to Markdown"/"Retry Conversion" now present. Full suite
+(`DocumentVerifyTest` + `DocumentViewScopeTest`) still green (9/9). `php artisan view:clear` run;
+site confirmed up (`curl` 200 on `/`).
+
+**Files changed:** `app/Http/Controllers/DocumentController.php`,
+`resources/views/documents/show.blade.php`, `claude.md`, `summary.md`.
