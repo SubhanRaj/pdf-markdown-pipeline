@@ -1,9 +1,11 @@
 {{--
     Shared Granular Privileges checkbox panel.
     Params: $name (input name, e.g. "privileges" or "default_privileges"), $checked (array of
-    currently-checked privilege keys).
+    currently-checked privilege keys), $readonly (optional — renders checked privileges as plain
+    text instead of editable checkboxes, for profile/show pages).
 --}}
 @php
+$readonly = $readonly ?? false;
 $privilegeLabels = [
     'documents.upload'       => ['label' => 'Upload documents',           'group' => 'Documents'],
     'documents.edit'         => ['label' => 'Edit document metadata',     'group' => 'Documents'],
@@ -18,6 +20,24 @@ $privilegeLabels = [
 ];
 $privGroups = collect($privilegeLabels)->groupBy(fn($v) => $v['group'], true);
 @endphp
+@if($readonly)
+    @if(empty(array_intersect($checked ?? [], array_keys($privilegeLabels))))
+    <p class="text-sm text-slate-400 dark:text-slate-500">None.</p>
+    @else
+    @foreach($privGroups as $group => $privs)
+        @php($granted = $privs->only($checked ?? []))
+        @continue($granted->isEmpty())
+        <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5 mt-3">{{ $group }}</p>
+        <ul class="space-y-1">
+            @foreach($granted as $meta)
+            <li class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <i class="ti ti-check text-emerald-500 text-base flex-shrink-0"></i> {{ $meta['label'] }}
+            </li>
+            @endforeach
+        </ul>
+    @endforeach
+    @endif
+@else
 @foreach($privGroups as $group => $privs)
 <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5 mt-3">{{ $group }}</p>
 <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
@@ -35,3 +55,4 @@ $privGroups = collect($privilegeLabels)->groupBy(fn($v) => $v['group'], true);
     @endforeach
 </div>
 @endforeach
+@endif

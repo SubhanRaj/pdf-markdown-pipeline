@@ -18,6 +18,11 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, SoftDeletes;
 
+    public function getRouteKeyName(): string
+    {
+        return 'username';
+    }
+
     /**
      * Canonical privilege whitelist. Any string not in this list is rejected
      * by StoreUserRequest/UpdateUserRequest to prevent privilege escalation.
