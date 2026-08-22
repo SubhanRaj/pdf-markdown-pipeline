@@ -59,9 +59,9 @@ class UserManagementController extends Controller
                     'role'                     => $request->role,
                     'uploads_require_approval' => (bool) $request->uploads_require_approval,
                     'privileges'               => $request->privileges ?? [],
-                    'department_id'            => $request->department_id,
-                    'section_id'               => $request->section_id,
-                    'division_id'              => $request->division_id,
+                    'department_id'            => $request->department_id ?: null,
+                    'section_id'               => $request->section_id ?: null,
+                    'division_id'              => $request->division_id ?: null,
                     // Left null on purpose — doubles as the onboarding-link's single-use gate
                     // (OnboardingController redirects to login once this is set) and as a
                     // genuine "this address was actually confirmed" flag.
@@ -150,9 +150,9 @@ class UserManagementController extends Controller
                     'role'                     => $request->role,
                     'uploads_require_approval' => (bool) $request->uploads_require_approval,
                     'privileges'               => $request->privileges ?? [],
-                    'department_id'            => $request->department_id,
-                    'section_id'               => $request->section_id,
-                    'division_id'              => $request->division_id,
+                    'department_id'            => $request->department_id ?: null,
+                    'section_id'               => $request->section_id ?: null,
+                    'division_id'              => $request->division_id ?: null,
                 ];
 
                 $user->update($data);

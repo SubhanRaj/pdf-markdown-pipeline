@@ -4117,3 +4117,56 @@ unrelated one noted in M83. `php artisan view:clear` run (Blade forms changed); 
 `resources/views/sections/create.blade.php`, `resources/views/sections/edit.blade.php`,
 `resources/views/divisions/create.blade.php`, `resources/views/divisions/edit.blade.php`,
 `tests/Feature/DocumentFolderVisibilityTest.php`, `claude.md`, `summary.md`, `README.md`.
+
+## M85 — Designation/User create silently failed on a blank Department dropdown (empty-string-into-integer-column) (COMPLETED 2026-08-22)
+
+With M83's flasher fix live, the site owner could still not create a Designation — "hitting Create,
+it just refreshes, comes back to same page" persisted even after a hard reload. With flash messages
+now actually rendering, this was reproducible and diagnosable for the first time: every attempt was
+logged (`admin.designations.store`, status 302 — indistinguishable in the activity log from a
+successful redirect, since both a success-redirect and a `back()->withInput()` return 302), but zero
+designations existed afterward. `storage/logs/laravel.log` had the real answer the whole time:
+`DesignationController@store failed` — `SQLSTATE[22007]: Incorrect integer value: '' for column
+designations.department_id`.
+
+**Root cause:** `StoreDesignationRequest`/`UpdateDesignationRequest`'s `department_id` rule is
+`['nullable', 'integer', 'exists:departments,id']` — leaving the "— Generic, any department —" option
+selected posts `department_id=''`. Laravel's `nullable` rule treats an empty string as satisfying
+"nullable" and skips the `integer`/`exists` checks, but does **not** coerce the value itself to `null`
+in `$request->validated()` — it stays the literal empty string, which then goes straight into
+`Designation::create()` and MariaDB rejects it as an invalid integer for a nullable-but-typed FK
+column. `sort_order` had the same shape of bug from the other direction: `['nullable', 'integer']`
+allowed `null` through validation, but the `sort_order` column is `NOT NULL DEFAULT 0` (no
+`->nullable()` in the migration) — a blank sort_order field would throw "Column 'sort_order' cannot
+be null", same silent `back()->withInput()` result.
+
+**Fix:** both FormRequests' `prepareForValidation()` now explicitly coerce `department_id`
+(`'' → null`) and `sort_order` (`null`/`'' → 0`) before validation runs, rather than relying on
+`nullable`'s pass-but-don't-transform behavior. Verified end-to-end (validate → controller `store()` →
+real DB row) via a direct in-process request/controller invocation (no browser/session available in
+this environment) with the exact blank-department, blank-sort_order shape that was failing live.
+
+**Same bug class found and fixed in User create/update** — `UserManagementController::store()`/
+`update()` passed `$request->department_id`/`section_id`/`division_id` straight through with no
+coercion (unlike the adjacent `designation_id` line in the same array literal, which already had
+`?: null` — the exact fix needed was sitting one line above the bug each time). Reproduced directly
+against `User::create()`: an empty department/section/division (the ordinary "unscoped Viewer/
+Operator" case) threw the identical `Incorrect integer value: ''` error. Fixed with the same `?: null`
+pattern already established for `designation_id`, in both `store()` and `update()`.
+
+**Not fixed further:** the same `['nullable', 'integer', 'exists:...']` shape also appears in
+`ReclassifyDocumentRequest`, `PlaceQuickConversionRequest`, `StoreDocumentRequest`,
+`UpdateDocumentRequest`, and `ResolvesUploadDestination` — spot-checked `ReclassifyDocumentRequest`'s
+consumer (`ApprovalController::reclassify()`) and it already guards with `! empty($validated[...])`
+before ever reaching a DB write, so it isn't exposed the same way; the rest were not individually
+re-verified. If a similar "create/edit form with an optional FK dropdown left blank" report surfaces
+elsewhere, check for this exact pattern first — an unguarded `$request->some_id` (not `?: null`)
+landing in a `::create()`/`::update()` array.
+
+**Verification:** full suite 26/27 (same pre-existing unrelated `ExampleTest` failure as M83/M84).
+Confirmed via `storage/logs/laravel.log` that the exact failing request shape (blank department,
+blank sort_order, several `default_privileges` checked) now creates a real row instead of throwing.
+
+**Files changed:** `app/Http/Requests/Admin/StoreDesignationRequest.php`,
+`app/Http/Requests/Admin/UpdateDesignationRequest.php`,
+`app/Http/Controllers/Admin/UserManagementController.php`, `summary.md`.

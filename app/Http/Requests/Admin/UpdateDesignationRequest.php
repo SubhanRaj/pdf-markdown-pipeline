@@ -19,8 +19,10 @@ class UpdateDesignationRequest extends FormRequest
         $name = trim(strip_tags($this->name ?? ''));
 
         $this->merge([
-            'name' => $name,
-            'slug' => Str::slug($name, '_'),
+            'name'          => $name,
+            'slug'          => Str::slug($name, '_'),
+            'department_id' => $this->department_id === '' ? null : $this->department_id,
+            'sort_order'    => $this->sort_order === null || $this->sort_order === '' ? 0 : $this->sort_order,
         ]);
     }
 
