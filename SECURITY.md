@@ -100,9 +100,9 @@ with the same shape as prior findings, not a cosmetic issue.
 | L-05 | `documents.pipeline.health` (server/queue operational metadata) had no admin gate on the route itself — only the sidebar link was conditionally hidden; any authenticated user could reach it directly by URL | LOW | **FIXED** |
 
 H-06/H-07/M-05/L-05 were all raised by the site owner from real production usage (officer accounts
-onboarded, a section-scoped Deputy Excise Commissioner observed browsing into a sibling section),
-not a formal audit pass — logged here under the same severity/status convention as the others since
-they're real access-control gaps, not cosmetic issues.
+onboarded, a scoped account observed browsing into a section it wasn't assigned to), not a formal
+audit pass — logged here under the same severity/status convention as the others since they're real
+access-control gaps, not cosmetic issues.
 
 ---
 
@@ -112,18 +112,15 @@ they're real access-control gaps, not cosmetic issues.
 **Status:** FIXED
 
 **Finding:** A live query against the production `users` table found 7 accounts with `role=admin`
-— only one of which (the real IT/dev account) should have had it. The other 6 (a Finance
-Controller, an Additional Excise Commissioner, the Excise Commissioner, a Joint Excise
-Commissioner persona, a Deputy Excise Commissioner, and a PA to the Excise Commissioner) were all
-real officers who needed genuine document authority (upload/verify/convert) in their own
-department or section, but the only path that actually granted enough turned out to be the
-unconditional-bypass role. `role=admin` grants two independent things at once — the site
-console (`/admin/users`, `/admin/designations`, `/admin/activity-logs`,
+— only one of which (the real IT/dev account) should have had it. The other 6 were all real
+officers across different departments/sections who needed genuine document authority
+(upload/verify/convert) in their own area, but the only path that actually granted enough turned
+out to be the unconditional-bypass role. `role=admin` grants two independent things at once — the
+site console (`/admin/users`, `/admin/designations`, `/admin/activity-logs`,
 `documents.pipeline.health`) and a bypass of every organisational scope check — so every one of
-these accounts could also browse and act on every other department's/section's documents, not
-just their own. Concretely: a Deputy Excise Commissioner assigned to Establishment Section could
-freely browse into Camp Office Excise Commissioner Section, a completely unrelated section under
-the same department.
+these accounts could also browse and act on every other department's/section's documents, not just
+their own. Concretely: one of the affected accounts, assigned to one section, could freely browse
+into a completely unrelated section under the same department.
 
 **Root cause:** identical shape to the incident M74/`DESIGNATIONS_PLAN.md` already diagnosed and
 tried to fix — Designation presets kept under-granting privileges in practice (e.g. "Deputy
@@ -144,10 +141,11 @@ they still only act within their own `department_id`/`section_id`/`division_id`.
 
 **Verification:** applied directly against the live production database via `php artisan tinker`
 (not a migration — this is account state, not schema), then verified: `IsAdmin` middleware
-reflection confirms the demoted DEC account gets `403` on `/admin/users` while the real IT account
-still passes; `User::canUploadTo()`/`canManageDocument()` reflection confirms the DEC can act on
-Establishment Section documents but not Camp Office Section's; the Excise Commissioner (department-
-scoped) can act on both, matching the intended "EC sees/manages the whole department" design.
+reflection confirms a demoted, section-scoped account gets `403` on `/admin/users` while the real IT
+account still passes; `User::canUploadTo()`/`canManageDocument()` reflection confirms a
+section-scoped account can act on its own section's documents but not another section's, while a
+department-scoped account can act on both, matching the intended "department-wide account
+sees/manages the whole department" design.
 
 **Files affected:** `app/Models/User.php`, live `users` table data (not code).
 
@@ -213,8 +211,8 @@ were found by deliberately re-grepping for the same duplicated phrase after the 
 not from a fresh audit).
 
 **Verification:** exercised directly via `ReflectionMethod`/`Auth::login()` against the real
-production account #22 (`role=admin`, Establishment Section) — blocked
-(`false`) on an Accounts Section document, allowed (`true`) on an Establishment Section document;
+production section-scoped account (`role=admin`) — blocked
+(`false`) on a document outside its own section, allowed (`true`) on one inside it;
 `hasPrivilege('documents.edit')`, `hasPrivilege('documents.delete')`, and
 `BulkDeleteDocumentsRequest::authorize()` all confirmed `true` for this account.
 `tests/Feature/DocumentVerifyTest.php` updated (its "admin can verify anything, unconditionally"
