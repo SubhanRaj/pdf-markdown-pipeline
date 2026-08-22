@@ -4218,3 +4218,85 @@ the public repo's history if a full scrub is ever wanted (would require a force-
 explicit confirmation).
 
 **Files changed:** `resources/views/admin/_privilege_checkboxes.blade.php`, `.gitignore`, `summary.md`.
+
+## M87 — Real reason flasher toasts never rendered on ANY page: `@flasher_render` computes its output but never echoes it (COMPLETED 2026-08-22)
+
+After M83 (assets published) and M86 (checkbox keys fixed), the site owner created a Designation
+successfully — redirected to the index — and still saw no toast at all. M83 only fixed the *assets*
+(404s on the JS/CSS `@flasher_render` injects); it never actually proved the notification HTML itself
+was rendering.
+
+**Root cause, found by diffing the compiled Blade cache against the source:** `layout.blade.php` used
+`@flasher_render`, a directive from `php-flasher/flasher-laravel` itself. Its compiled output is
+`<?php app('flasher')->render('html'); ?>` — a bare statement, never echoed. `render()` still reads
+the queued notification out of session storage **and clears it** as a side effect of being called
+(confirmed live: `flasher::envelopes` held the message immediately after `flash()->success()` and was
+still there when the next request's `index()` controller ran), but the returned HTML string was
+discarded every time. `FlasherMiddleware` (which wraps every non-redirect HTML response) runs its own
+separate fallback render pass afterward, finds the storage already drained by the directive's silent
+call, and injects only an empty placeholder — the one harmless script tag visible on every page. This
+is a genuine bug in the vendor package's own directive, present since the day php-flasher was first
+added — unrelated to and not fixed by M83's asset-publish or M86's key-preservation fix, which is why
+the symptom outlived both.
+
+Reproduced via manually-crafted authenticated session cookies (see `EncryptedStore`/
+`CookieValuePrefix` notes) doing real POST→GET round trips against the live site with `Log::error()`
+tracing at each stage, confirming: notification written → still present at the start of the next
+`index()` request → `envelopes: []` in the final rendered HTML regardless.
+
+**Fix:** bypass the broken directive at the app level (not vendor-patching, which `composer update`
+would silently undo) — `layout.blade.php` now calls and echoes the render itself:
+`{!! app('flasher')->render('html') !!}` instead of `@flasher_render`.
+
+**Timeout:** first shipped a new `config/flasher.php` setting a 5s auto-dismiss (site owner's initial
+"make it stay for 5 sec, like all other project does" request), then reverted per follow-up
+("well then 10s default was better, keep it") — `config/flasher.php` deleted, package default (10s)
+now in effect again.
+
+**Verification:** full suite 26/27 (same pre-existing unrelated `ExampleTest` failure as M83–M86).
+`php artisan view:clear`/`config:clear` run; site confirmed up before and after. Site owner tested
+live and confirmed the toast now shows.
+
+**Files changed:** `resources/views/components/layout.blade.php`; `config/flasher.php` (added, then
+removed); `summary.md`.
+
+## M88 — User admin: clicking a name opens a read-only profile page; `/admin/users/{id}` → `/admin/users/{username}` (COMPLETED 2026-08-22)
+
+Two related asks from the site owner: (1) clicking a user's name in `/admin/users` only ever opened
+the edit form directly — no way to just view an officer's details without landing in an editable
+form; (2) admin URLs exposed raw numeric IDs (`/admin/users/24/edit`), which the site owner had
+already asked to avoid elsewhere in the app — every other admin resource (Section, Division, RuleSet,
+Folder, Department) already binds its routes on a `slug` column instead.
+
+**Fix — read-only profile page:** `UserManagementController::show()` and the `admin.users.show` route
+already existed but had no Blade view (a dead route — hitting it directly would 500). Added
+`resources/views/admin/users/show.blade.php`: contact info, org scope, and granted privileges as
+plain read-only text, with an "Edit" button linking to the existing edit form. `admin/users/index.blade.php`'s
+name cell is now a link to this page instead of plain text.
+
+**Fix — username-based routing, no migration needed:** `User` already had a unique `username` column
+(auto-generated from name+post at creation, see `User::generateUsername()`). Added
+`User::getRouteKeyName(): string { return 'username'; }` — the same one-method pattern already used by
+`Section`/`Division`/`RuleSet`/`Folder`/`Department`. Every existing route-model-bound reference
+(`route('admin.users.show', $user)`, `.edit`, `.destroy`, `.resend-activation`, and the activity-log's
+user links) needed no changes — they all pass the `$user` model, not a raw ID, so Laravel
+transparently resolves against `username` now instead of the primary key. `/admin/users/24/edit` is
+now `/admin/users/ravi_prakash_gautam/edit`.
+
+**Side change:** `admin/_privilege_checkboxes.blade.php` (the same partial M86 fixed) gained an
+optional `$readonly` param — when true, renders only the granted privileges as a plain checked list
+instead of an editable checkbox grid, grouped identically. Lets the new profile page reuse the single
+canonical privilege-label list instead of duplicating it.
+
+**Considered and skipped:** the site owner also floated hiding the URL entirely via AJAX/POST instead
+of a GET show page. Not done — once the raw ID is gone, that would only break bookmarking/back-button
+and diverge from how every other resource in this app already works (all GET show pages with slugs),
+for no remaining problem it would solve.
+
+**Verification:** full suite 26/27 (same pre-existing unrelated failure). Rendered `show`/`edit`/
+`index` views directly via tinker to catch compile errors before pushing; `php artisan route:list`
+confirmed `admin/users/{user}` resolves via `username`. `php artisan view:clear` run; site confirmed
+up.
+
+**Files changed:** `app/Models/User.php`, `resources/views/admin/_privilege_checkboxes.blade.php`,
+`resources/views/admin/users/index.blade.php`, `resources/views/admin/users/show.blade.php` (new).
