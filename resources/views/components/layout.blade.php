@@ -50,7 +50,11 @@
      class="px-2.5 py-1.5 text-xs font-medium text-slate-100 bg-slate-800 rounded-md shadow-lg whitespace-nowrap">
 </div>
 
-@flasher_render
+{{-- @flasher_render's own directive computes render() (which reads-and-clears the notification
+     storage as a side effect) but never echoes the result — a bug in php-flasher/flasher-laravel
+     itself, confirmed against the compiled Blade cache. Calling render() directly and echoing it
+     here is the actual fix; do not switch back to @flasher_render. --}}
+{!! app('flasher')->render('html') !!}
 
 @stack('scripts')
 
