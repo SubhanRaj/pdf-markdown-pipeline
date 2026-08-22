@@ -993,7 +993,7 @@ Approval routes use **numeric `{id}`** not slugs — reclassification changes th
 
 `Department`, `Section`, `Division`, `RuleSet`, `Folder`, and `Document` all override `getRouteKeyName()` to return `'slug'`. Route helpers accept model instances. Never pass `->id` manually to a route helper for these models.
 
-`User` overrides `getRouteKeyName()` to return `'username'` instead (M88, 2026-08-22) — reuses the already-unique, already-existing `username` column rather than adding a dedicated slug column. `/admin/users/{user}` and `/admin/users/{user}/edit` resolve on username, e.g. `/admin/users/ravi_prakash_gautam`. Same rule applies: pass the `$user` model to route helpers, never `->id`.
+`User` overrides `getRouteKeyName()` to return `'username'` instead (M88, 2026-08-22) — reuses the already-unique, already-existing `username` column rather than adding a dedicated slug column. `/admin/users/{user}` and `/admin/users/{user}/edit` resolve on username, e.g. `/admin/users/ramesh_kumar_verma`. Same rule applies: pass the `$user` model to route helpers, never `->id`.
 
 Slug helpers:
 - `Document::uniqueSlugForSection($title, $sectionId, $exceptId?)` — direct section docs (division_id IS NULL AND folder_id IS NULL)
@@ -1448,11 +1448,28 @@ department-scoped one.
 
 **Where it's applied:**
 - `SectionController::show()`, `DivisionController::show()`, `FolderController`'s shared
-  `renderShow()` — `abort(403)` for an authenticated out-of-scope user, mirroring the pre-existing
-  folder-visibility-ceiling 403 pattern (M-04). `SectionController::index()` and the Search
-  controller's Sections/Divisions/Folders result blocks additionally filter the *listing* itself
-  (`->filter(fn ($s) => $user->canView($s))`), so a scoped user never sees a dead link to a section
-  they can't open.
+  `renderShow()` — an authenticated out-of-scope user is **not** `abort(403)`'d (that was the
+  original M79 behavior, superseded by M83: a scoped user is a strictly higher trust tier than a
+  guest, and guests already see this page's public content, so an out-of-scope authenticated user
+  is dropped to the same public-only view a guest gets instead of being hard-blocked —
+  `$publicOnly = $isGuest || ! $user->canView($context)`, then every query on the page is
+  `->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))`).
+- **`SectionController::index()` and `SearchController`'s Sections/Divisions result blocks must
+  never hard-`->filter(fn ($s) => $user->canView($s))` a section/division out of a *listing*** — a
+  section containing content the user is entitled to see under the public-only rule above still
+  needs to be *discoverable* in the list/search results that lead there, or the public-only view on
+  its own `show()` page is unreachable in practice. This was actually broken this way from M79
+  until M91 (2026-08-22, `summary.md`) — `SectionController::index()`'s section list and
+  `SearchController`'s sections/divisions results both excluded out-of-scope sections entirely,
+  so a section-scoped user could never even see the *link* to another section's public folders,
+  despite the section's own page correctly rendering them if reached by direct URL. Correct pattern
+  is inclusion, not exclusion: `$section->visibility === 'public' || ($user && $user->canView($section))`
+  (or for a guest-facing listing, `! ($isGuest && $s->visibility === 'authenticated')` to hide
+  authenticated-only ones from guests specifically) — never a bare `canView()` filter with no
+  `visibility === 'public'` fallback clause. Folders in `SearchController` already had this right
+  (`|| $f->visibility === 'public'`); sections/divisions didn't, and a bare `! $user || ...` filter
+  also let a **guest** see authenticated-only sections'/divisions' names in search results (fixed in
+  the same pass — `! $user` short-circuited true regardless of the section's own visibility).
 - `DocumentController` — new private `authorizeDocumentView(Document $document, object $context)`
   helper wraps the existing guest `isPubliclyVisible()` check and adds the `canView()` ceiling for
   authenticated users; used by all 8 non-rule-set show/PDF route variants (section, division,

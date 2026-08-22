@@ -213,7 +213,7 @@ were found by deliberately re-grepping for the same duplicated phrase after the 
 not from a fresh audit).
 
 **Verification:** exercised directly via `ReflectionMethod`/`Auth::login()` against the real
-production `Kumar Prabhat Chandra` (`role=admin`, Establishment Section) account — blocked
+production account #22 (`role=admin`, Establishment Section) — blocked
 (`false`) on an Accounts Section document, allowed (`true`) on an Establishment Section document;
 `hasPrivilege('documents.edit')`, `hasPrivilege('documents.delete')`, and
 `BulkDeleteDocumentsRequest::authorize()` all confirmed `true` for this account.
