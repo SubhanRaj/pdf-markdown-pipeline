@@ -48,8 +48,11 @@ Route::get('/reset-password/{token}', [ForgotPasswordController::class, 'showRes
 Route::post('/reset-password',    [ForgotPasswordController::class, 'reset'])->middleware(['guest', 'throttle:password-reset'])->name('password.update');
 
 // ── Onboarding (signed, single-use link mailed on admin-created accounts) ─────────────────────
-Route::get('/onboarding/{user}',  [OnboardingController::class, 'show'])->middleware('signed')->name('onboarding.show');
-Route::post('/onboarding/{user}', [OnboardingController::class, 'store'])->middleware(['signed', 'throttle:login'])->name('onboarding.store');
+// Explicitly bound by id, not the app-wide username route key (User::getRouteKeyName()) — this
+// URL is generated as a signed link with the numeric id (UserManagementController::sendOnboardingLink()),
+// not browsed/typed, so it must resolve on id regardless of the global slug convention.
+Route::get('/onboarding/{user:id}',  [OnboardingController::class, 'show'])->middleware('signed')->name('onboarding.show');
+Route::post('/onboarding/{user:id}', [OnboardingController::class, 'store'])->middleware(['signed', 'throttle:login'])->name('onboarding.store');
 
 // ── Public ────────────────────────────────────────────────────────────────────
 
