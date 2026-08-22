@@ -271,7 +271,7 @@ class DocumentController extends Controller
             return;
         }
 
-        abort_unless(auth()->user()->canView($context), 403);
+        abort_unless(auth()->user()->canView($context) || $document->isPubliclyVisible(), 403);
     }
 
     public function show(string $level, Department $department, Section $section, Document $document): View

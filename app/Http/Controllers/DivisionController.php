@@ -64,9 +64,17 @@ class DivisionController extends Controller
 
     public function show(Request $request, string $level, Department $department, Section $section, Division $division): View
     {
-        if (auth()->check() && ! auth()->user()->canView($division)) {
+        $isGuest = ! auth()->check();
+
+        // A guest reaching straight for a division URL still has to clear both the division's
+        // own gate and its parent section's — going direct shouldn't bypass either.
+        if ($isGuest && ($division->visibility === 'authenticated' || $section->visibility === 'authenticated')) {
             abort(403);
         }
+
+        // Out-of-scope authenticated users aren't blocked outright — they're dropped to the same
+        // public-only view a guest gets (see SectionController::show()).
+        $publicOnly = $isGuest || ! auth()->user()->canView($division);
 
         $sort       = $request->get('sort', 'amendment_number_desc');
         $filterYear = (int) $request->get('year', 0);
@@ -79,12 +87,12 @@ class DivisionController extends Controller
                 'amendments' => fn ($q) => $q
                     ->publishable()
                     ->with('user:id,name')
-                    ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
+                    ->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))
                     ->orderBy('created_at'),
             ])
             ->whereNull('parent_id')
             ->whereNull('folder_id')
-            ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
+            ->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))
             ->orderBy('created_at')
             ->get();
 
@@ -119,7 +127,7 @@ class DivisionController extends Controller
         $totalCount = $division->documents()
             ->publishable()
             ->whereNull('folder_id')
-            ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
+            ->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))
             ->count();
 
         // Parent options for amendment upload — all root documents in the SECTION

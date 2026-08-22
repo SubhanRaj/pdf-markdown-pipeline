@@ -31,11 +31,12 @@ class StoreSectionRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $name = trim(strip_tags($this->name ?? ''));
-        $slug = $this->slug ? Str::slug(strip_tags($this->slug)) : Str::slug($name);
-        $wing = trim(strip_tags($this->wing ?? '')) ?: null;
+        $name       = trim(strip_tags($this->name ?? ''));
+        $slug       = $this->slug ? Str::slug(strip_tags($this->slug)) : Str::slug($name);
+        $wing       = trim(strip_tags($this->wing ?? '')) ?: null;
+        $visibility = strtolower(trim($this->visibility ?? 'public'));
 
-        $this->merge(compact('name', 'slug', 'wing'));
+        $this->merge(compact('name', 'slug', 'wing', 'visibility'));
     }
 
     public function rules(): array
@@ -48,7 +49,8 @@ class StoreSectionRequest extends FormRequest
                        Rule::unique('sections')->where(fn ($q) => $q
                            ->where('department_id', $departmentId)
                            ->where('wing', $this->wing ?: null))],
-            'wing' => ['nullable', 'string', 'in:headquarter,joint_secretary_wing,deputy_secretary_wing,field_office'],
+            'wing'       => ['nullable', 'string', 'in:headquarter,joint_secretary_wing,deputy_secretary_wing,field_office'],
+            'visibility' => ['nullable', 'string', 'in:public,authenticated'],
         ];
     }
 

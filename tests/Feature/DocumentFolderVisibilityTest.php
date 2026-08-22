@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Department;
+use App\Models\Division;
 use App\Models\Document;
 use App\Models\Folder;
 use App\Models\Section;
@@ -116,4 +117,32 @@ test('sitemap excludes a public document inside an authenticated folder', functi
     $xml = $this->get(route('sitemap'))->assertOk()->getContent();
 
     expect($xml)->not->toContain($doc->slug);
+});
+
+test('a guest gets 403 viewing an authenticated-only section page', function () {
+    $department = visibilityDept();
+    $section    = visibilitySection($department);
+    $section->update(['visibility' => 'authenticated']);
+
+    $this->get(route('departments.sections.show', [$department->levelAlias(), $department, $section]))
+        ->assertForbidden();
+});
+
+test('a guest gets 403 viewing an authenticated-only division page', function () {
+    $department = visibilityDept();
+    $section    = visibilitySection($department);
+    $division   = Division::create(['section_id' => $section->id, 'name' => 'Zone A', 'slug' => 'zone-a', 'visibility' => 'authenticated']);
+
+    $this->get(route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division]))
+        ->assertForbidden();
+});
+
+test('isPubliclyVisible is false for a public document in a public folder inside an authenticated section', function () {
+    $department = visibilityDept();
+    $section    = visibilitySection($department);
+    $section->update(['visibility' => 'authenticated']);
+    $folder     = visibilityFolder($department, $section, 'public');
+    $doc        = visibilityDoc($department, $section, $folder, 'public');
+
+    expect($doc->isPubliclyVisible())->toBeFalse();
 });

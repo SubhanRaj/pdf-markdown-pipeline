@@ -181,6 +181,7 @@ Unique constraint: `(slug, level)`.
 | `wing` | string nullable | e.g. `joint_secretary_wing`, `headquarter` |
 | `name` | string | |
 | `slug` | string | |
+| `visibility` | string | `public` (default) \| `authenticated` (M84) — same ceiling pattern as Folder's `visibility` below |
 | `requires_approval` | boolean | default false — any upload to this section is held for approval |
 | timestamps + softDeletes | | |
 
@@ -671,6 +672,28 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
   the draft rather than approving it). Blade mirrors this as `$canConvertDoc`/`$canManageDoc`.
   `UpdateDocumentMarkdownRequest`'s Save & Verify is untouched.
 - Full writeup: `summary.md`'s M82 entry, `claude.md`'s conversion-trigger section.
+
+**Completed (2026-08-22 — PHPFlasher assets never published, all flash messages invisible since day one, M83):**
+- `public/vendor/flasher/` (the JS/CSS `@flasher_render` injects) had never been published — every
+  `flash()->success()/error()` call in the app 404'd silently, no toast ever rendered, since the
+  package was first added. Explained two separately-reported symptoms: designation-create "not
+  reloading or moving" (it was redirecting/erroring fine, just invisibly) and a suspicion that
+  privileges weren't mapped (checked — they all are; same invisible-flash symptom).
+- Fixed via `php artisan flasher:install`, now committed. Checked the other 3 PHP projects on this
+  machine that also depend on php-flasher — none had the same gap.
+- Also fixed: an out-of-scope authenticated user got a hard 403 even on content explicitly marked
+  Public (e.g. a section-scoped officer couldn't see a Public document in a different section,
+  despite guests already being able to). `Document::scopeViewableBy()` and every `canView()` gate now
+  drop such a user to the same public-only view a guest already gets, instead of blocking outright.
+- Full writeup: `summary.md`'s M83 entry.
+
+**Completed (2026-08-22 — Public/private visibility added to Sections and Divisions, M84):**
+- Direct follow-up to M83: only Folder had a `visibility` column before this — Division didn't either,
+  despite the assumption it did. Added the same `public`/`authenticated` field to Sections and
+  Divisions, with matching create/edit UI, guest-facing 403 gates, and — since a document's own
+  `visibility` flag was already capped by its folder's — extended that same ceiling to also check the
+  document's division and section.
+- Full writeup: `summary.md`'s M84 entry, `claude.md`'s "Folder/Division/Section visibility" item.
 
 ## 🚀 Future Roadmap
 

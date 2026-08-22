@@ -139,6 +139,7 @@ Unique constraint: `(slug, level)`.
 | `wing` | string nullable | e.g. `joint_secretary_wing`, `headquarter` |
 | `name` | string | |
 | `slug` | string | |
+| `visibility` | string | `public` (default) \| `authenticated` (M84, 2026-08-22) — gates the section page and is a hard ceiling on every contained document's effective visibility, same pattern as Folder's `visibility` below |
 | `timestamps` + `softDeletes` | | |
 
 Unique constraint: `(department_id, wing, slug)`.
@@ -146,11 +147,11 @@ Unique constraint: `(department_id, wing, slug)`.
 ### `divisions`
 | Column | Type | Notes |
 |---|---|---|
-| `id` | bigint PK | |
 | `section_id` | FK → sections | `restrictOnDelete` |
 | `name` | string | Display name (free-form — e.g. "Pension Desk", "HRMS Cell") |
 | `slug` | string | Auto-generated from name; unique per section |
 | `description` | text nullable | Optional scope/function description (max 500 chars) |
+| `visibility` | string | `public` (default) \| `authenticated` (M84, 2026-08-22) — same pattern as Section/Folder |
 | `timestamps` + `softDeletes` | | |
 
 Unique constraint: `(section_id, slug)`. Slug generated via `Division::uniqueSlugForSection($name, $sectionId)` — checks `withTrashed()`. Slug is immutable after creation (vault paths depend on it).
@@ -1613,7 +1614,7 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 
 29. **Folders (Patravalis) are physical-file groupings, not organizational units** — `Section` and `Division` model the org chart (who issues the letter). `Folder` models the physical filing concept (a named dossier grouping all correspondence on a specific matter — court case, license dispute, audit query, service matter). Folders live under a section or division. A section/division can have both direct docs and folders simultaneously. Folders are not nested. Folder slug is immutable after creation (vault paths depend on it). `UpdateFolderRequest` does not accept a `slug` field. `shouldRequireApproval()` accepts `Folder` as a valid context type alongside `Section|Division|RuleSet`.
 
-30. **Folder visibility gates the folder page; contained doc visibility is independent** — if `folder.visibility = 'authenticated'`, the folder show page and its document PDF routes abort 403 for guests. Individual documents within the folder still carry their own `visibility` field — a public document inside an authenticated folder is reachable by direct URL (since the vault path is not secret once you know it), but you cannot browse to it via the folder. Do not cascade folder visibility to documents; enforce it only at the folder page and folder-doc route level.
+30. **Folder/Division/Section visibility gates the container page AND is a hard ceiling on every document inside it (M84, 2026-08-22 — supersedes the pre-M84 "does not cascade" claim this item used to make, which had gone stale against the actual code and `DocumentFolderVisibilityTest`/`DocumentVerifyTest` coverage for a while before being caught)** — if `folder.visibility`/`division.visibility`/`section.visibility === 'authenticated'`, that container's show page (and, for Folder, its document PDF routes) abort 403 for guests; `SectionController`/`DivisionController` additionally drop an out-of-scope *authenticated* user to the same public-only view instead of hard-aborting (see "View-scoping" above). Separately, `Document::isPubliclyVisible()`/`scopePubliclyVisible()` treat a document's own `visibility` as necessary but not sufficient — a document only counts as publicly visible if its own flag is `public` **and** every non-null container it sits in (`folder`, `division`, `section`) is also `public`; one `authenticated` container anywhere in the chain overrides a `public` document inside it. A public document is NOT independently reachable by direct URL once any container above it is `authenticated` — `authorizeDocumentView()`/`authorizeZipView()` route-level checks call `isPubliclyVisible()`, not the raw `visibility` column, so the ceiling is enforced everywhere, not just at the container page.
 
 31. **Policy reuses `RuleSet` with a `kind` discriminator — not a parallel model** — `RuleSet.kind` (`rules` | `policy`) drives the same controller (`RuleSetController`), the same five `DocumentController` rule-set-document methods, and the same Blade views, branching only where the two genuinely differ: permission (`canManagePolicy()` vs the generic `canUploadTo()`/admin-only rules), and policy-only columns (`state`, `policy_type`, `effective_start_date`/`effective_end_date`, `policy_status`, `previous_policy_id`). Route names mirror this exactly — `departments.policy.*`/`documents.policy.*` sit next to `departments.rules.*`/`documents.rules.*`, both resolved via a `kind` route default applied **per-route** (`Route::get(...)->name(...)->defaults('kind', ...)`), never on the `Route::prefix()->name()->group()` chain itself — `RouteRegistrar::group()` does not return a chainable `Route` instance, so `->defaults()` on it throws `BadMethodCallException`. Do not introduce a separate `Policy` model/controller/view set; extend the `kind`-aware branches in the existing ones instead.
 

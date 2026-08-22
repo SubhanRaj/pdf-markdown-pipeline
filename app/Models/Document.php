@@ -56,15 +56,17 @@ class Document extends Model
 
     /**
      * A document's own `visibility` isn't the whole story — a Public document dropped into an
-     * Authenticated-only folder (by mistake, via the upload form's default, or via direct API/
-     * import) must not leak through the folder's restriction just because its own flag says
-     * public. This is the single source of truth every guest-facing check should use instead of
-     * reading `visibility` directly.
+     * Authenticated-only folder/division/section (by mistake, via the upload form's default, or
+     * via direct API/import) must not leak through that container's restriction just because its
+     * own flag says public. This is the single source of truth every guest-facing check should
+     * use instead of reading `visibility` directly.
      */
     public function isPubliclyVisible(): bool
     {
         return $this->visibility === 'public'
-            && (! $this->folder_id || $this->folder?->visibility === 'public');
+            && (! $this->folder_id || $this->folder?->visibility === 'public')
+            && (! $this->division_id || $this->division?->visibility === 'public')
+            && (! $this->section_id || $this->section?->visibility === 'public');
     }
 
     /** Query-builder counterpart to isPubliclyVisible() — for guest-facing list/search/sitemap queries. */
@@ -72,7 +74,11 @@ class Document extends Model
     {
         return $query->where('visibility', 'public')
             ->where(fn (Builder $q) => $q->whereNull('folder_id')
-                ->orWhereHas('folder', fn (Builder $f) => $f->where('visibility', 'public')));
+                ->orWhereHas('folder', fn (Builder $f) => $f->where('visibility', 'public')))
+            ->where(fn (Builder $q) => $q->whereNull('division_id')
+                ->orWhereHas('division', fn (Builder $d) => $d->where('visibility', 'public')))
+            ->where(fn (Builder $q) => $q->whereNull('section_id')
+                ->orWhereHas('section', fn (Builder $s) => $s->where('visibility', 'public')));
     }
 
     /**
@@ -85,7 +91,11 @@ class Document extends Model
      * rule-set documents (Acts/Rules/Policies are department-wide reference material with no
      * section-level owner — see User::canView()'s docblock) — a rule-set document only needs the
      * department match, which the 'department' tier already provides and the 'section'/
-     * 'division' tiers pass through unfiltered by checking rule_set_id first.
+     * 'division' tiers pass through unfiltered by checking rule_set_id first. Every tier also
+     * passes through a document that isPubliclyVisible() regardless of its own org unit — a
+     * scoped user is a strictly higher trust tier than a guest, and guests already see public
+     * content everywhere, so this is not a new exposure, just extending an existing tier to
+     * authenticated users whose own scope doesn't otherwise reach it.
      */
     public function scopeViewableBy(Builder $query, ?User $user): Builder
     {
@@ -97,12 +107,15 @@ class Document extends Model
 
         return match ($scope) {
             'global', 'none' => $query,
-            'department' => $query->where('department_id', $user->department_id),
+            'department' => $query->where(fn (Builder $q) => $q->where('department_id', $user->department_id)
+                ->orWhere(fn (Builder $p) => $p->publiclyVisible())),
             'section'    => $query->where(fn (Builder $q) => $q->whereNotNull('rule_set_id')
-                ->orWhere('section_id', $user->section_id)),
+                ->orWhere('section_id', $user->section_id)
+                ->orWhere(fn (Builder $p) => $p->publiclyVisible())),
             'division'   => $query->where(fn (Builder $q) => $q->whereNotNull('rule_set_id')
-                ->orWhere('division_id', $user->division_id)),
-            default      => $query->whereRaw('1 = 0'),
+                ->orWhere('division_id', $user->division_id)
+                ->orWhere(fn (Builder $p) => $p->publiclyVisible())),
+            default      => $query->where(fn (Builder $p) => $p->publiclyVisible()),
         };
     }
 

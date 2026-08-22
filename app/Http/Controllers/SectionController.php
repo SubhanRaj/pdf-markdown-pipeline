@@ -25,6 +25,7 @@ class SectionController extends Controller
             ->orderBy('wing')
             ->orderBy('name')
             ->get()
+            ->filter(fn (Section $s) => ! ($isGuest && $s->visibility === 'authenticated'))
             ->filter(fn (Section $s) => $isGuest || $user->canView($s))
             ->values();
 
@@ -75,9 +76,14 @@ class SectionController extends Controller
     {
         $isGuest = ! auth()->check();
 
-        if (! $isGuest && ! auth()->user()->canView($section)) {
+        if ($section->visibility === 'authenticated' && $isGuest) {
             abort(403);
         }
+
+        // Out-of-scope authenticated users aren't blocked outright — they're dropped to the same
+        // public-only view a guest gets, since a scoped user is a strictly higher trust tier than
+        // a guest and guests already see this section's public content (see Document::viewableBy).
+        $publicOnly = $isGuest || ! auth()->user()->canView($section);
 
         $sort       = $request->get('sort', 'uploaded_desc');
         $filterYear = (int) $request->get('year', 0);
@@ -88,7 +94,7 @@ class SectionController extends Controller
             ->whereNull('division_id')
             ->whereNull('folder_id')
             ->with('user:id,name')
-            ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
+            ->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))
             ->when($filterYear, fn ($q) => $q->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.effective_year')) = ?", [$filterYear]));
 
         match ($sort) {
@@ -105,13 +111,13 @@ class SectionController extends Controller
             ->publishable()
             ->whereNull('division_id')
             ->whereNull('folder_id')
-            ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
+            ->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))
             ->pluck('metadata')
             ->map(fn ($m) => is_array($m) ? ($m['effective_year'] ?? null) : null)
             ->filter()->unique()->sort()->values();
 
         // Divisions with document counts
-        $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
+        $visibilityScope = fn ($q) => $publicOnly ? $q->where('visibility', 'public') : $q;
 
         $divisions = $section->divisions()
             ->withCount(['documents' => $visibilityScope])
@@ -119,12 +125,12 @@ class SectionController extends Controller
 
         // Section folders (direct, not under a division) with document counts
         $folders = $section->folders()
-            ->when($isGuest, fn ($q) => $q->where('visibility', 'public'))
+            ->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))
             ->withCount(['documents' => $visibilityScope])
             ->get();
 
         // For the "Amends" dropdown in the upload modal — direct section docs only
-        $parentOptions = auth()->check()
+        $parentOptions = auth()->check() && ! $publicOnly
             ? $section->documents()
                 ->whereNull('division_id')
                 ->select('id', 'title', 'created_at')

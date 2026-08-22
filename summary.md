@@ -3996,3 +3996,124 @@ site confirmed up (`curl` 200 on `/`).
 
 **Files changed:** `app/Http/Controllers/DocumentController.php`,
 `resources/views/documents/show.blade.php`, `claude.md`, `summary.md`.
+
+## M83 — PHPFlasher assets never published (all flash messages invisible since day one), and view-scoping had no public-content carve-out (COMPLETED 2026-08-22)
+
+**Bug 1 — every flash()->success()/error() in the app was silently invisible.** `php-flasher/flasher-laravel`
+is in `composer.json` and every controller calls `flash()->success(...)`/`flash()->error(...)` correctly, and
+`@flasher_render` is wired into `layout.blade.php` — but `public/vendor/flasher/` (the JS/CSS the middleware
+injects a `<script src="/vendor/flasher/flasher.min.js">` tag for) had never been published, so every request
+for it 404'd and no toast ever rendered. This had been true since the package was first added — not a
+regression. It explained two separately-reported symptoms as the same root cause: (a) the site owner's report
+that "create designation with privileges don't even reload or move" — the form actually does redirect
+(success) or `back()->withInput()` (validation/DB failure), but both looked identical to the eye with the
+confirmation invisible; (b) the earlier suspicion that "privileges aren't mapped" — checked every privilege
+key in `admin/_privilege_checkboxes.blade.php` against every `hasPrivilege()` call site and `User::PRIVILEGES`;
+all match, nothing was UI-only/dead, it was the same invisible-flash symptom, not a real logic gap. Fixed by
+running `php artisan flasher:install` (publishes to `public/vendor/flasher/`, now committed — `.gitignore`
+only excludes the top-level `/vendor` composer dir, not `public/vendor`). Checked the other three PHP projects
+on this machine that also depend on php-flasher (`excise-budget-tracker`, `pla`, `UP-excise-mailer`) — all
+three already have their assets published; this project was the only one missing them.
+
+**Bug 2 — an out-of-scope authenticated user got a hard 403 even on content marked Public**, reported as: a
+section-scoped admin (Ravi Prakash Gautam, scoped to Camp Office Excise Commissioner) couldn't see a Public
+document in a different section (Accounts) despite Public documents already being guest-visible to anonymous
+internet users. Root cause: `Document::scopeViewableBy()` and every `canView()` call site
+(`SectionController::show()`, `DivisionController::show()`, `FolderController::renderShow()`,
+`DocumentController::authorizeDocumentView()`, `SearchController::index()`) treated org-scope as strictly
+all-or-nothing — no carve-out for a document/folder that's explicitly Public. Fixed by dropping an
+out-of-scope authenticated user to the same public-only view a guest already gets for that context, instead
+of aborting outright — not a new exposure surface, since guests already see this content; it just extends an
+existing tier to authenticated users whose own scope doesn't otherwise reach it.
+`Document::scopeViewableBy()` now OR's in `publiclyVisible()` at every scope tier;
+`SectionController`/`DivisionController`/`FolderController`'s `show()` compute a `$publicOnly` flag (true for
+guests OR out-of-scope authenticated users) and use it everywhere the old `$isGuest`/`!auth()->check()`
+visibility filter was, instead of hard-aborting; `DocumentController::authorizeDocumentView()` OR's in
+`$document->isPubliclyVisible()`; `SearchController`'s folder-search filter OR's in `$f->visibility ===
+'public'`. Also found and fixed an adjacent leak surfaced by the same code path: `SectionController::show()`'s
+"Amends" parent-document dropdown listed every document title in a section (including non-public ones) to
+any authenticated viewer regardless of scope, unfiltered — now gated on `! $publicOnly` too.
+
+**Deliberately not done:** Section/Division still have no `visibility` column of their own (only Folder and
+Document do — the site owner's "like divisions have" assumption was checked and is only half true, Division
+doesn't have it either); adding public/private to Sections is a real schema + UI feature, scoped out of this
+fix. `DownloadController`'s bulk ZIP export stays strictly scope-gated (unchanged) — zipping "just the public
+subset" of an out-of-scope section adds real complexity the reported bug didn't ask for.
+
+**Verification:** rewrote/extended `tests/Feature/DocumentViewScopeTest.php` — split the old
+"cannot browse another section" test (which used a `visibility: public` fixture that the new behavior
+correctly makes reachable) into one test confirming authenticated-only content in another section stays
+hidden (`assertOk()` + `assertDontSee`, no longer `assertForbidden()`), and a new test confirming Public
+content in another section is now visible (`assertSee`); fixed the pipeline-monitor isolation test's fixtures
+to use `visibility: authenticated` (its actual intent — internal working-queue isolation — was being
+accidentally defeated by the new public passthrough, since the fixture data was public by default). Full
+suite: 23/24 passing, the one failure (`ExampleTest`) is pre-existing and unrelated (reproduces identically on
+a clean `git stash`). Confirmed via `tinker` against production data: Ravi's `canView()` on the out-of-scope
+section still correctly returns `false` (his own org-scope is unchanged), but `isPubliclyVisible()` +
+route-level fallthrough now let a real Public document in another section render instead of 403ing. Audited
+all mutating controllers for transaction/error-handling hygiene while in this area (prompted by the same
+flash-message trust question) — every `store`/`update`/`destroy` and every bulk/one-off mutation action
+(`bulkForceDestroy`, `verify`, `convert`, etc.) is wrapped in `DB::transaction()` + `try/catch` + logged
+failure + user-facing flash, consistently across the whole app; the only raw SQL (`whereRaw`/`orderByRaw` in
+`SectionController`/`SearchController`) uses `?` placeholders with bound params and fixed JSON-path literals,
+no injection surface.
+
+**Files changed:** `app/Models/Document.php`, `app/Http/Controllers/SectionController.php`,
+`app/Http/Controllers/DivisionController.php`, `app/Http/Controllers/FolderController.php`,
+`app/Http/Controllers/DocumentController.php`, `app/Http/Controllers/SearchController.php`,
+`tests/Feature/DocumentViewScopeTest.php`, `public/vendor/flasher/**` (published, new),
+`claude.md`, `summary.md`, `README.md`.
+
+## M84 — Public/private visibility added to Sections and Divisions, matching Folder (COMPLETED 2026-08-22)
+
+Direct follow-up to M83: the site owner asked for public/private scoping on Sections "like divisions
+or folders have" — checked first and that assumption was only half right, Division had no `visibility`
+column either, only Folder did. Built the same field onto both, rather than just Sections, for
+consistency across every browse-level container.
+
+**Schema:** new migration adds `visibility` (`public` default, `authenticated`) to `sections` and
+`divisions` — same two-value convention as `folders.visibility`, added in one migration with two
+`Schema::table()` blocks. `Section`/`Division` models, `Store`/`UpdateSectionRequest`,
+`Store`/`UpdateDivisionRequest` (validation + `prepareForValidation()` lowercasing, mirroring
+`Store`/`UpdateFolderRequest` exactly) and the four create/edit Blade forms (same radio-button
+Public/Authenticated pair used on `folders/create.blade.php`) all updated to match.
+
+**Enforcement:** `SectionController::show()`/`index()` and `DivisionController::show()` gained the
+same `if ($x->visibility === 'authenticated' && $isGuest) abort(403)` gate `FolderController` already
+had; `DivisionController::show()` checks both its own and its parent section's visibility, since a
+guest going straight for a division URL shouldn't bypass the section's gate. Also extended
+`Document::isPubliclyVisible()`/`scopePubliclyVisible()` — previously only `folder.visibility` was a
+ceiling on top of a document's own `visibility` flag; now `division.visibility` and
+`section.visibility` are too, so a Public document sitting under an Authenticated-only section/
+division no longer counts as publicly visible just because its own flag says public. This also
+**fixed a stale doc claim** (`claude.md` item 30) that said folder visibility deliberately does
+*not* cascade to documents and a public doc stays direct-URL-reachable regardless — that had gone
+out of sync with the actual code (`Document::isPubliclyVisible()` already checked the folder ceiling)
+and with `DocumentFolderVisibilityTest`'s existing coverage for a while before this pass caught it;
+corrected to describe the real (and now section/division-extended) behavior.
+
+**A live scare mid-build, caught and fixed before it mattered:** added `visibility` to the
+`Section`/`Division` models' `$fillable` and the FormRequests' validation *before* running the
+migration — since this is the live checkout, that window meant any `Division`/`Section` create
+briefly threw "Unknown column 'visibility'" (caught by the controller's existing `try/catch`, so it
+degraded to a silent `back()->withInput()`, not a crash) if attempted in between. The site owner hit
+exactly this a few minutes later creating a division named "Assistant Excise Commissioner" ("hitting
+create division, it refreshes the page but comes back to same page" — the same invisible-failure
+shape M83 diagnosed, this time from a genuinely missing column rather than an invisible flash).
+Running the migration (`php artisan migrate --force`) closed the gap; verified via `tinker` that both
+`Section::save()` and `Division::save()` with `visibility` set now succeed.
+
+**Verification:** two new tests in `tests/Feature/DocumentFolderVisibilityTest.php` (guest 403 on an
+authenticated-only section page, guest 403 on an authenticated-only division page) plus one for the
+extended ceiling (a public document in a public folder inside an authenticated *section* still isn't
+publicly visible). Full suite: 26/27 passing, the one failure (`ExampleTest`) is the same pre-existing
+unrelated one noted in M83. `php artisan view:clear` run (Blade forms changed); site confirmed up.
+
+**Files changed:** `database/migrations/2026_08_22_070843_add_visibility_to_sections_and_divisions_table.php`
+(new), `app/Models/Section.php`, `app/Models/Division.php`, `app/Models/Document.php`,
+`app/Http/Requests/StoreSectionRequest.php`, `app/Http/Requests/UpdateSectionRequest.php`,
+`app/Http/Requests/StoreDivisionRequest.php`, `app/Http/Requests/UpdateDivisionRequest.php`,
+`app/Http/Controllers/SectionController.php`, `app/Http/Controllers/DivisionController.php`,
+`resources/views/sections/create.blade.php`, `resources/views/sections/edit.blade.php`,
+`resources/views/divisions/create.blade.php`, `resources/views/divisions/edit.blade.php`,
+`tests/Feature/DocumentFolderVisibilityTest.php`, `claude.md`, `summary.md`, `README.md`.
