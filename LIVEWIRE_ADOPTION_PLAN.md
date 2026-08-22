@@ -188,3 +188,170 @@ block (at minimum `documents/show.blade.php`, `sections/show.blade.php`, `bulk-u
 `resources/views/components/layout.blade.php:195-198` already solved this same migration for a
 sibling app on this same stack and left comments about a dark-mode-flash bug it hit — read that
 file first as the reference implementation, not a blank-page design exercise.
+
+## Sync status (2026-08-22) — `main` has moved 23 commits since this branch's last merge
+
+`main` is the live branch (`docsrepo.exciseup.in` serves it directly from this checkout) and has
+kept moving while this pilot sat idle. This branch's last merge from `main` was at `d47b591`
+(`git merge-base main livewire-pilot` — still `d47b5916021c6af258e305d37f83698c709bb63f`). Since
+then `main` has picked up 23 commits, none of them merged here yet. **This section is a map for
+whoever resumes this branch — read it before merging, don't merge blind.** Nothing below has been
+applied to `livewire-pilot`; this is documentation only, per instruction.
+
+### 1. Auth/role model changed shape — read this first, it touches everything else
+
+`c694388` (`fix(auth): split role=admin into system_admin/admin, add view-scoping`) restructured
+`User`'s role model after this branch diverged: `role='admin'` used to be the one true-god-mode
+bypass; now `role='system_admin'` is (`User::isAdmin()`), `role='admin'` is a new *scoped* org-admin
+tier (`User::isOrgAdmin()`) that auto-grants a fixed privilege bundle
+(`User::ORG_ADMIN_PRIVILEGES`) within its own department/section/division instead of bypassing
+scope entirely. A new migration, `2026_08_19_140000_add_system_admin_to_users_role_enum.php`, adds
+the enum value — **must run before anything below makes sense**. `app/Models/User.php` gained ~90
+lines net (`isOrgAdmin()`, `ORG_ADMIN_PRIVILEGES`, `canView()`, `scopeViewableBy()` support) — diff
+it in full (`git diff d47b591..main -- app/Models/User.php`) before touching `user-form.blade.php`
+or `user-list.blade.php`, since both components read `role`/privilege state directly and were built
+against the old two-tier (`admin`/`operator`/`viewer`) model. Check in particular whether
+`user-form.blade.php`'s role `<select>` options and any `isAdmin()` calls in `user-list.blade.php`
+need the same 4th option / `system_admin` vs `admin` distinction the Blade forms on `main` now have.
+
+View-scoping itself (`Document::scopeViewableBy()`, `User::canView()`, applied across
+`SectionController`, `DivisionController`, `FolderController`, `SearchController`,
+`FrontendController`, `DownloadController`) is a large, mostly controller/model-level change with
+no direct Livewire-component overlap — should merge cleanly, but re-run
+`tests/Feature/DocumentViewScopeTest.php` (new on `main`, 150 lines) after merging to confirm.
+
+### 2. Public/private visibility extended to Sections and Divisions
+
+`b45d4a1` added a `visibility` column to `sections` and `divisions` (previously only `folders` had
+one) — migration `2026_08_22_070843_add_visibility_to_sections_and_divisions_table.php`, plus
+`Document::isPubliclyVisible()`/`scopePubliclyVisible()` now treat a document's containing
+division/section as an additional ceiling, mirroring the existing folder ceiling. `750a388`
+followed up enforcing the same ceiling as a hard ceiling (not just advisory). Straightforward model/
+migration/controller change, no Livewire overlap — but `sections/create.blade.php`,
+`sections/edit.blade.php`, `divisions/create.blade.php`, `divisions/edit.blade.php` all gained a
+Visibility radio group; none of these were converted to Livewire in this pilot, so they merge as
+plain Blade changes. **Except `sections/edit.blade.php` — see #4 below, do not merge it as-is.**
+
+### 3. Designation/User admin forms — two real bugs fixed on `main`, likely still present here
+
+Both bugs are structural (Blade partial + FormRequest), not tied to the plain-Blade-vs-Livewire
+question, so they most likely reproduce in this branch's Livewire versions too:
+
+- **`department_id`/`sort_order` empty-string-into-typed-column bug** (`ca5bd3e`) — Laravel's
+  `nullable` rule lets `''` through without coercing it to `null`/`0`, so a blank "Generic
+  department" dropdown threw a raw SQL error on save. Fixed via `prepareForValidation()` in
+  `StoreDesignationRequest`/`UpdateDesignationRequest`/`StoreUserRequest`/`UpdateUserRequest` — pure
+  FormRequest changes, apply directly regardless of which controller/component calls them.
+  Confirmed `livewire-pilot`'s copies of these FormRequests predate the fix
+  (`git diff d47b591..main -- app/Http/Requests/Admin/`).
+- **`groupBy()` silently discarding privilege-slug keys** (`059d248`) — `_privilege_checkboxes.blade.php`
+  groups `$privilegeLabels` with `collect(...)->groupBy(fn($v) => $v['group'])`, and Laravel's
+  `Collection::groupBy()` **without** `$preserveKeys = true` re-indexes each sub-group to plain
+  `0,1,2...` instead of keeping the privilege-slug keys (`documents.upload`, etc.). **Confirmed
+  still present in `livewire-pilot`'s copy of this file** (`git show
+  livewire-pilot:resources/views/admin/_privilege_checkboxes.blade.php` — missing the `true` second
+  argument). This affects `wire:model`-bound checkboxes exactly the same way it affected plain
+  `name="...[]"` ones — the checkbox `value="{{ $key }}"` comes from the same corrupted `$key`
+  either way, so both `user-form.blade.php` and `designation-manager.blade.php` (both `@include`
+  this same partial) are very likely still hitting the "every privilege checkbox submission
+  silently rejected by validation" bug M86 found on `main`. **Recommend verifying this live on the
+  pilot branch before assuming Designation/User privilege editing there actually works.** Fix is a
+  one-argument change (`groupBy(fn($v) => $v['group'], true)`) — same partial, same fix, trivial to
+  port; `main`'s copy also dropped the raw privilege-key label span under each checkbox and added a
+  `$readonly` mode (for M88's new read-only user profile page, see #7) — decide whether the
+  `$readonly` mode is worth porting when the profile page work happens here, not required for the
+  groupBy fix itself.
+- The Sort Order field was removed from Designation forms entirely on `main` (`d9dda75` —
+  alphabetical-by-default was judged sufficient, no user-facing input needed). Cosmetic; port or
+  skip independently of the two bugs above.
+
+### 4. SERIOUS — nested `<form>` bug, confirmed still live on this branch (M89 on `main`)
+
+`8387811` fixed a bug where `sections/edit.blade.php` and `department/edit.blade.php` nested a
+"Delete" `<form>` inside the main "Save Changes" `<form>` — invalid HTML that browsers respond to by
+merging both forms' hidden `_method` inputs into one (`DELETE` wins, since it's added last) and
+closing the outer form early. Real-world impact on `main`: editing a Section's visibility and
+clicking "Save Changes" **deleted the section instead**, with no confirm dialog (the confirm was on
+the discarded inner form's `onsubmit`). Both accidentally-deleted sections were recovered (soft-delete
+only, `SoftDeletes`), no data lost — see `summary.md`'s M89 entry on `main` for the full incident
+writeup and root-cause explanation.
+
+**Confirmed via `git show livewire-pilot:resources/views/sections/edit.blade.php` that this branch
+has the exact same nested-form structure — the bug is live and unpatched here too**, dormant only
+because this branch isn't the one being served. `department/edit.blade.php` here is presumably the
+same (not yet individually re-checked on this branch, but it wasn't part of this pilot's scope
+either, so no reason to expect it differs from `sections/edit.blade.php`'s pattern).
+`admin/users/edit.blade.php`'s equivalent nesting bug (Resend-activation form nested in Save) does
+**not** apply here — this branch's `user-form.blade.php` already uses a single `wire:submit` form
+with `wire:click="resendActivation"` as a plain button, which structurally avoids the nesting
+entirely. Worth noting as a small, real advantage of the Livewire conversion already done.
+
+**When this branch is next picked up, port `main`'s fix to `sections/edit.blade.php` and
+`department/edit.blade.php` before anything else** — this is a correctness/data-safety bug, not a
+style preference, and shouldn't wait for a full merge. `main`'s fix pattern: un-nest the two forms
+(make Delete's form a sibling instead of a child), give the outer form's submit button a
+`form="<id>"` attribute so it still submits the right form despite being physically outside its
+tags now, and switch the delete confirm from `onsubmit="return confirm(...)"` (silently discarded
+by the parsing bug) to a SweetAlert2 confirm on the button's `onclick`. See `claude.md`'s "Never
+nest a `<form>` inside another `<form>`" convention note (added alongside this fix on `main`) for
+the full explanation and the exact fix shape to copy.
+
+### 5. Pipeline Monitor gained a feature on `main` that needs porting to the Livewire component, not the old page
+
+`72358d2` (`feat(pipeline): add bulk verify/accept for Review-status documents`) added ~130 lines
+to `documents/pipeline.blade.php` — but that's the *old* page this pilot's Phase 1 already replaced
+with `pipeline-monitor.blade.php` (the `wire:poll`-driven component). Porting this feature means
+re-implementing bulk verify/accept as component methods (`wire:click`/bulk-select, matching the
+pattern the component already uses for Convert/Retry), **not** copying the Blade diff verbatim —
+the old page and the new component don't share markup. Read `72358d2`'s diff for the *behavior*
+(which statuses are eligible, what the bulk-accept authorization check is), then reimplement it
+against `pipeline-monitor.blade.php`'s existing bulk-select machinery (already built for
+Convert/Retry per this file's own "Status" section above).
+
+### 6. Auth/document-management bug fixes — should merge cleanly, verify against the new role model
+
+Three targeted fixes on `main`, all in `DocumentController`/`app/Models/Document.php`, no direct
+Livewire overlap but worth re-testing after the role-model merge (#1) since two of them are
+authorization-adjacent:
+- `91dc2cf` — Convert to Markdown was gated on `documents.verify`, should have been
+  `documents.upload`.
+- `c12f186` — `documents/show.blade.php`'s `$canManageDoc` was a stale duplicate of
+  `canManageDocument()` computed separately in the view, occasionally disagreeing with the
+  controller's own check. Consolidated to one source of truth.
+- `6c76843` — non-PDF uploads were being renamed to `.pdf` without actual conversion; now actually
+  converted.
+
+### 7. Smaller items, lower priority
+
+- **M88** (`ea55d0e`) — `User::getRouteKeyName()` now returns `'username'` instead of the default
+  `id`, so `/admin/users/{user}` resolves on the username slug app-wide (matches the
+  `Section`/`Division`/`RuleSet`/`Folder`/`Department` pattern already in place). This branch kept
+  the dead `admin/users/{user}` show route + a real `show.blade.php` was added on `main` (a
+  read-only profile page with an Edit button — this branch's `UserManagementController::show()`
+  route exists but has no `show.blade.php` at all here, same dead-route state `main` was in before
+  M88). Trivial to port (one method on `User`, one new Blade file) and worth doing since the route
+  already exists unused.
+- **M87** (`15cd615`) — `layout.blade.php`'s `@flasher_render` never actually echoes its output (a
+  real bug in `php-flasher/flasher-laravel` itself) — confirmed still present in this branch's copy
+  of `layout.blade.php` (`git diff main:...layout.blade.php livewire-pilot:...layout.blade.php`
+  shows only this block differs, plus this branch's own `@livewireScripts` addition — no conflict
+  between the two, should merge as a clean one-line swap:
+  `{!! app('flasher')->render('html') !!}` instead of `@flasher_render`).
+- `d095eff` — cosmetic, raw privilege-key label removed from the checkboxes partial; folds into #3's
+  groupBy fix if that's ported.
+- `3c88524`, `f33c78c`, `f355c06`, `3fce495` — `DEPLOY.md`-only documentation commits about the
+  live-serving setup (artisan-serve gotchas, Blade view-cache touch() behavior). No code, but worth
+  a skim since this branch will eventually also need to be the one served live.
+
+### Suggested order when this branch is resumed
+
+1. Port #4 (nested-form fix) immediately — it's a live, unpatched data-safety bug, independent of
+   everything else here.
+2. Merge/rebase onto current `main` proper (or cherry-pick #1's role-model commit first in
+   isolation) — #1 changes `User` in ways #3 and #7 both build on, so it should land before either.
+3. Run the full test suite (`tests/Feature/DocumentViewScopeTest.php`,
+   `DocumentFolderVisibilityTest.php`, `DocumentVerifyTest.php` are all new on `main` since this
+   branch diverged) and manually re-verify Designation/User privilege checkboxes actually save
+   (#3's groupBy bug) before trusting this branch's admin forms again.
+4. Reimplement #5 (bulk verify/accept) against `pipeline-monitor.blade.php`.
+5. Everything else (#2, #6, #7) is low-risk and can land in any order.
