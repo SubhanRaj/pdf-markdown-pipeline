@@ -4205,4 +4205,16 @@ partial is shared by both the Designation create/edit forms and the User create/
 creates cleanly after. Full suite: 26/27 (same pre-existing unrelated `ExampleTest` failure).
 `php artisan view:clear` run (Blade file changed); site confirmed up.
 
-**Files changed:** `resources/views/admin/_privilege_checkboxes.blade.php`, `summary.md`.
+**Follow-up (same day):** the small mono-font key text under each checkbox label (`documents.upload`,
+`section.head`, etc. — visible proof of the bug while it showed as a bare number) was an internal
+implementation detail never meant for end users; removed entirely, leaving just the human-readable
+label. Also cleaned up an unrelated incident from the same debugging session: a Chrome HAR file the
+site owner shared to diagnose this bug got swept into a commit by a broad `git add -A` and briefly
+pushed to the (public) GitHub repo. Checked its contents before removing — no session cookie or auth
+header present (Chrome's HAR export redacts those by default), only a since-rotated CSRF token and
+general request metadata, so no session invalidation was needed. Removed from the tree, `*.har` added
+to `.gitignore`, local copy deleted per request. It remains retrievable from one superseded commit in
+the public repo's history if a full scrub is ever wanted (would require a force-push, not done without
+explicit confirmation).
+
+**Files changed:** `resources/views/admin/_privilege_checkboxes.blade.php`, `.gitignore`, `summary.md`.

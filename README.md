@@ -695,6 +695,18 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
   document's division and section.
 - Full writeup: `summary.md`'s M84 entry, `claude.md`'s "Folder/Division/Section visibility" item.
 
+**Completed (2026-08-22 — Designation/User privilege forms silently failed to save, M85/M86):**
+- Two stacked bugs on the same form, found in sequence: (M85) `department_id`/`sort_order` validated
+  as `nullable` but an empty-string `''` from the "Generic department" option was never coerced to
+  `null`/`0` before hitting a typed DB column, thrown as a raw SQL error and silently caught; (M86,
+  the deeper root cause, found via a HAR capture of the actual failing request) the shared privilege
+  checkbox partial grouped its options with `Collection::groupBy()` without `$preserveKeys = true`,
+  so every checkbox's `value` rendered a meaningless `0`/`1`/`2` instead of the real privilege key
+  (`documents.upload`, etc.) — failing validation silently on every submission with any privilege
+  checked, on both the Designation and User "Granular Privileges" forms. No data was ever corrupted;
+  validation always correctly refused the bad values, it just never saved anything either.
+- Full writeup: `summary.md`'s M85/M86 entries, `claude.md`'s privilege-checkboxes note.
+
 ## 🚀 Future Roadmap
 
 Advanced enterprise features and security enhancements planned for SDC/NIC compliance and high-value bureaucratic workflows are documented in [ROADMAP.md](ROADMAP.md).
