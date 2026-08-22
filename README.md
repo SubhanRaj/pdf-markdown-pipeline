@@ -663,7 +663,7 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - Full writeup: `summary.md`'s M81 entry, `claude.md`'s View-scoping section follow-up note.
 
 **Completed (2026-08-19 — Convert to Markdown split off `documents.verify`, gated on `documents.upload`, M82):**
-- Direct follow-up to M81: the underlying rule was still wrong, not just account #23 — Convert
+- Direct follow-up to M81: the underlying rule was still wrong, not just an officer account — Convert
   to Markdown required `documents.verify`, so any upload-only account couldn't run its own uploads
   through the pipeline at all.
 - Split `canManageDocument()` (still `documents.verify`, now used only by the actual approve action
