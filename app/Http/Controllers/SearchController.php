@@ -109,7 +109,7 @@ class SearchController extends Controller
             }
 
             $folders = $foldersQuery->orderBy('name')->limit(20)->get()
-                ->filter(fn ($f) => ! $user || $user->canView($f))
+                ->filter(fn ($f) => ! $user || $user->canView($f) || $f->visibility === 'public')
                 ->values();
         } else {
             $sections = $ruleSets = $divisions = $folders = collect();

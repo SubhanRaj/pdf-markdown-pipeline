@@ -71,6 +71,21 @@
                     @error('wing') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
 
+                <div>
+                    <label class="field-label">Visibility</label>
+                    <div class="flex gap-3 mt-1">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="visibility" value="public" {{ old('visibility', $section->visibility) === 'public' ? 'checked' : '' }} class="text-cyan-600 focus:ring-cyan-500">
+                            <span class="text-sm text-slate-700 dark:text-slate-200 flex items-center gap-1"><i class="ti ti-world text-sm text-green-500"></i> Public</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="visibility" value="authenticated" {{ old('visibility', $section->visibility) === 'authenticated' ? 'checked' : '' }} class="text-cyan-600 focus:ring-cyan-500">
+                            <span class="text-sm text-slate-700 dark:text-slate-200 flex items-center gap-1"><i class="ti ti-lock text-sm text-amber-500"></i> Authenticated Only</span>
+                        </label>
+                    </div>
+                    <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Gates the section page itself. Divisions/folders/documents inside keep their own visibility.</p>
+                </div>
+
                 @if(auth()->user()->isAdmin() || auth()->user()->hasPrivilege('department.head'))
                 <div class="pt-4 border-t border-slate-200 dark:border-slate-700">
                     <label class="flex items-center gap-3 cursor-pointer">

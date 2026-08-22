@@ -154,9 +154,11 @@ class FolderController extends Controller
 
     private function renderShow(Request $request, Department $department, Section $section, ?Division $division, Folder $folder): View
     {
-        if (auth()->check() && ! auth()->user()->canView($division ?? $section)) {
-            abort(403);
-        }
+        // Out-of-scope authenticated users aren't blocked outright — they're dropped to the same
+        // public-only view a guest gets (see SectionController::show()). Document::isPubliclyVisible()
+        // still requires the folder's own visibility to be public too, so this doesn't loosen
+        // anything below the document-level check.
+        $publicOnly = ! auth()->check() || ! auth()->user()->canView($division ?? $section);
 
         $sort       = $request->get('sort', 'amendment_number_desc');
         $filterYear = (int) $request->get('year', 0);
@@ -168,11 +170,11 @@ class FolderController extends Controller
                 'amendments' => fn ($q) => $q
                     ->publishable()
                     ->with('user:id,name')
-                    ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
+                    ->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))
                     ->orderBy('created_at'),
             ])
             ->whereNull('parent_id')
-            ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
+            ->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))
             ->orderBy('created_at')
             ->get();
 

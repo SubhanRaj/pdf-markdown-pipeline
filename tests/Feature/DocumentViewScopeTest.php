@@ -20,10 +20,10 @@ function scopeSection(Department $department, string $name, string $slug): Secti
     return Section::create(['department_id' => $department->id, 'name' => $name, 'slug' => $slug]);
 }
 
-function scopeDoc(Department $department, Section $section, string $title): Document
+function scopeDoc(Department $department, Section $section, string $title, string $visibility = 'public'): Document
 {
     Storage::fake('public');
-    Storage::disk('public')->put('docs/'.$section->slug.'.pdf', 'x');
+    Storage::disk('public')->put('docs/'.$section->slug.'-'.Str::slug($title).'.pdf', 'x');
 
     return Document::create([
         'department_id'     => $department->id,
@@ -32,16 +32,17 @@ function scopeDoc(Department $department, Section $section, string $title): Docu
         'slug'              => Str::slug($title),
         'document_type'     => 'go',
         'original_filename' => 'test.pdf',
-        'original_pdf_path' => 'docs/'.$section->slug.'.pdf',
+        'original_pdf_path' => 'docs/'.$section->slug.'-'.Str::slug($title).'.pdf',
         'status'            => 'verified',
-        'visibility'        => 'public',
+        'visibility'        => $visibility,
     ]);
 }
 
-test('a section-scoped admin cannot browse another section in the same department', function () {
+test('a section-scoped admin cannot see another section\'s authenticated-only content', function () {
     $department = scopeDept();
     $own        = scopeSection($department, 'Establishment', 'establishment');
     $other      = scopeSection($department, 'Camp Office', 'camp-office');
+    scopeDoc($department, $other, 'Internal Camp Memo', 'authenticated');
 
     $user = User::factory()->create([
         'role'          => 'admin',
@@ -54,9 +55,31 @@ test('a section-scoped admin cannot browse another section in the same departmen
         ->get(route('departments.sections.show', [$department->levelAlias(), $department, $own]))
         ->assertOk();
 
+    // No longer a hard 403 — an out-of-scope section is reachable the same way it already is
+    // for a guest, but its non-public content stays hidden.
     $this->actingAs($user)
         ->get(route('departments.sections.show', [$department->levelAlias(), $department, $other]))
-        ->assertForbidden();
+        ->assertOk()
+        ->assertDontSee('Internal Camp Memo');
+});
+
+test('a section-scoped admin can still see a Public document in another section', function () {
+    $department = scopeDept();
+    $own        = scopeSection($department, 'Establishment', 'establishment');
+    $other      = scopeSection($department, 'Camp Office', 'camp-office');
+    scopeDoc($department, $other, 'Public Camp Notice', 'public');
+
+    $user = User::factory()->create([
+        'role'          => 'admin',
+        'department_id' => $department->id,
+        'section_id'    => $own->id,
+        'username'      => fake()->unique()->userName(),
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('departments.sections.show', [$department->levelAlias(), $department, $other]))
+        ->assertOk()
+        ->assertSee('Public Camp Notice');
 });
 
 test('a department-scoped admin (e.g. a Commissioner) sees every section in their department', function () {
@@ -107,8 +130,8 @@ test('pipeline monitor only lists documents within a section-scoped admin\'s own
     $own        = scopeSection($department, 'Establishment', 'establishment');
     $other      = scopeSection($department, 'Camp Office', 'camp-office');
 
-    $ownDoc   = scopeDoc($department, $own, 'Own Section Order');
-    $otherDoc = scopeDoc($department, $other, 'Other Section Order');
+    $ownDoc   = scopeDoc($department, $own, 'Own Section Order', 'authenticated');
+    $otherDoc = scopeDoc($department, $other, 'Other Section Order', 'authenticated');
     $ownDoc->update(['status' => 'review']);
     $otherDoc->update(['status' => 'review']);
 

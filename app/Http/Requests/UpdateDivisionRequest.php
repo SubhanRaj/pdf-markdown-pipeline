@@ -35,6 +35,7 @@ class UpdateDivisionRequest extends FormRequest
         $this->merge([
             'name'        => strip_tags(trim($this->name ?? '')),
             'description' => strip_tags(trim($this->description ?? '')) ?: null,
+            'visibility'  => strtolower(trim($this->visibility ?? 'public')),
         ]);
     }
 
@@ -50,6 +51,7 @@ class UpdateDivisionRequest extends FormRequest
         return [
             'name'             => ['required', 'string', 'min:2', 'max:150', 'regex:/^[\p{L}\p{M}\p{N}\p{P}\p{Z}\s]+$/u'],
             'description'      => ['nullable', 'string', 'max:500'],
+            'visibility'       => ['nullable', 'string', 'in:public,authenticated'],
             'requires_approval' => $canToggleApproval ? ['nullable', 'boolean'] : [],
         ];
     }
