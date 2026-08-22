@@ -96,15 +96,15 @@
                                 <i class="ti ti-pencil text-base"></i>
                             </a>
                             @if($user->id !== auth()->user()?->id)
-                            <form method="POST" action="{{ route('admin.users.destroy', $user) }}"
-                                  onsubmit="return confirm('Deactivate {{ addslashes($user->name) }}\'s account?')">
+                            <form id="deactivate-user-{{ $user->id }}" method="POST" action="{{ route('admin.users.destroy', $user) }}">
                                 @csrf @method('DELETE')
-                                <button type="submit"
-                                        class="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                                        title="Deactivate">
-                                    <i class="ti ti-user-x text-base"></i>
-                                </button>
                             </form>
+                            <button type="button"
+                                    onclick="confirmDeactivateUser('{{ $user->id }}', '{{ addslashes($user->name) }}')"
+                                    class="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                                    title="Deactivate">
+                                <i class="ti ti-user-x text-base"></i>
+                            </button>
                             @endif
                         </div>
                     </td>
@@ -122,5 +122,23 @@
     @endif
 
 </div>
+
+@push('scripts')
+<script>
+function confirmDeactivateUser(id, name) {
+    Swal.fire({
+        icon: 'warning',
+        title: 'Deactivate account?',
+        text: `Deactivate ${name}'s account?`,
+        showCancelButton: true,
+        confirmButtonText: 'Deactivate',
+        confirmButtonColor: '#dc2626',
+        cancelButtonText: 'Cancel',
+    }).then((result) => {
+        if (result.isConfirmed) document.getElementById(`deactivate-user-${id}`).submit();
+    });
+}
+</script>
+@endpush
 
 </x-layout>

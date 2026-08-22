@@ -55,15 +55,15 @@
                                    class="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Edit">
                                     <i class="ti ti-pencil text-base"></i>
                                 </a>
-                                <form method="POST" action="{{ route('admin.designations.destroy', $designation) }}"
-                                      onsubmit="return confirm('Delete designation {{ addslashes($designation->name) }}? Existing users keep this designation for display, but it will no longer be selectable.')">
+                                <form id="delete-designation-{{ $designation->id }}" method="POST" action="{{ route('admin.designations.destroy', $designation) }}">
                                     @csrf @method('DELETE')
-                                    <button type="submit"
-                                            class="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                                            title="Delete">
-                                        <i class="ti ti-trash text-base"></i>
-                                    </button>
                                 </form>
+                                <button type="button"
+                                        onclick="confirmDeleteDesignation('{{ $designation->id }}', '{{ addslashes($designation->name) }}')"
+                                        class="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                                        title="Delete">
+                                    <i class="ti ti-trash text-base"></i>
+                                </button>
                             </div>
                         </td>
                     </tr>
@@ -76,5 +76,23 @@
     @endif
 
 </div>
+
+@push('scripts')
+<script>
+function confirmDeleteDesignation(id, name) {
+    Swal.fire({
+        icon: 'warning',
+        title: 'Delete designation?',
+        text: `Delete designation "${name}"? Existing users keep this designation for display, but it will no longer be selectable.`,
+        showCancelButton: true,
+        confirmButtonText: 'Delete',
+        confirmButtonColor: '#dc2626',
+        cancelButtonText: 'Cancel',
+    }).then((result) => {
+        if (result.isConfirmed) document.getElementById(`delete-designation-${id}`).submit();
+    });
+}
+</script>
+@endpush
 
 </x-layout>
