@@ -813,7 +813,7 @@ brew install tesseract tesseract-lang poppler   # hin+eng traineddata, pdftoppm/
 
 ### Route map
 
-Routes have **no global prefix** — resources sit at the root. All models use `getRouteKeyName()` returning `'slug'` — IDs never appear in URLs.
+Routes have **no global prefix** — resources sit at the root. All models use `getRouteKeyName()` returning `'slug'` (`User` returns `'username'` instead — see "Slug-based routing" below) — IDs never appear in URLs.
 
 **`{level}` URL segment** — departments share slugs across levels (e.g. `excise` exists at both `department_level` and `secretariat_level`). A `{level}` alias is inserted before `{department}` in every department/section/rule-set/document URL:
 - `dept` → `department_level`
@@ -992,6 +992,8 @@ Approval routes use **numeric `{id}`** not slugs — reclassification changes th
 ### Slug-based routing (all models)
 
 `Department`, `Section`, `Division`, `RuleSet`, `Folder`, and `Document` all override `getRouteKeyName()` to return `'slug'`. Route helpers accept model instances. Never pass `->id` manually to a route helper for these models.
+
+`User` overrides `getRouteKeyName()` to return `'username'` instead (M88, 2026-08-22) — reuses the already-unique, already-existing `username` column rather than adding a dedicated slug column. `/admin/users/{user}` and `/admin/users/{user}/edit` resolve on username, e.g. `/admin/users/ravi_prakash_gautam`. Same rule applies: pass the `$user` model to route helpers, never `->id`.
 
 Slug helpers:
 - `Document::uniqueSlugForSection($title, $sectionId, $exceptId?)` — direct section docs (division_id IS NULL AND folder_id IS NULL)
@@ -1505,7 +1507,7 @@ allows via `canDeleteFrom()`).
 - `admin/users/index.blade.php` — paginated user table (admin-only); post column shows `designation->name ?? post`.
 - `admin/users/create.blade.php` — account creation form with role/privilege/dept/section fields plus a Designation `<select>` (grouped generic vs. department-locked, filtered by the chosen Department via the same client-side cascade pattern as Section/Division) and a small "Other post" free-text fallback (admin-only). `applyDesignationPreset()` JS pre-fills Department + privilege checkboxes on selection — one-time, non-locking (M74).
 - `admin/users/edit.blade.php` — same Designation select + preset JS as create (admin-only route).
-- `admin/_privilege_checkboxes.blade.php` (M74, new) — the Granular Privileges checkbox panel, extracted out of `create.blade.php`/`edit.blade.php` so `admin/designations/create.blade.php`/`edit.blade.php` render the identical markup for `default_privileges` instead of duplicating it. **`groupBy()` key-preservation bug (M86, 2026-08-22):** the panel groups the flat privilege list by category with `collect($privilegeLabels)->groupBy(fn($v) => $v['group'], true)` — the trailing `true` (`$preserveKeys`) is load-bearing; without it, `Collection::groupBy()` silently re-indexes each group with plain `0,1,2...` integers instead of keeping the original privilege-slug keys (`documents.upload`, `section.head`, ...), so every checkbox's `value` attribute rendered a meaningless number instead of the real privilege key — every submission with any privilege checked then silently failed the `in:documents.upload,...` validation rule on both the Designation and User forms. Pre-existing bug (not introduced by M74), surfaced only after M83's flasher fix made the resulting failed-silently form resubmission actually visible to notice. The small raw-key label that used to render under each checkbox's human label (`{{ $key }}`, meant for internal reference) was removed entirely in the same pass — an implementation detail, not something an end user needs to see.
+- `admin/_privilege_checkboxes.blade.php` (M74, new) — the Granular Privileges checkbox panel, extracted out of `create.blade.php`/`edit.blade.php` so `admin/designations/create.blade.php`/`edit.blade.php` render the identical markup for `default_privileges` instead of duplicating it. **`groupBy()` key-preservation bug (M86, 2026-08-22):** the panel groups the flat privilege list by category with `collect($privilegeLabels)->groupBy(fn($v) => $v['group'], true)` — the trailing `true` (`$preserveKeys`) is load-bearing; without it, `Collection::groupBy()` silently re-indexes each group with plain `0,1,2...` integers instead of keeping the original privilege-slug keys (`documents.upload`, `section.head`, ...), so every checkbox's `value` attribute rendered a meaningless number instead of the real privilege key — every submission with any privilege checked then silently failed the `in:documents.upload,...` validation rule on both the Designation and User forms. Pre-existing bug (not introduced by M74), surfaced only after M83's flasher fix made the resulting failed-silently form resubmission actually visible to notice. The small raw-key label that used to render under each checkbox's human label (`{{ $key }}`, meant for internal reference) was removed entirely in the same pass — an implementation detail, not something an end user needs to see. **`$readonly` mode (M88, 2026-08-22):** the partial accepts an optional `$readonly` param — when true, renders only the checked privileges as a plain text list (grouped identically) instead of an editable checkbox grid. Added so `admin/users/show.blade.php` (the new read-only user profile page) can reuse the same canonical `$privilegeLabels` list instead of duplicating it.
 - `admin/designations/index.blade.php`, `create.blade.php`, `edit.blade.php` (M74, new) — CRUD screen for Designations, grouped by department in the index list.
 - `admin/users/show.blade.php` — read-only user profile card (admin-only).
 - `profile/edit.blade.php` — self-edit form: name/username/email/mobile/post/password. Role, department, and section shown as read-only display values. No role or privilege inputs rendered. JS validation identical to admin edit (same regex ruleset, password strength meter, toggle visibility).
@@ -1731,7 +1733,7 @@ All additional JS/CSS packages must be loaded from jsDelivr. Add them to `head.b
 
 ### Flash notifications (php-flasher/flasher-laravel)
 
-**Package:** `php-flasher/flasher-laravel` v2.x — installed, configured, and rendering via `@flasher_render` in `layout.blade.php`.
+**Package:** `php-flasher/flasher-laravel` v2.x — installed, configured, and rendering via a direct `{!! app('flasher')->render('html') !!}` call in `layout.blade.php` (before `@stack('scripts')`).
 
 In controllers, use the `flash()` helper:
 ```php
@@ -1744,7 +1746,8 @@ flash()->info('Account is pending email verification.');
 **Rules:**
 - Do **not** use `->with('success', ...)` / `->with('error', ...)` session flash in any controller that returns to a `<x-layout>` page — Flasher renders toast notifications automatically.
 - Do **not** add `@if(session('success'))` / `@if(session('error'))` blocks in Blade views under `<x-layout>` — Flasher already handles display.
-- `@flasher_render` is already placed in `layout.blade.php` before `@stack('scripts')` — never add it again in individual views.
+- **Never switch `layout.blade.php` back to the `@flasher_render` Blade directive** — it's a genuine bug in the vendor package: the directive computes and *clears* the notification from session storage as a side effect, but never echoes the resulting HTML, so nothing ever actually renders (M87, 2026-08-22 — found by diffing the compiled Blade cache; had been silently broken since the package was first added, invisible even after M83 published its missing assets). Always call `app('flasher')->render('html')` directly and echo it, as `layout.blade.php` already does.
+- Auto-dismiss timeout is the package's 10s default — `config/flasher.php` was tried at 5s (M87) and explicitly reverted; don't re-add it without being asked.
 
 ## Security conventions (non-negotiable, apply from day one)
 

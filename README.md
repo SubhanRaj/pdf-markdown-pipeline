@@ -707,6 +707,24 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
   validation always correctly refused the bad values, it just never saved anything either.
 - Full writeup: `summary.md`'s M85/M86 entries, `claude.md`'s privilege-checkboxes note.
 
+**Completed (2026-08-22 — Flasher toasts never actually rendered on any page, M87):**
+- Even after M83 (assets) and M86 (checkbox keys), no toast ever appeared. Root cause: the vendor
+  `@flasher_render` Blade directive computes the notification HTML (and clears it from session
+  storage as a side effect) but never echoes the result — a genuine bug in `php-flasher/flasher-laravel`
+  itself, present since the package was first added, not something M83/M86 could have fixed.
+- Fixed at the app level in `layout.blade.php`: `{!! app('flasher')->render('html') !!}` instead of
+  the broken directive. Auto-dismiss timeout stays at the package's 10s default (a 5s override was
+  tried and then reverted per request).
+- Full writeup: `summary.md`'s M87 entry.
+
+**Completed (2026-08-22 — User profile page + username-based admin URLs, M88):**
+- Clicking a user's name in `/admin/users` now opens a read-only profile page (contact, scope,
+  granted privileges) with an Edit button, instead of jumping straight into the edit form.
+- `/admin/users/{id}` → `/admin/users/{username}` — `User` now binds routes on its existing unique
+  `username` column via `getRouteKeyName()`, matching the slug-based pattern already used by
+  Section/Division/RuleSet/Folder/Department. No migration needed, no other code touched raw IDs.
+- Full writeup: `summary.md`'s M88 entry.
+
 ## 🚀 Future Roadmap
 
 Advanced enterprise features and security enhancements planned for SDC/NIC compliance and high-value bureaucratic workflows are documented in [ROADMAP.md](ROADMAP.md).
