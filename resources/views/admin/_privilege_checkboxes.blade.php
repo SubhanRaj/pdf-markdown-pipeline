@@ -16,7 +16,7 @@ $privilegeLabels = [
     'department.head'        => ['label' => 'Department Head (create sections/divisions in own dept)', 'group' => 'Organisational'],
     'organization.head'      => ['label' => 'Organisation Head (full access across all depts)', 'group' => 'Organisational'],
 ];
-$privGroups = collect($privilegeLabels)->groupBy(fn($v) => $v['group']);
+$privGroups = collect($privilegeLabels)->groupBy(fn($v) => $v['group'], true);
 @endphp
 @foreach($privGroups as $group => $privs)
 <p class="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5 mt-3">{{ $group }}</p>
