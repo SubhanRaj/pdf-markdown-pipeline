@@ -12,11 +12,14 @@
     ['name' => 'Edit', 'url' => null],
 ]" />
 
-<form id="deptForm" method="POST" action="{{ route('departments.update', [$department->levelAlias(), $department]) }}" novalidate class="max-w-2xl">
-    @csrf
-    @method('PATCH')
+{{-- The "Save"/"Delete" footer below intentionally sits OUTSIDE this <form> — see the same note
+     in sections/edit.blade.php. Nesting Delete's <form> inside this one is what caused a Section's
+     "Save Changes" to submit as a DELETE (M89 incident) — don't reintroduce it here. --}}
+<div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700">
 
-    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700">
+    <form id="deptForm" method="POST" action="{{ route('departments.update', [$department->levelAlias(), $department]) }}" novalidate class="max-w-2xl">
+        @csrf
+        @method('PATCH')
 
         <div class="px-6 py-5">
             <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
@@ -61,32 +64,46 @@
 
             </div>
         </div>
+    </form>
 
-        <div class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 rounded-b-xl flex items-center justify-between">
-            <a href="{{ route('departments.show', [$department->levelAlias(), $department]) }}"
-               class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1">
-                <i class="ti ti-arrow-left"></i> Back
-            </a>
-            <div class="flex items-center gap-3">
-                <form method="POST" action="{{ route('departments.destroy', [$department->levelAlias(), $department]) }}"
-                      onsubmit="return confirm('Delete {{ addslashes($department->name) }}? This cannot be undone.')">
-                    @csrf @method('DELETE')
-                    <button type="submit"
-                        class="text-sm text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 flex items-center gap-1 transition-colors">
-                        <i class="ti ti-trash"></i> Delete
-                    </button>
-                </form>
-                <button type="submit"
-                    class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors">
-                    <i class="ti ti-device-floppy"></i> Save Changes
+    <div class="px-6 py-4 bg-slate-50 dark:bg-slate-900/40 rounded-b-xl flex items-center justify-between">
+        <a href="{{ route('departments.show', [$department->levelAlias(), $department]) }}"
+           class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 flex items-center gap-1">
+            <i class="ti ti-arrow-left"></i> Back
+        </a>
+        <div class="flex items-center gap-3">
+            <form id="deleteDeptForm" method="POST" action="{{ route('departments.destroy', [$department->levelAlias(), $department]) }}">
+                @csrf @method('DELETE')
+                <button type="button" onclick="confirmDeleteDept()"
+                    class="text-sm text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 flex items-center gap-1 transition-colors">
+                    <i class="ti ti-trash"></i> Delete
                 </button>
-            </div>
+            </form>
+            <button type="submit" form="deptForm"
+                class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-colors">
+                <i class="ti ti-device-floppy"></i> Save Changes
+            </button>
         </div>
-
     </div>
-</form>
+
+</div>
 
 @push('scripts')
+<script>
+function confirmDeleteDept() {
+    Swal.fire({
+        icon: 'warning',
+        title: 'Delete department?',
+        text: 'Delete "{{ addslashes($department->name) }}"? This cannot be undone and removes everything under it.',
+        showCancelButton: true,
+        confirmButtonText: 'Delete',
+        confirmButtonColor: '#dc2626',
+        cancelButtonText: 'Cancel',
+    }).then((result) => {
+        if (result.isConfirmed) document.getElementById('deleteDeptForm').submit();
+    });
+}
+</script>
 <script>
 (function () {
     const RULES = {

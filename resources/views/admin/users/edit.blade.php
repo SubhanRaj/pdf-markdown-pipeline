@@ -10,6 +10,15 @@
     ['name' => 'Edit · ' . $user->name, 'url' => null],
 ]" />
 
+{{-- Standalone form for the "Resend activation link" button below — it must NOT be nested
+     inside #editUserForm (a second <form> inside another is invalid HTML that browsers mangle,
+     merging both forms' hidden inputs and truncating the outer form early; see the same fix in
+     sections/edit.blade.php after a Section's "Save Changes" submitted as a DELETE, M89). The
+     button stays visually inside #editUserForm's markup below via form="resendActivationForm". --}}
+<form id="resendActivationForm" method="POST" action="{{ route('admin.users.resend-activation', $user) }}" class="hidden">
+    @csrf
+</form>
+
 <form
     id="editUserForm"
     method="POST"
@@ -101,12 +110,9 @@
                     <i class="ti ti-mail-exclamation text-base flex-shrink-0"></i>
                     This account has not been activated yet — the officer sets their own password via the emailed link.
                 </p>
-                <form method="POST" action="{{ route('admin.users.resend-activation', $user) }}">
-                    @csrf
-                    <button type="submit" class="text-xs font-semibold text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline whitespace-nowrap">
-                        Resend activation link
-                    </button>
-                </form>
+                <button type="submit" form="resendActivationForm" class="text-xs font-semibold text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline whitespace-nowrap">
+                    Resend activation link
+                </button>
             </div>
         </div>
         @endif
