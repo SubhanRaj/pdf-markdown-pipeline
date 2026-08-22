@@ -355,3 +355,70 @@ authorization-adjacent:
    (#3's groupBy bug) before trusting this branch's admin forms again.
 4. Reimplement #5 (bulk verify/accept) against `pipeline-monitor.blade.php`.
 5. Everything else (#2, #6, #7) is low-risk and can land in any order.
+
+## Sync status update (2026-08-22, later same day) — two more fixes landed on `main`
+
+More bugs surfaced and got fixed on `main` after the first sync note above (still docs-only here,
+nothing applied to this branch):
+
+### 8. CRITICAL — onboarding link 404'd after `main` picked up username-based routing
+
+Directly caused by #7's `User::getRouteKeyName() → 'username'` change: the onboarding link is a
+*signed* URL generated with the numeric id (`UserManagementController::sendOnboardingLink()` →
+`URL::temporarySignedRoute(..., ['user' => $user->id])`), never re-typed or browsed. Once `{user}`
+started implicitly binding on `username`, `/onboarding/{id}` tried to resolve a user whose
+`username` literally equalled that numeric string and 404'd — broke every onboarding email sent
+between the routing change landing and this fix. Fixed on `main` by scoping just the two onboarding
+routes to `{user:id}` in `routes/web.php`, overriding the model's default route key for that one
+signed-link pair only.
+
+**This branch doesn't have #7 (`getRouteKeyName`) yet, so it isn't hit by this specific break** —
+but it's a landmine that reactivates the moment #7 is ported here without also porting this fix in
+the same pass. Confirmed via diff that this branch's `routes/web.php` still has the plain
+`Route::get('/onboarding/{user}', ...)` form. **When porting #7, port this `{user:id}` scoping in
+the same commit, not as an afterthought** — the two are a matched pair, and shipping one without the
+other reproduces exactly this incident.
+
+### 9. Out-of-scope users couldn't discover public sections/folders at all (list-page bug, separate from #1's view-scoping)
+
+A second, independent bug in the same area as #1's view-scoping work: `SectionController::index()`
+(the browsable list of sections under a department — the page a user clicks through to *discover* a
+section before ever reaching its `show()` page) had its own scope filter that **hard-excluded** any
+section the viewing user wasn't scoped to, instead of degrading to the public-only view every other
+controller in the app uses for out-of-scope authenticated users. Net effect: a section-scoped user
+could never even see the *link* to another section's public content, even though that section's own
+`show()` page rendered the public content correctly if reached by direct URL. Same bug pattern found
+and fixed in `SearchController` for sections/divisions in search results (folders there were already
+correct), plus a related guest-visibility leak in search (authenticated-only sections/divisions were
+showing up by name for anonymous users) closed in the same pass.
+
+This is a pure controller/query-layer fix — `SectionController::index()`, `SearchController` — with
+**no Livewire overlap**, should merge/port cleanly once #1 (the role-model restructure it builds on
+top of) lands here. No new migration.
+
+### 10. Three admin tables converted from horizontal-scroll to responsive cards on mobile — check before porting Users/Designations
+
+`main` converted the Users, Designations, and Activity Log admin tables to a `hidden md:block` table
++ `md:hidden` stacked-card layout, removing horizontal scroll on mobile. **This only ports cleanly
+for Activity Log** (`admin/activity-logs/index.blade.php` is unmodified by this pilot — confirmed via
+diff, applies as a straight cherry-pick). **Users and Designations do NOT port the same way** — on
+`main` those are still plain Blade `create.blade.php`/`edit.blade.php`/`index.blade.php` pages, but
+on this branch they were already replaced by Livewire components (`user-list.blade.php`,
+`designation-manager.blade.php` — see this file's own "Status" section above). Confirmed both
+components still have the exact same `overflow-x-auto` table their pre-Livewire counterparts had
+(`git show livewire-pilot:resources/views/components/user-list.blade.php` /
+`designation-manager.blade.php`) — the mobile-scroll problem exists here too, just needs the
+responsive-card treatment applied *inside* those two Livewire components instead of copying `main`'s
+Blade diff verbatim (which touches files that no longer exist in this branch's admin UI). Read
+`main`'s `resources/views/admin/users/index.blade.php`/`admin/designations/index.blade.php` diffs
+for the card-layout *shape* (a `md:hidden` stacked `<div>` list mirroring each `<tr>`'s fields, one
+shared set of hidden delete/deactivate `<form>`s keyed by row id, table unchanged above `md`), then
+reimplement that shape inside the two Livewire components' own markup.
+
+### Updated suggested order
+
+Insert between the previous steps 1 and 2: **port #8 in the same commit as #7** (they're a matched
+pair, see above). Item #9 can land any time after #1. Item #10's Activity Log half can land
+immediately (zero risk, isolated); its Users/Designations half should wait until this branch's own
+`user-list`/`designation-manager` components are being touched anyway, so the card layout doesn't
+need to be re-verified against evolving Livewire component internals twice.
