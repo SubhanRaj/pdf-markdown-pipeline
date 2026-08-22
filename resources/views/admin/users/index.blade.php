@@ -58,7 +58,7 @@
                                 {{ strtoupper(substr($user->name, 0, 1)) }}
                             </div>
                             <div class="min-w-0">
-                                <p class="font-medium text-slate-800 dark:text-slate-100 truncate">{{ $user->name }}</p>
+                                <a href="{{ route('admin.users.show', $user) }}" class="font-medium text-slate-800 dark:text-slate-100 truncate hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline block">{{ $user->name }}</a>
                                 <p class="text-xs text-slate-400 dark:text-slate-500 truncate">{{ '@' . $user->username }}</p>
                             </div>
                         </div>
