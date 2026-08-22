@@ -725,6 +725,23 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
   Section/Division/RuleSet/Folder/Department. No migration needed, no other code touched raw IDs.
 - Full writeup: `summary.md`'s M88 entry.
 
+**Completed (2026-08-22 — SERIOUS: nested `<form>` made "Save Changes" submit as a DELETE, M89):**
+- Editing a Section's visibility and clicking "Save Changes" instead deleted the section — no
+  confirm dialog shown. Root cause: `sections/edit.blade.php` nested the Delete `<form>` inside the
+  Save `<form>`, which is invalid HTML; browsers respond by merging both forms' method-spoofing
+  hidden inputs into one (the last one, `DELETE`, wins) and closing the outer form early, which is
+  also why the confirm dialog never appeared — it was attached to the tag the browser discarded.
+- Both sections were soft-deleted only — restored immediately, zero documents lost (confirmed against
+  the DB before and after).
+- Same bug found and fixed in `department/edit.blade.php` and `admin/users/edit.blade.php` (the
+  latter had been silently dropping the entire Role/Assignment/Privileges section from the form for
+  any not-yet-activated user). A full-codebase scan (every `.blade.php` file, not just edit pages)
+  confirms no other instance of this bug exists.
+- All plain `confirm()` delete guards app-wide replaced with SweetAlert2, matching the rest of the
+  app and removing the exact failure mode (an `onsubmit` handler a parser can silently drop) that
+  let this happen with no warning.
+- Full writeup: `summary.md`'s M89 entry.
+
 ## 🚀 Future Roadmap
 
 Advanced enterprise features and security enhancements planned for SDC/NIC compliance and high-value bureaucratic workflows are documented in [ROADMAP.md](ROADMAP.md).

@@ -4300,3 +4300,79 @@ up.
 
 **Files changed:** `app/Models/User.php`, `resources/views/admin/_privilege_checkboxes.blade.php`,
 `resources/views/admin/users/index.blade.php`, `resources/views/admin/users/show.blade.php` (new).
+
+## M89 — SERIOUS: nested `<form>` in Section/Department edit made "Save Changes" submit as DELETE, silently deleted two live sections (COMPLETED 2026-08-22)
+
+The site owner set two Sections ("Misc", "Additional Excise Commissioner Office") to Authenticated-
+Only visibility and clicked "Save Changes" — the page reported "Section deleted" and the section
+count dropped from 14 to 12. No confirmation dialog was shown before the delete. `/documents` and
+the dashboard then started 500ing.
+
+**Immediate triage (live production, treated as an active incident):** confirmed via
+`Section::onlyTrashed()` that both sections were soft-deleted (SoftDeletes trait — not gone, just
+hidden) at the exact timestamps the site owner reported. Restored both via `->restore()` in a
+DB transaction. Confirmed **zero documents were deleted** — the 500s on `/documents`/dashboard were
+a side effect of documents whose `section_id` pointed at a now-trashed section breaking route/URL
+generation for their (also-orphaned) rule sets, not data loss; they self-resolved the moment the
+sections were restored. Verified document counts before/after: 35 documents under the two sections,
+unchanged.
+
+**Root cause:** `resources/views/sections/edit.blade.php` nested the "Delete" `<form>` (its own
+`@method('DELETE')`) *inside* the "Save Changes" `<form id="sectionForm">` (`@method('PATCH')`) —
+two `<form>` elements, one inside the other, which is invalid HTML. Per the HTML5 parsing spec, a
+browser encountering a `<form>` start tag while another form is already open silently **drops the
+inner tag entirely** (action/method attributes and all) but keeps its children — including its
+`@method('DELETE')` hidden input — as plain children of the *outer* form. The outer form ends up
+with two `<input name="_method">` fields (`PATCH`, then `DELETE`); browsers submit both, and
+duplicate form-field values resolve to the **last** one server-side, so `_method` became `DELETE`
+regardless of which button was clicked. Separately, the inner form's closing `</form>` tag — per the
+same spec — closes whatever form is actually still open, which is the *outer* one, cutting it off
+early; everything after that point (including the "Save Changes" button in this file, and the entire
+Role/Assignment/Privileges section in the equivalent `admin/users/edit.blade.php` case below) ends
+up outside any form at all. This is also why no confirm dialog appeared: the `onsubmit="return
+confirm(...)"` handler was attached to the inner `<form>` tag that the browser discarded before ever
+registering it.
+
+**Whose bug, honestly:** the nested-form structure itself predates this session — traced via
+`git log --follow` back to `ee39879` ("enhance section management with validation and CRUD views"),
+well before any of this session's work. It was not written from scratch here. But `b45d4a1` (M84,
+this session, adding the Visibility radio field the site owner used when this fired) edited this
+exact file and didn't review the surrounding form structure while doing so — the landmine was one
+screen away from the field being added, on a live production app holding real government records,
+and it should have been caught then. Recorded here plainly rather than glossed over.
+
+**Same bug found in two more places** (site owner explicitly asked for a full sweep, not just the
+one file):
+- `resources/views/department/edit.blade.php` — identical shape, Delete nested in Save. Not yet
+  triggered (no department had been deleted this way), but live and waiting.
+- `resources/views/admin/users/edit.blade.php` — "Resend activation link" form nested inside the
+  main "Save Changes" form. Different failure mode (resend has no `@method` override, so no
+  DELETE-hijack), but the *same* early-closing-tag effect meant the entire Role/Assignment/
+  Privileges section and the Save button were silently outside the form for any user page showing
+  the "not activated" banner — Save would not have persisted role/department/privilege changes on
+  those pages at all.
+
+**Fix:** un-nested all three — the previously-inner form is now a sibling `<form>`, and the button
+that used to submit the *outer* form uses the HTML5 `form="<id>"` attribute to keep submitting the
+right one despite being physically outside its tags now. Verified with a script that counts
+`<form`/`</form>` nesting depth across every `.blade.php` file in `resources/views/` (not just files
+literally named `edit.blade.php`) — confirmed it flags exactly these three pre-fix and nothing
+post-fix, i.e. this is now the *only* class of this bug anywhere in the app.
+
+**Also fixed while in these files, per the site owner's standing "why don't deletes have a real
+confirm" question:** every plain `onsubmit="return confirm(...)"` delete guard app-wide (Section
+edit, Department edit, admin Users index, admin Designations index) replaced with a SweetAlert2
+confirmation — already used elsewhere in the app for other confirmations. This also structurally
+prevents a repeat of the "no confirm shown" symptom, since the confirm now lives on a real `onclick`
+handler on the button itself rather than a `<form>` tag's `onsubmit` that a parsing quirk could ever
+silently discard again.
+
+**Verification:** full suite 26/27 (same pre-existing unrelated `ExampleTest` failure as
+M83–M88). All five touched views render clean via `tinker`. Extracted every `<form>` tag from the
+rendered `sections.edit` HTML post-fix and confirmed two independent top-level forms, no nesting.
+`php artisan view:clear` run; site confirmed up before, during, and after. DB confirmed: both
+sections restored, all 35 documents intact, no documents ever soft-deleted.
+
+**Files changed:** `resources/views/sections/edit.blade.php`, `resources/views/department/edit.blade.php`,
+`resources/views/admin/users/edit.blade.php`, `resources/views/admin/users/index.blade.php`,
+`resources/views/admin/designations/index.blade.php`.
