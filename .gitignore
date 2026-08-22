@@ -30,3 +30,5 @@ __pycache__/
 
 # Local-only PHP CLI-server ini overrides (large-upload testing, see DEPLOY.md)
 .dev-php-ini/
+docsrepo.exciseup.in.har
+*.har
