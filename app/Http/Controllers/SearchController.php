@@ -83,12 +83,18 @@ class SearchController extends Controller
                 ->limit(20)
                 ->get();
 
+            // A section/division appears if it's public (any viewer, guest included) or the
+            // viewer can fully view it — an out-of-scope authenticated user must still be able to
+            // find a public section/division by name, same as they can browse to it directly (see
+            // SectionController::index()); the old `! $user || $user->canView(...)` check dropped
+            // it from results entirely for anyone out of scope, and separately let a *guest* see
+            // even an authenticated-only section/division's name (`! $user` short-circuited true).
             $sections = Section::with('department')
                 ->where('name', 'LIKE', $term)
                 ->orderBy('name')
                 ->limit(20)
                 ->get()
-                ->filter(fn ($s) => ! $user || $user->canView($s))
+                ->filter(fn ($s) => $s->visibility === 'public' || ($user && $user->canView($s)))
                 ->values();
 
             $divisions = Division::with(['section.department'])
@@ -97,7 +103,7 @@ class SearchController extends Controller
                 ->orderBy('name')
                 ->limit(20)
                 ->get()
-                ->filter(fn ($d) => ! $user || $user->canView($d))
+                ->filter(fn ($d) => $d->visibility === 'public' || ($user && $user->canView($d)))
                 ->values();
 
             $foldersQuery = Folder::with(['department', 'section', 'division'])

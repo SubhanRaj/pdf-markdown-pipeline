@@ -29,7 +29,72 @@
         </a>
     </div>
     @else
-    <div class="overflow-x-auto">
+    @php
+        $roleMap = [
+            'system_admin' => 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-400',
+            'admin'        => 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400',
+            'operator'     => 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400',
+            'viewer'       => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
+        ];
+    @endphp
+
+    {{-- Mobile: stacked cards, no horizontal scroll --}}
+    <div class="md:hidden divide-y divide-slate-100 dark:divide-slate-700">
+        @foreach($users as $user)
+        <div class="p-4">
+            <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-9 h-9 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-xs font-bold text-indigo-700 dark:text-indigo-400 flex-shrink-0">
+                        {{ strtoupper(substr($user->name, 0, 1)) }}
+                    </div>
+                    <div class="min-w-0">
+                        <a href="{{ route('admin.users.show', $user) }}" class="font-medium text-slate-800 dark:text-slate-100 truncate hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline block">{{ $user->name }}</a>
+                        <p class="text-xs text-slate-400 dark:text-slate-500 truncate">{{ '@' . $user->username }}</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <a href="{{ route('admin.users.edit', $user) }}"
+                       class="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Edit">
+                        <i class="ti ti-pencil text-base"></i>
+                    </a>
+                    @if($user->id !== auth()->user()?->id)
+                    <button type="button"
+                            onclick="confirmDeactivateUser('{{ $user->id }}', '{{ addslashes($user->name) }}')"
+                            class="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                            title="Deactivate">
+                        <i class="ti ti-user-x text-base"></i>
+                    </button>
+                    @endif
+                </div>
+            </div>
+            <div class="mt-3 flex items-center gap-2 flex-wrap">
+                <span class="badge {{ $roleMap[$user->role] ?? 'bg-slate-100 text-slate-600' }}">{{ $user->roleLabel() }}</span>
+                @if($user->designation?->name ?? $user->post)
+                <span class="text-xs text-slate-400 dark:text-slate-500">{{ $user->designation?->name ?? $user->post }}</span>
+                @endif
+            </div>
+            <dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                <div><dt class="text-slate-400 dark:text-slate-500">Email</dt><dd class="text-slate-600 dark:text-slate-300 truncate">{{ $user->email }}</dd></div>
+                <div><dt class="text-slate-400 dark:text-slate-500">Mobile</dt><dd class="text-slate-600 dark:text-slate-300">{{ $user->mobile ?? '—' }}</dd></div>
+                <div><dt class="text-slate-400 dark:text-slate-500">Department</dt><dd class="text-slate-600 dark:text-slate-300">{{ $user->department?->name ?? '—' }}</dd></div>
+                <div><dt class="text-slate-400 dark:text-slate-500">Section</dt><dd class="text-slate-600 dark:text-slate-300">{{ $user->section?->name ?? '—' }}</dd></div>
+                <div><dt class="text-slate-400 dark:text-slate-500">Joined</dt><dd class="text-slate-600 dark:text-slate-300">{{ $user->created_at->format('d M Y') }}</dd></div>
+            </dl>
+        </div>
+        @endforeach
+    </div>
+
+    {{-- Shared hidden delete forms, one per user, submitted by id from either layout above --}}
+    @foreach($users as $user)
+    @if($user->id !== auth()->user()?->id)
+    <form id="deactivate-user-{{ $user->id }}" method="POST" action="{{ route('admin.users.destroy', $user) }}" class="hidden">
+        @csrf @method('DELETE')
+    </form>
+    @endif
+    @endforeach
+
+    {{-- Desktop: full table --}}
+    <div class="hidden md:block">
         <table class="w-full text-sm">
             <thead>
                 <tr class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
@@ -43,14 +108,6 @@
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
                 @foreach($users as $user)
-                @php
-                    $roleMap = [
-                        'system_admin' => 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-400',
-                        'admin'        => 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400',
-                        'operator'     => 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400',
-                        'viewer'       => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
-                    ];
-                @endphp
                 <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
                     <td class="px-5 py-3">
                         <div class="flex items-center gap-3">
@@ -96,9 +153,6 @@
                                 <i class="ti ti-pencil text-base"></i>
                             </a>
                             @if($user->id !== auth()->user()?->id)
-                            <form id="deactivate-user-{{ $user->id }}" method="POST" action="{{ route('admin.users.destroy', $user) }}">
-                                @csrf @method('DELETE')
-                            </form>
                             <button type="button"
                                     onclick="confirmDeactivateUser('{{ $user->id }}', '{{ addslashes($user->name) }}')"
                                     class="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"

@@ -18,16 +18,25 @@ class SectionController extends Controller
     {
         $user = auth()->user();
         $isGuest = ! $user;
-        $visibilityScope = fn ($q) => $isGuest ? $q->where('visibility', 'public') : $q;
 
         $sections = $department->sections()
-            ->withCount(['documents' => $visibilityScope])
             ->orderBy('wing')
             ->orderBy('name')
             ->get()
             ->filter(fn (Section $s) => ! ($isGuest && $s->visibility === 'authenticated'))
-            ->filter(fn (Section $s) => $isGuest || $user->canView($s))
             ->values();
+
+        // Out-of-scope authenticated users aren't excluded from the list (they'd never discover
+        // a section's public content otherwise) — they just see the same public-only document
+        // count a guest sees, same as SectionController::show()/DivisionController::show()/
+        // FolderController do for the page itself. Was previously a hard `canView()` filter here
+        // that dropped the whole section from the list, unlike everywhere else in the app that
+        // degrades to public-only instead of excluding — meant a scoped user could never even see
+        // (let alone click into) another section's public folders/documents.
+        $sections->each(function (Section $s) use ($user, $isGuest) {
+            $publicOnly = $isGuest || ! $user->canView($s);
+            $s->loadCount(['documents' => fn ($q) => $publicOnly ? $q->where('visibility', 'public') : $q]);
+        });
 
         return view('sections.index', compact('department', 'sections'));
     }
