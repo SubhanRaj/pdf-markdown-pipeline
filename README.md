@@ -663,7 +663,7 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
 - Full writeup: `summary.md`'s M81 entry, `claude.md`'s View-scoping section follow-up note.
 
 **Completed (2026-08-19 — Convert to Markdown split off `documents.verify`, gated on `documents.upload`, M82):**
-- Direct follow-up to M81: the underlying rule was still wrong, not just Ravi's account — Convert
+- Direct follow-up to M81: the underlying rule was still wrong, not just account #23 — Convert
   to Markdown required `documents.verify`, so any upload-only account couldn't run its own uploads
   through the pipeline at all.
 - Split `canManageDocument()` (still `documents.verify`, now used only by the actual approve action
@@ -741,6 +741,26 @@ The seeder is idempotent — uses `firstOrCreate` on email, so re-running it nev
   app and removing the exact failure mode (an `onsubmit` handler a parser can silently drop) that
   let this happen with no warning.
 - Full writeup: `summary.md`'s M89 entry.
+
+**Completed (2026-08-22 — CRITICAL: onboarding link 404'd for every account, M90):**
+- M88's switch to username-based routing broke the onboarding link, which is a signed URL generated
+  with the numeric id and never re-typed — `/onboarding/24` tried to resolve a user with username
+  `"24"` and 404'd, breaking every activation email sent since M88.
+- Fixed by scoping just the two onboarding routes to `{user:id}`, overriding the username default
+  for that one signed-link pair only.
+- Full writeup: `summary.md`'s M90 entry.
+
+**Completed (2026-08-22 — out-of-scope users couldn't discover public content; mobile tables no longer scroll, M91):**
+- `SectionController::index()` (the section browse list) and `SearchController` both hard-excluded
+  any section/division a user wasn't scoped to, instead of showing it in public-only mode like every
+  other controller in the app — meant an out-of-scope user could never even see a public section to
+  click into, though the section's own page worked fine by direct URL. Also fixed a guest-visibility
+  leak in search (authenticated-only sections/divisions were showing up by name for anonymous users).
+- Users, Designations, and Activity Log admin tables now use a responsive card layout on mobile
+  instead of horizontal scroll (table view unchanged on desktop). Pipeline Monitor and the Approval
+  Queue table were deliberately left as-is — both are heavily JS-driven around live document
+  mutations and warrant dedicated testing before a layout change.
+- Full writeup: `summary.md`'s M91 entry.
 
 ## 🚀 Future Roadmap
 

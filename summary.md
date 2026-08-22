@@ -3478,13 +3478,13 @@ prefers utility classes over ad-hoc stylesheet rules.
 
 ## M74 — Designations: decoupling site administration from departmental authority (COMPLETED 2026-08-03)
 
-Reported: creating "Navneet sir" as an Additional Excise Commissioner required setting `role =
+Reported: creating an account for an Additional Excise Commissioner post required setting `role =
 admin` to get the right document authority (department-wide verify/approve), because the create
 form only exposed raw `department.head`/`documents.verify`/etc. checkboxes with no mapping from a
 real-world post to the correct combination — nobody creating accounts could reliably reverse-engineer
 that "Additional Excise Commissioner" means "check `department.head` + `documents.verify` +
 `documents.approve`, set Department to Excise." `role = admin` was the path of least resistance,
-but it also handed him the full site-management console (`/admin/users`, `/admin/activity-logs`,
+but it also handed that account the full site-management console (`/admin/users`, `/admin/activity-logs`,
 the privilege-editing UI itself) — access that should only ever belong to the developer/IT
 department, not a departmental officer. `User::uploadScope()`/`canUploadTo()`/`canApprove()`
 (`app/Models/User.php:144-226`) already implemented department/section/division scoping correctly
@@ -3526,8 +3526,8 @@ Migrations run additively against the live production DB (`php artisan migrate -
 + nullable column only, no drops) and the seeder was run scoped (`--class=DesignationSeeder`);
 verified afterward that all 3 existing users, 223 documents, and 6 departments were untouched.
 
-Deliberately left as a manual follow-up, not automated: reassigning "Navneet sir"'s actual account
-from `role = admin` to `role = operator` + the correct Designation. Automatically detecting which
+Deliberately left as a manual follow-up, not automated: reassigning account #9's `role` from
+`admin` to `operator` + the correct Designation. Automatically detecting which
 existing `admin` accounts are workarounds vs. the real IT/dev account isn't safely inferable, so
 this is a one-off admin-panel action for whoever manages the site, done once the right Designation
 exists to assign.
@@ -3717,16 +3717,16 @@ unrelated `ExampleTest` failure.
 
 ## M79 — `role=admin` split into System Admin / Admin, org-scoped viewing, and officer-facing UI cleanup (COMPLETED 2026-08-19)
 
-Reported live, from real onboarding: an officer's PA (Ravi Prakash Gautam) and a Deputy Excise
-Commissioner (Kumar Prabhat Chandra, Establishment Section) had both been made `role=admin` purely
-to get real document authority in their own area — the exact scope-workaround pattern M74
-(Designations) was supposed to have closed. A live audit found **6 accounts beyond the real IT
-account** carrying `role=admin`: Manoj Kumar Tiwari, Navneet Sehara, Dr. Adarsh Singh (Excise
-Commissioner), Joint Excise Commissioner Task Force, Kumar Prabhat Chandra, and Ravi Prakash
-Gautam. Consequence: every one of them could reach `/admin/users`, `/admin/designations`,
+Reported live, from real onboarding: account #23 (PA to the Excise Commissioner) and account #22
+(Establishment Section DEC) had both been made `role=admin` purely to get real document authority
+in their own area — the exact scope-workaround pattern M74 (Designations) was supposed to have
+closed. A live audit found **6 accounts beyond the real IT account** carrying `role=admin`:
+accounts #8, #9 (Addl. Excise Commissioner, Administration), #10 (Excise Commissioner), #21 (Joint
+Excise Commissioner Task Force), #22 (Establishment Section DEC), and #23 (PA to the Excise
+Commissioner). Consequence: every one of them could reach `/admin/users`, `/admin/designations`,
 `/admin/activity-logs`, `documents.pipeline.health`, and — since `role=admin` unconditionally
 bypassed every scope check — every other department's/section's documents, not just their own
-(concretely: KP Chandra, assigned to Establishment Section, could freely browse Camp Office Excise
+(concretely: account #22, assigned to Establishment Section, could freely browse Camp Office Excise
 Commissioner's section too).
 
 **Root cause of the recurrence, not just the symptom.** `DocumentController::canManageDocument()`
@@ -3751,7 +3751,7 @@ fixing this would have just broken their ability to do their job.
 - `User::isAdmin()` now checks `role === 'system_admin'` (was `'admin'`) — since every bypass check
   in the codebase already routed through this one method (confirmed by grep — zero direct
   `role === 'admin'` checks anywhere outside it), this single-line change redefined "true god-mode"
-  everywhere at once. `system_admin` is reserved for the real IT/dev account only (Subhan Raj, id 1).
+  everywhere at once. `system_admin` is reserved for the real IT/dev account only (id 1).
 - New `User::isOrgAdmin(): bool` (`role === 'admin'`) — an officer tier that auto-grants a fixed
   privilege bundle via `hasPrivilege()` (`User::ORG_ADMIN_PRIVILEGES`: upload/edit/delete/restore/
   verify/approve) regardless of what's in their `privileges` JSON or Designation preset, but
@@ -3782,12 +3782,12 @@ fixing this would have just broken their ability to do their job.
   controller body and can't call a private controller method directly — flagged in each one's own
   docblock so a future edit to one prompts checking the other four. See `SECURITY.md` Pass 7 H-07
   for the full per-spot writeup.
-- Data fix applied directly (not a migration — real account state, not schema): Subhan Raj →
+- Data fix applied directly (not a migration — real account state, not schema): account #1 →
   `system_admin`; the other 6 → `admin`, keeping their existing department/section assignment.
-  Ravi Prakash Gautam had no department/section at all — assigned to Excise Department / Camp
-  Office Excise Commissioner Section (id 14), matching what was actually asked for. Verified live
-  via `php artisan tinker` (role/scope values, `canUploadTo()`/`canManageDocument()` reflection
-  checks) and via `IsAdmin` middleware directly (KP Chandra → 403 on `/admin/users`; Subhan → OK).
+  Account #23 had no department/section at all — assigned to Excise Department / Camp Office
+  Excise Commissioner Section (id 14), matching what was actually asked for. Verified live via
+  `php artisan tinker` (role/scope values, `canUploadTo()`/`canManageDocument()` reflection checks)
+  and via `IsAdmin` middleware directly (account #22 → 403 on `/admin/users`; account #1 → OK).
 
 **View-scoping — viewing was never scoped at all before this (a documented, deliberate decision
 until now).** New `User::canView(object $context): bool` — same org-unit tiers as `canUploadTo()`
@@ -3840,7 +3840,7 @@ rather than partial:
 and "Deputy Excise Commissioner (P)" (the latter confirmed unused, 0 holders) merged into one
 generic "Deputy Excise Commissioner" in both `DesignationSeeder` (for fresh installs) and the live
 `designations` table (rename + `forceDelete` the unused duplicate). The specific posting now lives
-on the user's own `post` field instead — KP Chandra's `post` set to "DEC (P&E)". Relabeled the
+on the user's own `post` field instead — account #22's `post` set to "DEC (P&E)". Relabeled the
 create/edit user form's `post` field from "Other post (if not listed above)" to "Post / Position
 (optional — e.g. \"DEC (P&E)\", shown alongside the Designation)" — same field, same validation,
 just corrected framing (it was never actually restricted to "no Designation selected," the label
@@ -3938,9 +3938,9 @@ real markdown content, zero entries in `failed_jobs`.
 
 ## M81 — `$canManageDoc` in the document view was a stale duplicate of `canManageDocument()` (COMPLETED 2026-08-19)
 
-Reported live: Ravi Prakash Gautam (PA to the Excise Commissioner, section-scoped `admin` per M79)
-opened a document in his own section (Camp Office Excise Commissioner) and saw only a "Share"
-button — no Convert to Markdown, Edit, or Delete, despite M79 having specifically fixed
+Reported live: account #23 (section-scoped `admin` per M79) opened a document in its own section
+(Camp Office Excise Commissioner) and saw only a "Share" button — no Convert to Markdown, Edit, or
+Delete, despite M79 having specifically fixed
 `DocumentController::canManageDocument()` to grant exactly this. Root cause: `$canManageDoc`, the
 variable that actually gates those buttons in `documents/show.blade.php`, is computed independently
 in the view's own `@php` block (it needs route-local `$division`/`$section`/`$ruleSet` context that
@@ -3956,9 +3956,9 @@ aren't available outside the Blade render). Also found and fixed the identical s
 the document-delete button in `rule_sets/_doc_row.blade.php`, which the server (`DeleteDocumentRequest`)
 already allowed for scoped admins via `canDeleteFrom()` — same bug class, different file.
 
-**Verification:** confirmed via `php artisan tinker` against Ravi Prakash Gautam's real account
-(id 23) — `hasPrivilege('documents.verify')` and `canUploadTo()` both true for his own section's
-document context. `tests/Feature/DocumentVerifyTest.php` + `DocumentViewScopeTest.php` still green
+**Verification:** confirmed via `php artisan tinker` against account #23's real state —
+`hasPrivilege('documents.verify')` and `canUploadTo()` both true for its own section's document
+context. `tests/Feature/DocumentVerifyTest.php` + `DocumentViewScopeTest.php` still green
 (9/9). `php artisan view:clear` run; site confirmed up (`curl` 200 on `/`).
 
 **Files changed:** `resources/views/documents/show.blade.php`,
@@ -3966,7 +3966,7 @@ document context. `tests/Feature/DocumentVerifyTest.php` + `DocumentViewScopeTes
 
 ## M82 — Convert to Markdown split off from `documents.verify`, gated on `documents.upload` instead (COMPLETED 2026-08-19)
 
-Direct follow-up to M81's fix: once Ravi Prakash Gautam could see the document actions again, the
+Direct follow-up to M81's fix: once account #23 could see the document actions again, the
 site owner flagged that the underlying rule was still wrong in general — Convert to Markdown had
 been (since M79) gated on `documents.verify`, meaning any account with upload rights but not verify
 rights couldn't run their own uploads through the pipeline at all. Convert/OCR is a natural
@@ -3984,12 +3984,13 @@ approving it. `UpdateDocumentMarkdownRequest`'s Save & Verify path is untouched 
 Convert/Retry button, pulled out of the old combined `@if($canManageDoc)` block) and `$canManageDoc`
 (unchanged — gates Edit/Delete/Compare & Verify).
 
-Also stopped a stray "Quick Conversion" (`/conversions`) Ravi had separately started on the same
-source PDF before his document-page Convert button worked — deleted `QuickConversion` id 18 and its
-files; the in-flight `RunQuickConversionOcrExtraction` job for it uses `QuickConversion::find()`
-(not `findOrFail`), so it no-ops harmlessly rather than failing when it finishes.
+Also stopped a stray "Quick Conversion" (`/conversions`) account #23 had separately started on the
+same source PDF before its document-page Convert button worked — deleted `QuickConversion` id 18
+and its files; the in-flight `RunQuickConversionOcrExtraction` job for it uses
+`QuickConversion::find()` (not `findOrFail`), so it no-ops harmlessly rather than failing when it
+finishes.
 
-**Verification:** rendered `documents.show` directly via `php artisan tinker` as Ravi's real account
+**Verification:** rendered `documents.show` directly via `php artisan tinker` as account #23
 against document 348 — confirmed "Convert to Markdown"/"Retry Conversion" now present. Full suite
 (`DocumentVerifyTest` + `DocumentViewScopeTest`) still green (9/9). `php artisan view:clear` run;
 site confirmed up (`curl` 200 on `/`).
@@ -4016,7 +4017,7 @@ on this machine that also depend on php-flasher (`excise-budget-tracker`, `pla`,
 three already have their assets published; this project was the only one missing them.
 
 **Bug 2 — an out-of-scope authenticated user got a hard 403 even on content marked Public**, reported as: a
-section-scoped admin (Ravi Prakash Gautam, scoped to Camp Office Excise Commissioner) couldn't see a Public
+section-scoped admin (account #23, scoped to Camp Office Excise Commissioner) couldn't see a Public
 document in a different section (Accounts) despite Public documents already being guest-visible to anonymous
 internet users. Root cause: `Document::scopeViewableBy()` and every `canView()` call site
 (`SectionController::show()`, `DivisionController::show()`, `FolderController::renderShow()`,
@@ -4048,8 +4049,8 @@ content in another section is now visible (`assertSee`); fixed the pipeline-moni
 to use `visibility: authenticated` (its actual intent — internal working-queue isolation — was being
 accidentally defeated by the new public passthrough, since the fixture data was public by default). Full
 suite: 23/24 passing, the one failure (`ExampleTest`) is pre-existing and unrelated (reproduces identically on
-a clean `git stash`). Confirmed via `tinker` against production data: Ravi's `canView()` on the out-of-scope
-section still correctly returns `false` (his own org-scope is unchanged), but `isPubliclyVisible()` +
+a clean `git stash`). Confirmed via `tinker` against production data: account #23's `canView()` on the
+out-of-scope section still correctly returns `false` (its own org-scope is unchanged), but `isPubliclyVisible()` +
 route-level fallthrough now let a real Public document in another section render instead of 403ing. Audited
 all mutating controllers for transaction/error-handling hygiene while in this area (prompted by the same
 flash-message trust question) — every `store`/`update`/`destroy` and every bulk/one-off mutation action
@@ -4281,7 +4282,7 @@ name cell is now a link to this page instead of plain text.
 (`route('admin.users.show', $user)`, `.edit`, `.destroy`, `.resend-activation`, and the activity-log's
 user links) needed no changes — they all pass the `$user` model, not a raw ID, so Laravel
 transparently resolves against `username` now instead of the primary key. `/admin/users/24/edit` is
-now `/admin/users/ravi_prakash_gautam/edit`.
+now `/admin/users/ramesh_kumar_verma/edit`.
 
 **Side change:** `admin/_privilege_checkboxes.blade.php` (the same partial M86 fixed) gained an
 optional `$readonly` param — when true, renders only the granted privileges as a plain checked list
@@ -4376,3 +4377,73 @@ sections restored, all 35 documents intact, no documents ever soft-deleted.
 **Files changed:** `resources/views/sections/edit.blade.php`, `resources/views/department/edit.blade.php`,
 `resources/views/admin/users/edit.blade.php`, `resources/views/admin/users/index.blade.php`,
 `resources/views/admin/designations/index.blade.php`.
+
+## M90 — CRITICAL: onboarding link 404'd for every account after M88's username-routing change (COMPLETED 2026-08-22)
+
+The site owner sent a real onboarding email to a real officer (account #24, id 24) minutes after
+M88 shipped; the link 404'd, still showing `/onboarding/24`.
+
+**Root cause:** M88 made `User::getRouteKeyName()` return `'username'` app-wide. The onboarding link
+is a *signed* URL generated with the numeric id
+(`UserManagementController::sendOnboardingLink()` → `URL::temporarySignedRoute('onboarding.show',
+..., ['user' => $user->id])`) and is never re-typed or browsed — once the `{user}` route parameter
+started implicitly binding on `username` instead of the primary key, `/onboarding/24` tried to
+resolve a user whose `username` literally equals the string `"24"`, found none, 404'd. Broke every
+onboarding email sent between M88 landing and this fix.
+
+**Fix:** scoped just the two onboarding routes to `{user:id}` in `routes/web.php` — Laravel's
+column-scoped route-parameter syntax overrides the model's default route key for that one route
+pair only, without touching the app-wide username convention `/admin/users/...` correctly relies on
+elsewhere.
+
+**Verification:** generated a fresh signed URL for the affected account via `URL::temporarySignedRoute()`
+in tinker, hit it live — 200. Resent account #24's activation email through the same code path the
+"Resend activation link" admin button uses, confirmed no mail errors logged. Full suite unaffected
+(password reset uses Laravel's own `{token}` broker route, not `{user}`, so it was never at risk).
+
+**Files changed:** `routes/web.php`.
+
+## M91 — Out-of-scope users couldn't discover public sections/folders at all; 3 admin tables gained horizontal scroll on mobile (COMPLETED 2026-08-22)
+
+Follow-up report: the site owner confirmed public folders were *still* not visible to account #24,
+the same gap M81's fix addressed for account #23 — despite M83's fix letting an out-of-scope
+authenticated user see public content once they reach a section/folder page. Also flagged that the
+admin Users table scrolls horizontally on mobile, calling it out as a general anti-pattern to fix
+wherever possible.
+
+**Root cause (the actual, different bug from M83):** `SectionController::index()` — the browsable
+list of sections under a department, the page a user actually clicks through to *discover* a section
+before ever reaching its `show()` page — had its own separate scope check:
+`->filter(fn (Section $s) => $isGuest || $user->canView($s))`. This **hard-excluded** any section the
+viewing user wasn't scoped to from the list entirely, instead of degrading to the same public-only
+view every other controller in the app already uses for out-of-scope authenticated users
+(`SectionController::show()`, `DivisionController::show()`, `FolderController`). Confirmed directly:
+simulating account #24's session showed `SectionController::show()` correctly returning a public
+folder's documents when hit by direct URL — the bug was purely in the *list* page never showing it
+the section link to click in the first place. Same bug pattern found in `SearchController` for
+sections and divisions (folders were already correct there — they had the `|| $f->visibility ===
+'public'` clause; sections/divisions didn't). Fixing this also surfaced and fixed a companion issue
+in the opposite direction: a **guest** search was showing authenticated-only sections'/divisions'
+names in results (`! $user || ...` short-circuited true for any guest, regardless of the section's
+own visibility) — closed by rewriting the filter as `$s->visibility === 'public' || ($user &&
+$user->canView($s))`, which is correct for guest, in-scope, and out-of-scope-but-public all at once.
+
+**Verification:** simulated account #24's session directly — `SectionController::index()` now
+returns all 14 sections in its department with correct public-only document counts for the ones
+outside its own scope (`section_id=23`); confirmed against real data (`Section::documents_count`
+matches `Document::where('visibility','public')->count()` for an out-of-scope section). Full suite
+26/27 (same pre-existing unrelated failure); site confirmed up.
+
+**Horizontal scroll:** converted the Users, Designations, and Activity Log admin tables to a
+responsive card layout below Tailwind's `md` breakpoint (`hidden md:block` table + `md:hidden`
+stacked `<div>` cards, same interactive elements — edit/delete/deactivate — duplicated into both,
+sharing one set of hidden delete `<form>`s keyed by row id so neither layout needs its own). Table
+markup above `md` is untouched. Deliberately **not** applied to Pipeline Monitor
+(`documents/pipeline.blade.php`) or the Approval Queue table (`approvals/_table.blade.php`) — both
+are heavily JS-driven around live document mutations (status polling, bulk-select, convert/approve
+actions keyed to table rows) and a layout rewrite there risks breaking real workflows without
+dedicated testing; flagged as a deliberate follow-up, not bundled into this pass.
+
+**Files changed:** `app/Http/Controllers/SectionController.php`, `app/Http/Controllers/SearchController.php`,
+`resources/views/admin/users/index.blade.php`, `resources/views/admin/designations/index.blade.php`,
+`resources/views/admin/activity-logs/index.blade.php`.
