@@ -29,48 +29,79 @@
     @foreach($designations as $groupName => $group)
     <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 last:border-b-0">
         <p class="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-3">{{ $groupName }}</p>
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead>
-                    <tr class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700">
-                        <th class="py-2 text-left">Name</th>
-                        <th class="py-2 text-left">Default Scope</th>
-                        <th class="py-2 text-left">Default Privileges</th>
-                        <th class="py-2 text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
-                    @foreach($group as $designation)
-                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
-                        <td class="py-2.5 font-medium text-slate-800 dark:text-slate-100">{{ $designation->name }}</td>
-                        <td class="py-2.5">
-                            <span class="badge bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{ ucfirst($designation->default_scope) }}</span>
-                        </td>
-                        <td class="py-2.5 text-xs text-slate-500 dark:text-slate-400">
-                            {{ count($designation->default_privileges ?? []) }} selected
-                        </td>
-                        <td class="py-2.5">
-                            <div class="flex items-center justify-end gap-2">
-                                <a href="{{ route('admin.designations.edit', $designation) }}"
-                                   class="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Edit">
-                                    <i class="ti ti-pencil text-base"></i>
-                                </a>
-                                <form id="delete-designation-{{ $designation->id }}" method="POST" action="{{ route('admin.designations.destroy', $designation) }}">
-                                    @csrf @method('DELETE')
-                                </form>
-                                <button type="button"
-                                        onclick="confirmDeleteDesignation('{{ $designation->id }}', '{{ addslashes($designation->name) }}')"
-                                        class="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                                        title="Delete">
-                                    <i class="ti ti-trash text-base"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                    @endforeach
-                </tbody>
-            </table>
+
+        {{-- Mobile: stacked cards, no horizontal scroll --}}
+        <div class="md:hidden divide-y divide-slate-100 dark:divide-slate-700">
+            @foreach($group as $designation)
+            <div class="py-3 flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <p class="font-medium text-slate-800 dark:text-slate-100">{{ $designation->name }}</p>
+                    <div class="mt-1 flex items-center gap-2 flex-wrap">
+                        <span class="badge bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{ ucfirst($designation->default_scope) }}</span>
+                        <span class="text-xs text-slate-500 dark:text-slate-400">{{ count($designation->default_privileges ?? []) }} privileges</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <a href="{{ route('admin.designations.edit', $designation) }}"
+                       class="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Edit">
+                        <i class="ti ti-pencil text-base"></i>
+                    </a>
+                    <button type="button"
+                            onclick="confirmDeleteDesignation('{{ $designation->id }}', '{{ addslashes($designation->name) }}')"
+                            class="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                            title="Delete">
+                        <i class="ti ti-trash text-base"></i>
+                    </button>
+                </div>
+            </div>
+            @endforeach
         </div>
+
+        {{-- Desktop: full table --}}
+        <table class="hidden md:table w-full text-sm">
+            <thead>
+                <tr class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700">
+                    <th class="py-2 text-left">Name</th>
+                    <th class="py-2 text-left">Default Scope</th>
+                    <th class="py-2 text-left">Default Privileges</th>
+                    <th class="py-2 text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+                @foreach($group as $designation)
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
+                    <td class="py-2.5 font-medium text-slate-800 dark:text-slate-100">{{ $designation->name }}</td>
+                    <td class="py-2.5">
+                        <span class="badge bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{ ucfirst($designation->default_scope) }}</span>
+                    </td>
+                    <td class="py-2.5 text-xs text-slate-500 dark:text-slate-400">
+                        {{ count($designation->default_privileges ?? []) }} selected
+                    </td>
+                    <td class="py-2.5">
+                        <div class="flex items-center justify-end gap-2">
+                            <a href="{{ route('admin.designations.edit', $designation) }}"
+                               class="text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" title="Edit">
+                                <i class="ti ti-pencil text-base"></i>
+                            </a>
+                            <button type="button"
+                                    onclick="confirmDeleteDesignation('{{ $designation->id }}', '{{ addslashes($designation->name) }}')"
+                                    class="text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                                    title="Delete">
+                                <i class="ti ti-trash text-base"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+
+        {{-- Shared hidden delete forms --}}
+        @foreach($group as $designation)
+        <form id="delete-designation-{{ $designation->id }}" method="POST" action="{{ route('admin.designations.destroy', $designation) }}" class="hidden">
+            @csrf @method('DELETE')
+        </form>
+        @endforeach
     </div>
     @endforeach
     @endif

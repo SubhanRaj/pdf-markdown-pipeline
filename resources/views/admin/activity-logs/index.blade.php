@@ -72,7 +72,46 @@
         <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Actions will appear here once users log in or make changes</p>
     </div>
     @else
-    <div class="overflow-x-auto">
+    {{-- Mobile: stacked cards, no horizontal scroll --}}
+    <div class="md:hidden divide-y divide-slate-100 dark:divide-slate-700">
+        @foreach($logs as $log)
+        @php
+            $meta   = $log->metadata ?? [];
+            $url    = isset($meta['url']) ? (parse_url($meta['url'], PHP_URL_PATH) ?: $meta['url']) : '—';
+            $status = $meta['status'] ?? null;
+            $color  = $colors[$log->action] ?? $defaultColor;
+            $label  = $labels[$log->action] ?? $log->action;
+            $statusColor = match(true) {
+                $status >= 500 => 'text-red-600 dark:text-red-400',
+                $status >= 400 => 'text-amber-600 dark:text-amber-400',
+                $status >= 300 => 'text-sky-600 dark:text-sky-400',
+                $status >= 200 => 'text-green-600 dark:text-green-400',
+                default        => 'text-slate-400',
+            };
+        @endphp
+        <div class="p-4">
+            <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    @if($log->user)
+                    <a href="{{ route('admin.users.show', $log->user) }}" class="font-medium text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{{ $log->user->name }}</a>
+                    <span class="block text-xs text-slate-400 font-mono">{{ $log->user->username }}</span>
+                    @else
+                    <span class="text-slate-400 dark:text-slate-500 italic text-xs">Deleted user</span>
+                    @endif
+                </div>
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 {{ $color }}">{{ $label }}</span>
+            </div>
+            <dl class="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                <div><dt class="text-slate-400 dark:text-slate-500">When</dt><dd class="text-slate-600 dark:text-slate-300 font-mono">{{ $log->created_at->format('d M Y H:i:s') }}</dd></div>
+                <div><dt class="text-slate-400 dark:text-slate-500">IP</dt><dd class="font-mono text-slate-600 dark:text-slate-300">{{ $log->ip_address }}</dd></div>
+                <div><dt class="text-slate-400 dark:text-slate-500">Status</dt><dd class="font-mono font-semibold {{ $status ? $statusColor : 'text-slate-300 dark:text-slate-600' }}">{{ $status ?? '—' }}</dd></div>
+                <div class="col-span-2"><dt class="text-slate-400 dark:text-slate-500">Path</dt><dd class="font-mono text-slate-500 dark:text-slate-400 break-all">{{ $url }}</dd></div>
+            </dl>
+        </div>
+        @endforeach
+    </div>
+
+    <div class="hidden md:block">
         <table class="min-w-full text-sm">
             <thead>
                 <tr class="border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 text-left">
