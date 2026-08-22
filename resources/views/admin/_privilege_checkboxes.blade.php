@@ -30,10 +30,7 @@ $privGroups = collect($privilegeLabels)->groupBy(fn($v) => $v['group'], true);
             {{ in_array($key, $checked ?? []) ? 'checked' : '' }}
             class="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700 text-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-400 flex-shrink-0"
         >
-        <span>
-            <span class="font-medium">{{ $meta['label'] }}</span>
-            <span class="block text-[10px] text-slate-400 font-mono">{{ $key }}</span>
-        </span>
+        <span class="font-medium">{{ $meta['label'] }}</span>
     </label>
     @endforeach
 </div>
