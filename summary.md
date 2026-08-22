@@ -4170,3 +4170,39 @@ blank sort_order, several `default_privileges` checked) now creates a real row i
 **Files changed:** `app/Http/Requests/Admin/StoreDesignationRequest.php`,
 `app/Http/Requests/Admin/UpdateDesignationRequest.php`,
 `app/Http/Controllers/Admin/UserManagementController.php`, `summary.md`.
+
+## M86 — Actual root cause of the Designation-create failure: `groupBy()` silently discarded the privilege checkbox keys (COMPLETED 2026-08-22)
+
+M85 fixed two real bugs (`department_id`/`sort_order` empty-string coercion) but the site owner still
+hit the same failure afterward — reproduced live and confirmed via a Chrome HAR capture of the actual
+POST body: `default_privileges[]=0&...=1&...=2&...` — plain numeric indices, not the privilege key
+strings (`documents.upload`, `section.head`, etc.) the `in:...` validation rule requires. The small
+gray text under each checkbox label in `admin/_privilege_checkboxes.blade.php` (meant to show the raw
+privilege key, e.g. `documents.upload`) had been showing a bare number the whole time — visible in the
+site owner's own screenshot, which is what surfaced this.
+
+**Root cause:** `_privilege_checkboxes.blade.php` groups the flat `$privilegeLabels` array (keyed by
+privilege slug) by category for display: `collect($privilegeLabels)->groupBy(fn($v) => $v['group'])`.
+Laravel's `Collection::groupBy()` re-indexes each resulting sub-group with plain sequential integer
+keys by default — it does **not** preserve the original string keys unless you explicitly pass
+`$preserveKeys = true` as groupBy's second argument. Every `<input value="{{ $key }}">` in the
+partial's inner loop was therefore rendering `0`, `1`, `2`... instead of the real privilege slug. This
+is a genuinely pre-existing bug (predates this session's work entirely, unrelated to M83/M84/M85) —
+confirmed by checking every existing `Designation.default_privileges` and `User.privileges` row in
+production for numeric entries: found zero, because the `'in:' . implode(',', User::PRIVILEGES)`
+validation rule always correctly rejected the numeric values on submit. Nothing ever got saved wrong;
+every attempted save was silently refused instead — same "invisible failure" shape M83's flasher gap
+made worse, this time from a validation rejection rather than a DB error, which is why it survived
+M85's fix untouched (M85 fixed the two DB-level bugs on that same form; this was a third, entirely
+separate one, on the checkbox partial rather than the FormRequest).
+
+Fix: `collect($privilegeLabels)->groupBy(fn($v) => $v['group'], true)` — one added argument. This
+partial is shared by both the Designation create/edit forms and the User create/edit forms'
+"Granular Privileges" panel, so both were affected and both are now fixed by the single change.
+
+**Verification:** reproduced the exact failure with the site owner's captured HAR payload shape
+(`department_id=1`, all 9 privilege checkboxes checked, `sort_order=0`) — failed before the fix,
+creates cleanly after. Full suite: 26/27 (same pre-existing unrelated `ExampleTest` failure).
+`php artisan view:clear` run (Blade file changed); site confirmed up.
+
+**Files changed:** `resources/views/admin/_privilege_checkboxes.blade.php`, `summary.md`.
