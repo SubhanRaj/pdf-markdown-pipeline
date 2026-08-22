@@ -40,7 +40,7 @@
                     @error('department_id') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
 
-                <div class="col-span-2 sm:col-span-1">
+                <div class="col-span-2">
                     <label for="default_scope" class="field-label">Default Scope <span class="text-red-500">*</span></label>
                     <select id="default_scope" name="default_scope"
                         class="field-input @error('default_scope') field-error @enderror" required>
@@ -49,14 +49,6 @@
                         @endforeach
                     </select>
                     @error('default_scope') <p class="field-err-msg">{{ $message }}</p> @enderror
-                </div>
-
-                <div class="col-span-2 sm:col-span-1">
-                    <label for="sort_order" class="field-label">Sort Order</label>
-                    <input id="sort_order" name="sort_order" type="number"
-                        value="{{ old('sort_order', $designation->sort_order) }}"
-                        class="field-input @error('sort_order') field-error @enderror">
-                    @error('sort_order') <p class="field-err-msg">{{ $message }}</p> @enderror
                 </div>
 
             </div>
