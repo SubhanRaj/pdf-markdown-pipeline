@@ -1897,3 +1897,10 @@ This keeps Unicode letters + combining marks intact and collapses everything els
 - Bridge any new Python dependency through a Composer/Laravel package where one exists (as with `markitdown`) rather than raw `Process::run()` calls, unless no package exists.
 - Long-running or potentially slow operations (extraction, OCR) must be dispatched as queued jobs — never run synchronously in a request/controller, to avoid browser timeouts.
 - When generating migrations, prefer updating the original migration file directly for schema-in-flux tables rather than creating alter migrations — migration files are the single source of truth for table shape.
+
+## Writing docs/commits/comments
+
+Use the `dev-docs-human` skill (`~/.claude/skills/dev-docs-human`) for README/architecture-doc/
+code-comment/PR-description writing — invoke with `/dev-docs-human`, or it triggers automatically
+on dev-facing doc work. Cuts AI narrative tells: before/after story framing, "X, not Y" contrast
+used to explain a design choice, inflated vocabulary, emoji-heading README theater.
