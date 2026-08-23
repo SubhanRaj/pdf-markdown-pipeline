@@ -54,6 +54,7 @@
 
             <button
                 type="submit"
+                x-ref="submitBtn"
                 class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
                 <i class="ti ti-shield-check"></i>
@@ -94,6 +95,7 @@
                 }
                 this.digits[i] = digitsOnly;
                 if (digitsOnly && i < 5) this.boxes[i + 1]?.focus();
+                this.maybeSubmit();
             },
             onBackspace(i) {
                 if (!this.digits[i] && i > 0) {
@@ -111,6 +113,12 @@
                 this.digits = text.split('').concat(['', '', '', '', '', '']).slice(0, 6);
                 const lastIndex = Math.min(text.length, 6) - 1;
                 if (lastIndex >= 0) this.boxes[lastIndex]?.focus();
+                this.maybeSubmit();
+            },
+            maybeSubmit() {
+                if (this.digits.join('').length === 6) {
+                    this.$refs.submitBtn.click();
+                }
             },
         };
     }
