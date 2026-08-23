@@ -12,6 +12,7 @@
 **Scope (Pass 5):** M31/M31.1 Policy Taxonomy — `RuleSet.kind` discriminator, department-scoped policy authorization, year-over-year supersession, controlled-vocabulary "other" free text (2026-07-15)
 **Scope (Pass 6):** Folder-visibility inheritance — every guest-facing document access path (view/PDF/edit routes, zip downloads, search, sitemap, homepage feed) (2026-08-17)
 **Scope (Pass 7):** Live account audit — `role=admin` misuse as a scope workaround (recurrence of the pattern M74/Designations was meant to close), the `canManageDocument()` authorization gap that caused it, and the complete absence of view-scoping for authenticated users (2026-08-19)
+**Scope (Pass 8):** Credential exposure audit — hardcoded account passwords committed to this public repo's docs (2026-08-23)
 
 ---
 
@@ -103,6 +104,39 @@ H-06/H-07/M-05/L-05 were all raised by the site owner from real production usage
 onboarded, a scoped account observed browsing into a section it wasn't assigned to), not a formal
 audit pass — logged here under the same severity/status convention as the others since they're real
 access-control gaps, not cosmetic issues.
+
+---
+
+### Pass 8 — Credential Exposure Audit (2026-08-23)
+
+| ID | Finding | Severity | Status |
+|----|---------|---------|--------|
+| C-01 | `UserSeeder.php` created six accounts with fixed passwords, documented in plaintext in `README.md`/`claude.md`/`summary.md` — this repo is public | **CRITICAL** | **FIXED** |
+
+---
+
+### C-01 · Hardcoded Account Passwords Documented in a Public Repo
+
+**Severity:** CRITICAL — **Status:** FIXED
+
+`database/seeders/UserSeeder.php` created six accounts (`System Admin`, `Admin (demo)`, three
+`Operator` variants, `Viewer`) with fixed passwords, and a table listing every one of those
+email/password pairs was checked into `README.md`, `claude.md`, and `summary.md` — all readable
+by anyone on this public GitHub repo.
+One of the six, the `System Admin` account, was live in production with that exact password;
+the other five were never actually seeded there.
+
+**Fix:** `UserSeeder.php` is deleted and `DatabaseSeeder` no longer calls it. The live account's
+password was invalidated (replaced with a random value the operator doesn't know) and every
+active session for it terminated; it re-authenticates through a fresh signed onboarding link
+like any other invited user. `DEPLOY.md` gained a `tinker` snippet for bootstrapping a fresh
+install's first `system_admin` account directly, since that path no longer exists as a seeder.
+`git filter-repo --replace-text` scrubbed the passwords and the personal email from every commit
+in this repo's history (both branches), and the rewritten history was force-pushed — not just
+removed going forward.
+
+**Files:** `database/seeders/UserSeeder.php` (deleted), `database/seeders/DatabaseSeeder.php`,
+`DEPLOY.md`, `README.md`, `claude.md`, `summary.md`.
 
 ---
 

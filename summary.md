@@ -4447,9 +4447,28 @@ dedicated testing; flagged as a deliberate follow-up, not bundled into this pass
 `resources/views/admin/users/index.blade.php`, `resources/views/admin/designations/index.blade.php`,
 `resources/views/admin/activity-logs/index.blade.php`.
 
-### `UserSeeder` removed (2026-08-23)
+### Credential exposure and server-detail cleanup — this repo is public (2026-08-23)
 
-Deletes `database/seeders/UserSeeder.php` (demo accounts across every role, plus the personal
-account used during initial build) and its call in `DatabaseSeeder`. Production accounts go
-through the invite flow at `/admin/users`. `DEPLOY.md`'s fresh-setup steps bootstrap the first
-`system_admin` account directly via `tinker` instead.
+Prompted by a direct question about what a public repo should and shouldn't carry. Two separate
+issues, both fixed:
+
+- **Live credentials, documented in plaintext, in a public repo — see SECURITY.md's new C-01.**
+  `UserSeeder.php` created six accounts with fixed passwords, and a table listing every
+  email/password pair was committed to `README.md`, `claude.md`, and `summary.md`. One of the
+  six — the personal account used during initial build — was live in production with that
+  password; the other five were never actually seeded. Deletes `database/seeders/UserSeeder.php`
+  and its call in `DatabaseSeeder`. That live account's password was invalidated (replaced with a
+  random value) and every active session for it terminated (`sessions` table rows deleted); it
+  re-authenticates through a fresh signed onboarding link, same as any invited user. `DEPLOY.md`'s
+  fresh-setup steps bootstrap the first `system_admin` account directly via `tinker` instead of a
+  seeder. Also dropped the three `*:seed` console commands' hardcoded personal-directory `--path`
+  defaults in favor of a required option with no default.
+- **Real server detail relocated.** `DEPLOY.md`'s Production Deployment section had the box's
+  actual vhost paths, ports, and Apache-sandbox override contents. That detail now lives in
+  `infra-notes/laravel-apps-deploy.md` (private repo, shared with the other two `~/Sites` Laravel
+  apps); `DEPLOY.md` here keeps only the generic gotchas useful to anyone self-hosting this
+  project (`ProtectHome`, the Blade view-cache ownership issue, Cloudflare's edge upload cap).
+
+`git filter-repo --replace-text` scrubbed the tunnel identifier, the personal email, and every
+affected server path from this repo's entire history (`main` and `livewire-pilot` both), and the
+rewritten history was force-pushed — not just fixed going forward.
