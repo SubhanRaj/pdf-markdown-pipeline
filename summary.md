@@ -682,8 +682,7 @@ Seeder is idempotent — uses `firstOrCreate` on email; re-running never duplica
 | Operator (review/verify) | `operator.review@excise.up.gov.in` | edit + verify — QA reviewer persona |
 | Viewer | `viewer@excise.up.gov.in` | `[]` — read-only authenticated access |
 
-Passwords aren't documented here. The personal dev account originally seeded alongside these was
-removed once real users existed in production.
+Passwords aren't documented here.
 
 ### Role behaviour summary
 
