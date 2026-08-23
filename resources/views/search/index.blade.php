@@ -33,6 +33,26 @@
 
 @php $hasFilter = $documentType || $state; @endphp
 
+{{-- ── Browse by type ───────────────────────────────────────────────────────── --}}
+@if($typeCounts->isNotEmpty())
+<div class="mb-6 flex items-center gap-2 flex-wrap">
+    <a href="{{ route('search.index', array_filter(['q' => $q])) }}"
+       class="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium border transition-colors
+              {{ $documentType === '' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-indigo-300 dark:hover:border-indigo-600' }}">
+        All types
+    </a>
+    @foreach(\App\Models\Document::DOCUMENT_TYPES as $key => $label)
+        @continue(($typeCounts[$key] ?? 0) === 0)
+        <a href="{{ route('search.index', array_filter(['q' => $q, 'document_type' => $key])) }}"
+           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors
+                  {{ $documentType === $key ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-indigo-300 dark:hover:border-indigo-600' }}">
+            {{ $label }}
+            <span class="{{ $documentType === $key ? 'text-indigo-200' : 'text-slate-400 dark:text-slate-500' }}">{{ $typeCounts[$key] }}</span>
+        </a>
+    @endforeach
+</div>
+@endif
+
 @if($documentType || $state)
 {{-- ── Filtered-by banner — reached by clicking a pill on a document's show page ──── --}}
 <div class="mb-5 flex items-center gap-2 flex-wrap text-xs">

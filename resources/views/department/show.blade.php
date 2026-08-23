@@ -38,8 +38,8 @@
     </div>
 </div>
 
-{{-- Category cards — Sections / Rules & Regulations / Policies --}}
-<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+{{-- Category cards — Sections / Rules & Regulations / Policies / Government Orders --}}
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
     <a href="{{ route('departments.sections.index', [$department->levelAlias(), $department]) }}"
        class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
@@ -78,6 +78,18 @@
             current {{ Str::plural('policy', $policiesCount) }}
             @if($historicalPoliciesCount > 0) · {{ $historicalPoliciesCount }} historical @endif
         </p>
+    </a>
+
+    <a href="{{ route('departments.government-orders', [$department->levelAlias(), $department]) }}"
+       class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 flex flex-col gap-2 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
+        <div class="flex items-center gap-3">
+            <div class="stat-icon bg-amber-50 dark:bg-amber-900/30 flex-shrink-0">
+                <i class="ti ti-gavel text-amber-500 dark:text-amber-400"></i>
+            </div>
+            <p class="text-3xl font-bold text-slate-800 dark:text-slate-100">{{ $goCount }}</p>
+        </div>
+        <p class="text-sm font-medium text-slate-600 dark:text-slate-300">Government Orders</p>
+        <p class="text-xs text-slate-400 dark:text-slate-500">{{ Str::plural('order', $goCount) }} across every section</p>
     </a>
 
 </div>

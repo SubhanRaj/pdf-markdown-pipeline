@@ -18,6 +18,18 @@ class SearchController extends Controller
         $state        = trim($request->string('state'));
         $hasFilter    = $documentType !== '' || $state !== '';
 
+        // Per-type counts for the "browse by type" pills — same visibility scoping as every
+        // other document query on this page, so a pill never advertises documents the viewer
+        // can't actually open.
+        $typeCountsQuery = Document::publishable()->viewableBy(auth()->user());
+        if (! auth()->check()) {
+            $typeCountsQuery->publiclyVisible();
+        }
+        $typeCounts = $typeCountsQuery
+            ->selectRaw('document_type, count(*) as total')
+            ->groupBy('document_type')
+            ->pluck('total', 'document_type');
+
         if ($q === '' && ! $hasFilter) {
             return view('search.index', [
                 'q'            => '',
@@ -28,6 +40,7 @@ class SearchController extends Controller
                 'ruleSets'     => collect(),
                 'divisions'    => collect(),
                 'folders'      => collect(),
+                'typeCounts'   => $typeCounts,
             ]);
         }
 
@@ -121,6 +134,6 @@ class SearchController extends Controller
             $sections = $ruleSets = $divisions = $folders = collect();
         }
 
-        return view('search.index', compact('q', 'documentType', 'state', 'documents', 'sections', 'ruleSets', 'divisions', 'folders'));
+        return view('search.index', compact('q', 'documentType', 'state', 'documents', 'sections', 'ruleSets', 'divisions', 'folders', 'typeCounts'));
     }
 }

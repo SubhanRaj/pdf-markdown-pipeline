@@ -110,6 +110,10 @@ Route::prefix('departments')->name('departments.')->group(function () {
     Route::get('/{level}/{department}', [DepartmentController::class, 'show'])->name('show');
     // Entire department as one zip (all sections/divisions/folders + rule sets + policy).
     Route::get('/{level}/{department}/download', [DownloadController::class, 'department'])->name('download');
+    // Government Orders — cross-cutting view of document_type='go' across every section/division/
+    // folder/rule-set in the department (GOs aren't a separate entity, they're scattered Document
+    // rows tagged by type — same reasoning as the search page's document_type filter).
+    Route::get('/{level}/{department}/government-orders', [DepartmentController::class, 'governmentOrders'])->name('government-orders');
 
     Route::prefix('/{level}/{department}/sections')->name('sections.')->group(function () {
         Route::get('/',          [SectionController::class, 'index'])->name('index');

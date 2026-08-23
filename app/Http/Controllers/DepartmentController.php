@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreDepartmentRequest;
 use App\Http\Requests\UpdateDepartmentRequest;
 use App\Models\Department;
+use App\Models\Document;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -74,8 +75,35 @@ class DepartmentController extends Controller
         $rulesCount = $department->ruleSets()->rules()->count();
         $policiesCount = $department->ruleSets()->currentPolicy()->count();
         $historicalPoliciesCount = $department->ruleSets()->policy()->where('policy_status', 'superseded')->count();
+        $goCount = $this->governmentOrdersQuery($department)->count();
 
-        return view('department.show', compact('department', 'rulesCount', 'policiesCount', 'historicalPoliciesCount'));
+        return view('department.show', compact('department', 'rulesCount', 'policiesCount', 'historicalPoliciesCount', 'goCount'));
+    }
+
+    /** Base query for a department's Government Order documents — same visibility rules as every other document list (see Document::scopeViewableBy()/scopePubliclyVisible()). */
+    private function governmentOrdersQuery(Department $department)
+    {
+        $query = Document::where('department_id', $department->id)
+            ->where('document_type', 'go')
+            ->publishable()
+            ->viewableBy(auth()->user());
+
+        if (! auth()->check()) {
+            $query->publiclyVisible();
+        }
+
+        return $query;
+    }
+
+    public function governmentOrders(string $level, Department $department): View
+    {
+        $documents = $this->governmentOrdersQuery($department)
+            ->with(['department', 'section', 'division', 'ruleSet', 'folder'])
+            ->orderBy('created_at', 'desc')
+            ->paginate(25)
+            ->withQueryString();
+
+        return view('department.government_orders', compact('department', 'documents'));
     }
 
     public function edit(string $level, Department $department): View

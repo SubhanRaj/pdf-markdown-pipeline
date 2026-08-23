@@ -4471,3 +4471,30 @@ issues, both fixed:
 `git filter-repo --replace-text` scrubbed the tunnel identifier, the personal email, and every
 affected server path from this repo's entire history (`main` and `livewire-pilot` both), and the
 rewritten history was force-pushed — not just fixed going forward.
+
+## M92 — Government Orders card at department level; browse-by-type pills on search (COMPLETED 2026-08-23)
+
+Government Orders are `Document` rows with `document_type = 'go'`, uploaded into whatever section,
+division, or folder they belong to — there was no single place to see every GO in a department at
+once, only the section/folder they happened to land in or a title-match search. Search itself only
+matched on title, section name, rule set name, division name, or folder name, so finding "every GO"
+by search meant guessing words likely to appear in a GO's title.
+
+**Government Orders card.** `GET /departments/{level}/{department}/government-orders` lists every
+`document_type = 'go'` document in a department, department-wide (not scoped to one section),
+paginated 25 per page. Visibility follows the same rules as every other document list in the app —
+`Document::publishable()` (hides pending-approval/rejected), `viewableBy()` (the viewer's org scope),
+and `publiclyVisible()` for guests, which also respects the containing folder/division/section's own
+visibility ceiling. The department show page gets a fourth summary card (Sections / Rules &
+Regulations / Policies / Government Orders) linking to it, with a live count.
+
+**Search browse-by-type pills.** The search page already accepted a `document_type` filter (reached
+by clicking a pill on a document's own show page) — it just had no way to reach it from the search
+page itself. `GET /search` now shows a pill row for every document type that has at least one
+visible document, each with its count, linking to `?document_type={key}` combined with whatever `q`
+is already typed. Free-text search stays the default behavior; the pills are an additional entry
+point, not a replacement.
+
+**Files changed:** `routes/web.php`, `app/Http/Controllers/DepartmentController.php`,
+`app/Http/Controllers/SearchController.php`, `resources/views/department/show.blade.php`,
+`resources/views/search/index.blade.php`, new `resources/views/department/government_orders.blade.php`.
