@@ -674,14 +674,16 @@ Seeder is idempotent — uses `firstOrCreate` on email; re-running never duplica
 
 ### Accounts
 
-| Role | Email | Password | Privileges |
-|---|---|---|---|
-| Admin | `redacted-personal-email@example.com` | `REDACTED-PASSWORD` | `['*']` — primary dev account |
-| Admin (demo) | `admin.demo@excise.up.gov.in` | `REDACTED-PASSWORD` | `['*']` — Deputy Commissioner persona |
-| Operator (full) | `operator.full@excise.up.gov.in` | `REDACTED-PASSWORD` | upload + edit + delete + restore + verify |
-| Operator (upload-only) | `operator.upload@excise.up.gov.in` | `REDACTED-PASSWORD` | `['documents.upload']` — junior clerk |
-| Operator (review/verify) | `operator.review@excise.up.gov.in` | `REDACTED-PASSWORD` | edit + verify — QA reviewer persona |
-| Viewer | `viewer@excise.up.gov.in` | `REDACTED-PASSWORD` | `[]` — read-only authenticated access |
+| Role | Email | Privileges |
+|---|---|---|
+| Admin (demo) | `admin.demo@excise.up.gov.in` | `['*']` — Deputy Commissioner persona |
+| Operator (full) | `operator.full@excise.up.gov.in` | upload + edit + delete + restore + verify |
+| Operator (upload-only) | `operator.upload@excise.up.gov.in` | `['documents.upload']` — junior clerk |
+| Operator (review/verify) | `operator.review@excise.up.gov.in` | edit + verify — QA reviewer persona |
+| Viewer | `viewer@excise.up.gov.in` | `[]` — read-only authenticated access |
+
+Passwords aren't documented here. The personal dev account originally seeded alongside these was
+removed once real users existed in production.
 
 ### Role behaviour summary
 
@@ -2112,10 +2114,9 @@ Four issues reported from the live Policy Period screens:
 
 ## M40 — Bulk import of UP excise rule-book PDFs, with root/amendment nesting (COMPLETED 2026-07-25)
 
-User had ~190 real rule-book PDFs on disk (`~/Excise Rule Book/All Rules Files/`,
-one subfolder per subject — Bar, Beer Retail, Bottling Foreign Liquor, Distilleries, Model Shops,
-etc.) that needed to land in the document vault without uploading one file at a time through the
-form.
+User had ~190 real rule-book PDFs on disk, organized one subfolder per subject — Bar, Beer
+Retail, Bottling Foreign Liquor, Distilleries, Model Shops, etc. — that needed to land in the
+document vault without uploading one file at a time through the form.
 
 New command `php artisan rules:seed` (`app/Console/Commands/SeedExciseRules.php`, modeled on the
 existing `policies:seed`/`SeedStatePolicies`): one `RuleSet` (`kind=rules`) per subject subfolder
@@ -4445,3 +4446,10 @@ dedicated testing; flagged as a deliberate follow-up, not bundled into this pass
 **Files changed:** `app/Http/Controllers/SectionController.php`, `app/Http/Controllers/SearchController.php`,
 `resources/views/admin/users/index.blade.php`, `resources/views/admin/designations/index.blade.php`,
 `resources/views/admin/activity-logs/index.blade.php`.
+
+### `UserSeeder` removed (2026-08-23)
+
+Deletes `database/seeders/UserSeeder.php` (demo accounts across every role, plus the personal
+account used during initial build) and its call in `DatabaseSeeder`. Production accounts go
+through the invite flow at `/admin/users`. `DEPLOY.md`'s fresh-setup steps bootstrap the first
+`system_admin` account directly via `tinker` instead.

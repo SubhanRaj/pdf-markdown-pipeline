@@ -515,24 +515,11 @@ Active development. The core upload, browse, and rule-set flows are working end-
 - **Sessions: 7-day sliding, remember-me enabled (2026-07-26)** — `SESSION_LIFETIME=10080` (7 days, resets on activity), `SESSION_EXPIRE_ON_CLOSE=false`; login form has a "Remember me" checkbox wired to Fortify's built-in remember-token handling. Reverses the shared-workstation-oriented A-04/A-05 findings once the actual deployment model (one department PC per user, not a shared kiosk) was confirmed — see `SECURITY.md`
 - **`.env.example` annotated** — production guidance comments added to `APP_ENV`, `APP_DEBUG`, and all session security keys
 
-## 👥 Demo Accounts
+## Accounts
 
-The `UserSeeder` ships with pre-built accounts covering every role and a representative set of privilege combinations. Run with:
-
-```bash
-php artisan db:seed --class=UserSeeder
-```
-
-The seeder is idempotent — uses `firstOrCreate` on email, so re-running it never duplicates or overwrites existing records.
-
-| Role | Email | Password | Privileges |
-|---|---|---|---|
-| System Admin | `redacted-personal-email@example.com` | `REDACTED-PASSWORD` | Full technical bypass + site console (`role=system_admin`) — IT/dev account only |
-| Admin (demo) | `admin.demo@excise.up.gov.in` | `REDACTED-PASSWORD` | Org-scoped full document authority (`role=admin`, `['*']` privileges) — Deputy Commissioner persona, no site console access |
-| Operator (full) | `operator.full@excise.up.gov.in` | `REDACTED-PASSWORD` | upload + edit + delete + restore + verify |
-| Operator (upload-only) | `operator.upload@excise.up.gov.in` | `REDACTED-PASSWORD` | `documents.upload` only — junior clerk |
-| Operator (review/verify) | `operator.review@excise.up.gov.in` | `REDACTED-PASSWORD` | edit + verify — QA reviewer |
-| Viewer | `viewer@excise.up.gov.in` | `REDACTED-PASSWORD` | None — read-only authenticated access |
+An existing admin creates a user at `/admin/users`, which emails a signed onboarding link to set
+a password. For a fresh install with no admin yet, DEPLOY.md has the command to bootstrap the
+first `system_admin` account directly.
 
 **Role summary (updated 2026-08-19, M79):**
 - **System Admin** (`role=system_admin`) — complete system access including user management (`/admin/users`, `/admin/designations`, `/admin/activity-logs`, `documents.pipeline.health`). `isAdmin()` unconditionally returns `true` for all privilege checks. Reserved for the IT/dev account.

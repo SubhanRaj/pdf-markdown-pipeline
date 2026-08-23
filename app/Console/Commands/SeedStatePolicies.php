@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Storage;
 class SeedStatePolicies extends Command
 {
     protected $signature = 'policies:seed
-        {--path=~/Excise policies of states : Directory of PDF files to import}
+        {--path= : Directory of PDF files to import}
         {--dept=excise : Department slug (must have level=department_level)}';
 
     protected $description = 'Seed state excise/export policy PDFs from a local directory into RuleSet + Document records';

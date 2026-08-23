@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Storage;
 class SeedUpExcisePolicyDocuments extends Command
 {
     protected $signature = 'policies:seed-up-policy-documents
-        {--path=~/Old UP Excise Policies : Directory of PDF files to import}
+        {--path= : Directory of PDF files to import}
         {--dept=excise : Department slug (must have level=department_level)}';
 
     protected $description = 'Seed previous-year UP Excise Policy PDFs as policy documents under the existing UP Excise Policy container';

@@ -1534,18 +1534,10 @@ allows via `canDeleteFrom()`).
 - `UserManagementController@updateProfile` — uses `UpdateProfileRequest`; updates only the allowed fields; never touches role/privileges/dept/section.
 - `UserManagementController@destroy` — self-delete guard uses `auth()->id()` (not `auth()->user()->id`) to avoid the nullable dereference.
 
-**Demo seeder accounts (`database/seeders/UserSeeder.php`):**
-
-Seeder is idempotent (`firstOrCreate` on email). Run with `php artisan db:seed --class=UserSeeder`.
-
-| Role | Email | Password | Privileges |
-|---|---|---|---|
-| System Admin | `redacted-personal-email@example.com` | `REDACTED-PASSWORD` | `role=system_admin` — full technical bypass + site console, IT/dev only |
-| Admin (demo) | `admin.demo@excise.up.gov.in` | `REDACTED-PASSWORD` | `role=admin`, `['*']` privileges — org-scoped full document authority, no site console |
-| Operator (full) | `operator.full@excise.up.gov.in` | `REDACTED-PASSWORD` | upload + edit + delete + restore + verify |
-| Operator (upload-only) | `operator.upload@excise.up.gov.in` | `REDACTED-PASSWORD` | `['documents.upload']` only |
-| Operator (review/verify) | `operator.review@excise.up.gov.in` | `REDACTED-PASSWORD` | edit + verify only |
-| Viewer | `viewer@excise.up.gov.in` | `REDACTED-PASSWORD` | `[]` — read-only authenticated |
+Accounts are created through the invite/onboarding flow (`Auth\OnboardingController`): an
+existing admin creates a user at `/admin/users`, which emails a signed link to set a password.
+Available roles are `system_admin`, `admin`, `operator`, and `viewer` — see `User::isAdmin()`
+and the `privileges` JSON column for what each grants.
 
 **Previously identified vulnerabilities (now fixed):**
 1. All `admin.*` routes had only `auth` middleware — any logged-in user could view the full user list, access the create form, and delete other accounts. Fixed by adding `is_admin` middleware to the entire `admin.*` group.

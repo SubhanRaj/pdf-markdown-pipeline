@@ -160,9 +160,16 @@ php artisan db:provision
 # reuse an existing database (e.g. a shared/production one).
 
 php artisan migrate
-php artisan db:seed --class=UserSeeder   # demo accounts — see CLAUDE.md table; change passwords before real use
 php artisan storage:link
 ```
+
+There's no demo-account seeder — the invite flow needs one `system_admin` account to exist
+before it can invite anyone else, so create the first one directly:
+```bash
+php artisan tinker --execute="App\Models\User::create(['name' => 'Your Name', 'username' => 'your_username', 'email' => 'you@example.com', 'password' => Hash::make('a-real-password'), 'role' => 'system_admin', 'privileges' => ['*'], 'email_verified_at' => now()]);"
+```
+Change the password immediately after logging in, or better, pass a password you'll actually
+use. Every other user gets created through `/admin/users`, which sends a real invite email.
 
 Verify the toolchain actually works before trusting the app:
 ```bash
@@ -179,94 +186,38 @@ in the vhost's `<Directory>` block. If serving via `php-fpm` instead, use `publi
 (Option B) — see CLAUDE.md for both. Do not skip this: PHP's stock 2MB upload limit rejects
 real government PDFs immediately.
 
-## Production deployment (Ubuntu server, `docsrepo.exciseup.in`)
+## Production deployment
 
-The live deployment does **not** use `php artisan serve` — that's dev-only. Production is
-Apache (`mod_php`) + Cloudflare Tunnel, both supervised by systemd user services alongside the
-queue worker:
+Production runs behind Apache (`mod_php`) and a Cloudflare Tunnel, with systemd supervising the
+queue worker and the tunnel process — not `php artisan serve`, which is dev-only. The specific
+server this app is actually deployed on (vhost config, tunnel config, exact paths) is documented
+in a private infrastructure repo rather than here.
 
-- **Apache vhost** — `/etc/apache2/sites-available/pdf-markdown-pipeline.conf`, listening on
-  `127.0.0.1:8080` (not `:80` — that port stays on the box's default site so this vhost can't
-  collide with anything else already using it):
-  ```apache
-  <VirtualHost *:8080>
-      ServerName docsrepo.exciseup.in
-      DocumentRoot ~/Sites/pdf-markdown-pipeline/public
+A few gotchas worth knowing regardless of where you deploy:
 
-      <Directory ~/Sites/pdf-markdown-pipeline/public>
-          Options -Indexes +FollowSymLinks
-          AllowOverride All
-          Require all granted
-      </Directory>
-
-      ErrorLog ${APACHE_LOG_DIR}/pdf-markdown-pipeline-error.log
-      CustomLog ${APACHE_LOG_DIR}/pdf-markdown-pipeline-access.log combined
-  </VirtualHost>
-  ```
-  `Listen 8080` added to `/etc/apache2/ports.conf`, enabled via `a2ensite`. `mod_rewrite` and
-  `mod_php` were already enabled on this box.
-- **Permissions gotcha** — Apache runs as `www-data`, which by default can't even traverse into
-  a user's home directory (`~` ships `750`). Two fixes were required, both one-time:
-  `chmod o+x ~` (traverse-only, doesn't expose file listings) and
-  `chown -R subhan:www-data storage bootstrap/cache && chmod -R 775 storage bootstrap/cache` so
-  Apache can write logs/cache/sessions without changing ownership away from `subhan`.
-- **Cloudflare Tunnel** (`~/.cloudflared/config.yml`) points at the vhost, not at `artisan
-  serve`'s old `:8000`:
-  ```yaml
-  ingress:
-    - hostname: docsrepo.exciseup.in
-      service: http://127.0.0.1:8080
-    - service: http_status:404
-  ```
-- **`pdf-pipeline-app.service`** (the old `artisan serve` systemd unit) is stopped, disabled, and
-  its unit file removed (2026-08-13) — Apache replaces it entirely. `pdf-pipeline-queue.service`
-  (queue worker) and `pdf-pipeline-tunnel.service` (cloudflared) are unaffected and still required.
-- **Blade view-cache gotcha (switching git branches on the live checkout)** — this app is served
-  directly from this working directory, so `git checkout`/`git pull` on it isn't a no-op for the
-  live site: it bumps every changed view file's mtime. Blade's compiler compares source vs.
-  compiled-cache mtimes on every request and, when the content hash still matches, tries to
-  `touch()` the *existing* compiled file forward instead of recompiling — but PHP's `touch()` with
-  an explicit timestamp needs **file ownership**, not just the group-write permission the
-  `775`/`www-data`-group setup above grants. Since both `subhan` (CLI: tests, `composer install`,
-  manual `artisan` commands) and `www-data` (Apache) write into `storage/framework/views/`, a
-  branch switch can leave compiled cache files owned by whichever user wrote them, and the *other*
-  user's next request throws `touch(): Utime failed: Operation not permitted` — a 500 on every
-  page, not just the changed ones, since it hits `head.blade.php`/`layout.blade.php` first. Fix is
-  one command: `php artisan view:clear`. Run it after any branch switch/pull on the live checkout,
-  before assuming a resulting 500 is a real regression.
-- **Cloudflare's own edge upload cap** — a hostname proxied through Cloudflare (which a Tunnel
-  hostname always is) is subject to Cloudflare's per-plan max request body size **regardless of
-  any origin/Apache/PHP setting**: Free/Pro = 100 MB, Business = 200 MB, Enterprise = up to 500 MB
-  (configurable). Raising `upload_max_filesize`/the app's validation limit (currently 300 MB, see
-  CLAUDE.md's "PHP upload limits") only helps for uploads that reach Apache — a file over the
-  zone's Cloudflare plan cap is rejected at Cloudflare's edge before it ever reaches this box. If a
-  document is legitimately larger than the zone's plan allows, either upload it from a machine on
-  the same LAN hitting `http://127.0.0.1:8080` directly (bypassing the tunnel entirely), or raise
-  the Cloudflare plan/limit for this zone.
-- **`ProtectHome` gotcha** — Ubuntu's `apache2.service` systemd unit ships with
-  `ProtectHome=read-only`, which makes all of `/home` (including this app) read-only to Apache
-  regardless of Unix file permissions. Since the app lives under `~`, this blocked
-  every write (logs, Blade view cache, sessions) with confusing `tempnam()`/"Read-only file
-  system" errors even though `storage/`/`bootstrap/cache` were correctly `775`. Fixed with a
-  drop-in at `/etc/systemd/system/apache2.service.d/override.conf`. **This same file also carries
-  `ProcSubset=all`** (added 2026-07-25 so PHP can read `/proc/meminfo` for the Pipeline Health
-  dashboard — see `infra-notes/cpu-thermal-and-apache-procfs.md` for why) — **both directives must
-  stay in this one file together**:
-  ```ini
-  [Service]
-  ReadWritePaths=~/Sites/pdf-markdown-pipeline/storage ~/Sites/pdf-markdown-pipeline/bootstrap/cache
-  ProcSubset=all
-  ```
-  ⚠️ **If you ever need to touch this file again, always read its current contents first and
-  amend in place — never blindly `tee`/overwrite it.** Doing exactly that on 2026-07-25 silently
-  dropped `ReadWritePaths` while adding `ProcSubset`, which took the live site down (every request
-  failing on "Read-only file system" writing to `storage/`) until both lines were restored
-  together. After any edit: `sudo systemctl daemon-reload && sudo systemctl restart apache2`. Only
-  needed because the app sits under `/home`; deploying under `/var/www` instead avoids this
-  `ProtectHome` half of it entirely (the `ProcSubset` half would still be needed either way).
-
-After changing the vhost or tunnel config: `sudo systemctl reload apache2` and
-`systemctl --user restart pdf-pipeline-tunnel.service` respectively.
+- **Apache under a user's home directory needs a traverse bit and a `ProtectHome` exception.**
+  `www-data` can't traverse into a home directory by default (`chmod o+x` the home directory
+  fixes traversal only, doesn't expose listings), and Ubuntu's `apache2.service` ships
+  `ProtectHome=read-only`, which blocks Apache from writing anywhere under `/home` regardless of
+  Unix permissions — needs an explicit `ReadWritePaths=` override in a systemd drop-in for the
+  app's `storage`/`bootstrap/cache` directories. Deploying under `/var/www` instead avoids the
+  `ProtectHome` half of this entirely.
+- **Blade view-cache gotcha, if served directly from a git working directory.** `git pull`/`git
+  checkout` bumps changed view files' mtimes. Blade's compiler compares source-vs-compiled
+  mtimes and, when the content hash still matches, tries to `touch()` the existing compiled file
+  forward — but PHP's `touch()` with an explicit timestamp needs file *ownership*, not just
+  group-write. If both a CLI user and Apache's `www-data` write into
+  `storage/framework/views/`, a branch switch can leave compiled files owned by whichever wrote
+  them last, and the other user's next request throws `touch(): Utime failed: Operation not
+  permitted` — a 500 on every page. Fix: `php artisan view:clear` after any branch switch or pull
+  on a live checkout, before assuming a resulting 500 is a real regression.
+- **Cloudflare's own edge upload cap applies regardless of origin/Apache/PHP settings** if the
+  app sits behind a Cloudflare Tunnel: Free/Pro = 100 MB, Business = 200 MB, Enterprise = up to
+  500 MB (configurable). Raising `upload_max_filesize`/the app's own validation limit (see
+  CLAUDE.md's "PHP upload limits") only helps for uploads that reach the origin — a file over the
+  zone's plan cap is rejected at Cloudflare's edge first. A document legitimately larger than the
+  plan allows needs either a same-LAN upload straight to the origin (bypassing the tunnel) or a
+  higher-tier Cloudflare plan for that zone.
 
 For a from-scratch setup on a new box, the general pattern (any Linux, any paths) is the same
 `<VirtualHost>` block above with your own paths, dropped in `/etc/apache2/sites-available/`,
@@ -430,8 +381,7 @@ pdftoppm -v
 php artisan queue:work --once   # process exactly one queued job, confirm it completes, then Ctrl+C
 ```
 
-Then in a browser: log in as a seeded admin account (see CLAUDE.md's seeder table for demo
-credentials), open any document, click **Convert to Markdown**, and confirm the status
+Then in a browser: log in as an admin account, open any document, click **Convert to Markdown**, and confirm the status
 badge moves `Processing` → `Review` and the Formatted/Raw markdown card renders. This
 exercises the full chain (Apache/serve → queue table → worker → markitdown → file write →
 status update) in one action, and is a more reliable check than any of the individual CLI

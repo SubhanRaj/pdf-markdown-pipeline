@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\Storage;
 class SeedExciseRules extends Command
 {
     protected $signature = 'rules:seed
-        {--path=~/Excise Rule Book/All Rules Files : Directory of subject subfolders to import}
+        {--path= : Directory of subject subfolders to import}
         {--dept=excise : Department slug (must have level=department_level)}';
 
     protected $description = 'Seed excise rule-book PDFs (rules + amendments) from a local directory tree into RuleSet + Document records';

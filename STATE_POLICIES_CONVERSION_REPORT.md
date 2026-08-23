@@ -1,8 +1,8 @@
 # State Excise/Export Policies — Bulk Conversion Report
 
 **Date:** 2026-07-21
-**Run:** All 14 state policy PDFs seeded via `php artisan policies:seed` (from
-`~/Excise policies of states/`) converted to Markdown in one bulk pass — `php artisan serve`
+**Run:** All 14 state policy PDFs seeded via `php artisan policies:seed` converted to Markdown
+in one bulk pass — `php artisan serve`
 + multiple concurrent `php artisan queue:work` processes, `structure_engine=tesseract` (Docling
 default) for all.
 
