@@ -422,3 +422,47 @@ pair, see above). Item #9 can land any time after #1. Item #10's Activity Log ha
 immediately (zero risk, isolated); its Users/Designations half should wait until this branch's own
 `user-list`/`designation-manager` components are being touched anyway, so the card layout doesn't
 need to be re-verified against evolving Livewire component internals twice.
+
+## Sync status update (2026-08-24) — one feature, one small fix landed on `main`
+
+Two more commits since the previous sync note (`2d716a1`), still docs-only here, nothing applied to
+this branch:
+
+### 11. Government Orders card + search browse-by-type pills (`189d838`)
+
+New `DepartmentController::governmentOrders()` action (plus a private `governmentOrdersQuery()`
+helper reused for the department-show page's count) lists every `document_type = 'go'` document
+across a department's sections/divisions/folders, with the same `publishable()` /
+`viewableBy(auth()->user())` / `publiclyVisible()` scoping every other document list in the app
+uses. New route `departments.government-orders`, new view
+`resources/views/department/government_orders.blade.php`, and a 4th card added to
+`department/show.blade.php`'s category grid (`grid-cols-1 sm:grid-cols-3` →
+`sm:grid-cols-2 lg:grid-cols-4`).
+
+Separately, `SearchController::index()` gained a `typeCounts` computation (same three-scope
+pattern) rendered as "browse by type" pills above the search results in
+`search/index.blade.php`, letting a click scope search to one `document_type` via the existing
+`document_type` query-param filter (that filter already existed server-side; this only adds the
+UI to reach it without first opening a document's show page).
+
+**No Livewire overlap** — confirmed both `department/show.blade.php` and `search/index.blade.php`
+are still plain Blade views in this branch (not converted in any phase above), and
+`DepartmentController`/`SearchController` are plain controllers here too. Applies as a clean
+cherry-pick or merge once #1 (role model) is in, since both controllers call
+`auth()->user()`/`Document::scopeViewableBy()` the same way `main`'s other post-#1 controllers do.
+
+### 12. OTP form auto-submits once all 6 digits are entered (`7dad20d`)
+
+`resources/views/auth/otp.blade.php`'s Alpine component now calls the submit button's `.click()`
+once all 6 digit inputs are filled (typing the last digit, pasting, or autofill), instead of
+requiring a separate manual click on Verify. Pure Alpine change inside the OTP form's existing
+`otpForm()` component, 8 lines.
+
+Login/OTP/password-reset were deliberately kept as plain Fortify-backed forms in this branch (see
+this file's own "Status" section above) — this fix ports as a direct Blade diff, no component to
+touch, no Livewire consideration at all.
+
+### Updated suggested order (2026-08-24)
+
+Both #11 and #12 are low-risk, no-Livewire-overlap items — same bucket as #2/#6/#7 above, can land
+in any order alongside them once #1 (role-model restructure) is in.
