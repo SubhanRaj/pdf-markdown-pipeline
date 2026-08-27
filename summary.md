@@ -4498,3 +4498,40 @@ point, not a replacement.
 **Files changed:** `routes/web.php`, `app/Http/Controllers/DepartmentController.php`,
 `app/Http/Controllers/SearchController.php`, `resources/views/department/show.blade.php`,
 `resources/views/search/index.blade.php`, new `resources/views/department/government_orders.blade.php`.
+
+## M93 — OTP auto-submit race and policy-document date-typing fix (COMPLETED 2026-08-27)
+
+Two separate bugs, same shape: a value visible on screen didn't match what the form actually
+submitted, because the field that submits is a hidden input synced from the visible one by a JS
+event that doesn't cover every way a user can set the value.
+
+**OTP auto-submit submitted an empty code.** The 6-box OTP input wrote the combined digits to a
+hidden `code` field via an Alpine `:value` binding, then auto-clicked the submit button in the same
+handler once all six digits were filled. Alpine's `:value` binding updates on its own reactivity
+tick, so the click could fire before the binding had written the digits into the DOM, submitting
+`code` empty and failing validation ("The code field is required.") on a code that was fully typed
+on screen. Fixes it by writing straight to the hidden input's `.value` in a `sync()` method instead
+of relying on `:value` — the click only fires after that write completes. Same bug and same fix
+already existed in `UP-excise-mailer`; this app and `excise-budget-tracker` both had the older,
+unfixed version and are now fixed identically.
+
+**Policy document dates went null when typed instead of picked.** The policy document form's
+effective-date fields are a typeable text input (`dd-MM-yyyy`) paired with a hidden ISO field that
+AirDatepicker only wrote to from its `onSelect` callback — fired only when a day is clicked in the
+calendar popup. Typing a date directly and tabbing away left the hidden field empty, and since
+`effective_start_date`/`effective_end_date` are nullable, this saved silently instead of raising a
+validation error. `RuleSet::policyDocuments()` orders by `effective_start_date` descending, and
+MariaDB sorts `NULL` last in a `DESC` order, so any policy document saved this way dropped to the
+bottom of the list regardless of the year in its name. Two 2019-20/2020-21 Excise Policy records
+hit this. Backfilled both to their FY boundaries (1 April–31 March) to match every other UP policy
+document, and added a `change` listener on the date field that parses a typed `dd-MM-yyyy` value as
+a fallback — round-tripped through `Date` so an invalid day (e.g. 31 February) clears the field
+instead of rolling over to a different date. This is the only date-input pattern in the app (a
+`create.blade.php`/`edit.blade.php` pair under `rule_sets/policy_documents/`); no other form here
+exposes a date field, and neither `excise-budget-tracker` nor `UP-excise-mailer` uses a date picker
+at all.
+
+**Files changed:** `resources/views/auth/otp.blade.php`,
+`resources/views/rule_sets/policy_documents/create.blade.php`,
+`resources/views/rule_sets/policy_documents/edit.blade.php`. Also fixed in
+`excise-budget-tracker`: `resources/views/auth/otp.blade.php`.

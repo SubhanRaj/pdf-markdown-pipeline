@@ -35,7 +35,7 @@
 
         <form method="POST" action="{{ route('otp.verify') }}" x-data="otpForm()" x-init="init()">
             @csrf
-            <input type="hidden" name="code" :value="digits.join('')">
+            <input type="hidden" name="code" x-ref="code">
 
             <div class="flex justify-between gap-1.5 sm:gap-2 mb-6" @paste="paste($event)">
                 <input type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="1" x-ref="box0" x-model="digits[0]" @input="onInput(0, $event)" @keydown.backspace="onBackspace(0)"
@@ -95,7 +95,7 @@
                 }
                 this.digits[i] = digitsOnly;
                 if (digitsOnly && i < 5) this.boxes[i + 1]?.focus();
-                this.maybeSubmit();
+                this.sync();
             },
             onBackspace(i) {
                 if (!this.digits[i] && i > 0) {
@@ -113,10 +113,14 @@
                 this.digits = text.split('').concat(['', '', '', '', '', '']).slice(0, 6);
                 const lastIndex = Math.min(text.length, 6) - 1;
                 if (lastIndex >= 0) this.boxes[lastIndex]?.focus();
-                this.maybeSubmit();
+                this.sync();
             },
-            maybeSubmit() {
-                if (this.digits.join('').length === 6) {
+            // Writes straight to the hidden input's DOM value instead of an Alpine :value
+            // binding, so the value the browser submits can never lag behind what's on screen —
+            // the auto-submit click below fires in the same tick as this write.
+            sync() {
+                this.$refs.code.value = this.digits.join('');
+                if (this.$refs.code.value.length === 6) {
                     this.$refs.submitBtn.click();
                 }
             },

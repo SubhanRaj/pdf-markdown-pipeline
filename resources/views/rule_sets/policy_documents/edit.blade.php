@@ -190,6 +190,20 @@
                     hidden.value = toISO(Array.isArray(date) ? date[0] : date);
                 },
             });
+
+            // onSelect only fires when a day is clicked in the popup — typing a date by hand
+            // and tabbing/clicking away never touches it, leaving the hidden field (what
+            // actually submits) empty even though the box shows a date. Parse the typed text
+            // as a fallback so what's on screen is what gets saved. Round-tripped through
+            // Date so "31-02-2020" (not a real day) doesn't silently roll over to March.
+            display.addEventListener('change', () => {
+                const m = display.value.trim().match(/^(\d{2})-(\d{2})-(\d{4})$/);
+                if (!m) { hidden.value = ''; return; }
+                const day = Number(m[1]), month = Number(m[2]), year = Number(m[3]);
+                const parsed = new Date(year, month - 1, day);
+                const valid = parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+                hidden.value = valid ? toISO(parsed) : '';
+            });
         }
         bindDatePicker('effective_start_date_display', 'effective_start_date');
         bindDatePicker('effective_end_date_display', 'effective_end_date');
