@@ -17,7 +17,10 @@ class ActivityLogController extends Controller
         // Auth
         'auth.login'                            => 'Login',
         'auth.logout'                            => 'Logout',
+        'auth.password-reset'                   => 'Password Reset',
         'admin.users.resend-activation'         => 'Resend Activation Link',
+        'admin.users.send-password-reset'       => 'Send Password Reset Link',
+        'admin.users.password-reset-link'       => 'Copy Password Reset Link',
 
         // Documents — core
         'documents.store'                       => 'Upload Document',
@@ -33,6 +36,9 @@ class ActivityLogController extends Controller
         'documents.revert-ocr'                  => 'Revert OCR',
         'documents.markdown.update'             => 'Edit Markdown Draft',
         'documents.markdown.discard'            => 'Discard Markdown Draft',
+        'documents.verify'                      => 'Verify Document',
+        'documents.move'                        => 'Move Document',
+        'documents.copy'                        => 'Copy Document',
 
         // Documents — rule set / policy / division / folder variants (same actions, different scopes)
         'documents.rules.update'                => 'Edit Document',
@@ -92,6 +98,9 @@ class ActivityLogController extends Controller
     private const ACTION_COLORS = [
         'auth.login'                         => 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200',
         'auth.logout'                        => 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+        'auth.password-reset'                => 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200',
+        'admin.users.send-password-reset'    => 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+        'admin.users.password-reset-link'    => 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
         'documents.store'                    => 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
         'documents.update'                   => 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200',
         'documents.rules.update'             => 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200',
@@ -102,6 +111,9 @@ class ActivityLogController extends Controller
         'documents.convert'                  => 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
         'documents.convert-ocr'              => 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
         'documents.markdown.update'          => 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+        'documents.verify'                   => 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+        'documents.move'                     => 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200',
+        'documents.copy'                     => 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200',
         'approvals.approve'                  => 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
         'approvals.reject'                   => 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
         'profile.update'                     => 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200',

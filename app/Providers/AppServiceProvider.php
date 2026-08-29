@@ -10,6 +10,7 @@ use App\Models\RuleSet;
 use App\Models\Section;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
+use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Connection;
 use Illuminate\Http\Request;
@@ -71,6 +72,12 @@ class AppServiceProvider extends ServiceProvider
             if ($event->user) {
                 ActivityLog::record('auth.logout', request(), [], $event->user->id);
             }
+        });
+
+        // Fired from ForgotPasswordController@reset, submitted by a user who isn't authenticated
+        // yet — same reason LogMutation can't catch this one either.
+        Event::listen(PasswordReset::class, function (PasswordReset $event) {
+            ActivityLog::record('auth.password-reset', request(), [], $event->user->id);
         });
     }
 

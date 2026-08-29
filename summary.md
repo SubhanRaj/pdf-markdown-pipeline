@@ -4629,3 +4629,22 @@ same `is_admin` middleware as the rest of `admin.*`.
 
 **Files changed:** `routes/web.php`, `app/Http/Controllers/Admin/UserManagementController.php`,
 `resources/views/admin/users/edit.blade.php`.
+
+## M96 — Activity log label and coverage gaps (COMPLETED 2026-08-29)
+
+**Missing labels for five real routes.** `ActivityLogController::ACTION_LABELS` translates raw
+route names into short labels for the activity log page ("Login", "Upload Document"); anything
+missing from it falls back to the raw route name. `admin.users.send-password-reset`,
+`admin.users.password-reset-link`, `documents.verify`, `documents.move`, and `documents.copy` were
+all already being logged correctly, just showing as their technical route names because nobody had
+added them to the map yet. Added all five, matching the existing verb-plus-object naming ("Send
+Password Reset Link", "Move Document", "Verify Document").
+
+**Self-service password reset was never logged.** `LogMutation` only records requests from
+authenticated users, and submitting a new password from the reset-link form happens before login —
+the same reason `logout` needed its own event listener instead of relying on `LogMutation`. Added a
+listener for `Illuminate\Auth\Events\PasswordReset` in `AppServiceProvider`, alongside the existing
+`Login`/`Logout` listeners, recording it as `auth.password-reset`.
+
+**Files changed:** `app/Http/Controllers/Admin/ActivityLogController.php`,
+`app/Providers/AppServiceProvider.php`.
