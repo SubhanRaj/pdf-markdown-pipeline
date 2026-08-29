@@ -32,7 +32,7 @@ class Division extends Model
 
     public function folders(): HasMany
     {
-        return $this->hasMany(Folder::class)->orderBy('name');
+        return $this->hasMany(Folder::class)->whereNull('parent_id')->orderBy('name');
     }
 
     /** Generate a slug unique within the section, checking soft-deleted records. */

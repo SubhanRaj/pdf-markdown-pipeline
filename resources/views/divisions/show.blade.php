@@ -13,7 +13,13 @@
     ['name' => $division->name,              'url' => null],
 ]" />
 
-<script id="page-data" type="application/json">@json(['storeUrl' => route('documents.store'), 'csrfToken' => csrf_token(), 'parentOptions' => $parentOptions])</script>
+@php $pageData = [
+    'storeUrl' => route('documents.store'),
+    'csrfToken' => csrf_token(),
+    'parentOptions' => $parentOptions,
+    'folderStoreUrl' => route('departments.sections.divisions.folders.store', [$department->levelAlias(), $department, $section, $division]),
+]; @endphp
+<script id="page-data" type="application/json">@json($pageData)</script>
 
 {{-- ── Division header ─────────────────────────────────────────────────────── --}}
 <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
@@ -116,6 +122,12 @@
                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif,.svg"
                            style="display:none">
                 </div>
+                <button type="button" id="div-folder-btn" onclick="document.getElementById('div-folder-input').click()"
+                        class="text-xs text-teal-600 dark:text-teal-400 hover:underline flex items-center justify-center gap-1 flex-shrink-0">
+                    <i class="ti ti-folder-up"></i> Or upload a whole folder
+                </button>
+                <input type="file" id="div-folder-input" webkitdirectory directory multiple style="display:none">
+                <p class="text-[11px] text-slate-400 dark:text-slate-500 text-center -mt-1">The picked folder is created here (reusing one with the same name if it exists). Everything inside it, at any depth, goes into it.</p>
                 <div id="div-queue-wrap" class="flex-1 overflow-hidden flex flex-col min-h-0" style="display:none">
                     <div class="flex items-center justify-between mb-1.5 flex-shrink-0">
                         <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
@@ -192,14 +204,19 @@
                         <label class="field-label">Visibility</label>
                         <div class="flex gap-3 mt-1">
                             <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" name="visibility" value="public" checked class="text-teal-600 focus:ring-teal-500">
+                                <input type="radio" name="visibility" value="public" @checked($division->visibility !== 'authenticated') class="text-teal-600 focus:ring-teal-500">
                                 <span class="text-sm text-slate-700 dark:text-slate-200 flex items-center gap-1"><i class="ti ti-world text-sm text-green-500"></i> Public</span>
                             </label>
                             <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" name="visibility" value="authenticated" class="text-teal-600 focus:ring-teal-500">
+                                <input type="radio" name="visibility" value="authenticated" @checked($division->visibility === 'authenticated') class="text-teal-600 focus:ring-teal-500">
                                 <span class="text-sm text-slate-700 dark:text-slate-200 flex items-center gap-1"><i class="ti ti-lock text-sm text-amber-500"></i> Authenticated Only</span>
                             </label>
                         </div>
+                        @if($division->visibility === 'authenticated')
+                        <p class="mt-1 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                            <i class="ti ti-alert-triangle text-sm"></i> This division is Authenticated Only, so documents default to the same. Marking one Public here has no real effect — guests still can't reach it while the division itself is restricted.
+                        </p>
+                        @endif
                     </div>
 
                     <div>
@@ -436,7 +453,7 @@
         fldTitle.value = single ? uploadFiles[0].titleInput.value : '';
     }
 
-    function addFiles(files) {
+    function addFiles(files, folderId) {
         Array.from(files).forEach(file => {
             const row = document.createElement('div');
             row.className = 'queue-row flex items-start gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700';
@@ -473,7 +490,7 @@
             row.appendChild(icon); row.appendChild(meta);
             row.appendChild(statusBadge); row.appendChild(removeBtn);
             queueList.appendChild(row);
-            const item = { file, titleInput, titleWrap, statusBadge, row };
+            const item = { file, titleInput, titleWrap, statusBadge, row, folderId: folderId || null };
             uploadFiles.push(item);
             removeBtn.addEventListener('click', () => {
                 if (isUploading) return;
@@ -486,6 +503,56 @@
     }
 
     fileInput.addEventListener('change', () => { if (fileInput.files.length) addFiles(fileInput.files); fileInput.value = ''; });
+
+    // ── Folder upload (webkitdirectory) ─────────────────────────────────────
+    // The picked folder is created here as a real Folder. Everything inside it, at any depth,
+    // goes into that one folder (only one level of subfolder nesting exists app-wide, so a
+    // folder picked at division level always becomes a root folder here).
+    const folderInput = document.getElementById('div-folder-input');
+    const folderCache = new Map();
+
+    async function ensureFolder(name) {
+        if (folderCache.has(name)) return folderCache.get(name);
+        const promise = (async () => {
+            try {
+                const fd = new FormData();
+                fd.append('_token', page.csrfToken);
+                fd.append('name', name);
+                fd.append('find_or_create', '1');
+                const res = await fetch(page.folderStoreUrl, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': page.csrfToken },
+                    body: fd,
+                });
+                const json = await res.json();
+                return res.ok ? json.id : null;
+            } catch (e) {
+                console.error('Folder create failed:', name, e);
+                return null;
+            }
+        })();
+        folderCache.set(name, promise);
+        return promise;
+    }
+
+    if (folderInput) {
+        folderInput.addEventListener('change', async () => {
+            const files = Array.from(folderInput.files);
+            folderInput.value = '';
+            if (!files.length) return;
+
+            for (const file of files) {
+                const parts = (file.webkitRelativePath || file.name).split('/');
+                if (parts.length <= 1) {
+                    addFiles([file]);
+                } else {
+                    const id = await ensureFolder(parts[0]);
+                    addFiles([file], id);
+                }
+            }
+        });
+    }
+
     dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.borderColor = '#0d9488'; });
     dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = ''; });
     dropZone.addEventListener('drop', e => {
@@ -509,6 +576,21 @@
         const contextDivisionId = form.querySelector('[name="division_id"]');
         const parentInput       = form.querySelector('[name="parent_id"]');
         const visibility        = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+
+        @if($division->visibility === 'authenticated')
+        if (visibility === 'public') {
+            const { isConfirmed } = await Swal.fire({
+                icon: 'warning',
+                title: 'This division is Authenticated Only',
+                text: 'Marking these documents Public won\'t make them visible to guests — the division\'s own restriction still applies. Continue anyway?',
+                showCancelButton: true,
+                confirmButtonText: 'Upload as Public anyway',
+                cancelButtonText: 'Cancel',
+            });
+            if (!isConfirmed) return;
+        }
+        @endif
+
         const language          = form.querySelector('[name="language"]')?.value || 'english';
         const amendmentNumber   = form.querySelector('[name="amendment_number"]')?.value?.trim() || '';
         const effectiveYear     = form.querySelector('[name="effective_year"]')?.value?.trim()   || '';
@@ -533,8 +615,12 @@
             try {
                 const fd = new FormData();
                 fd.append('_token', page.csrfToken);
-                if (contextSectionId)  fd.append('section_id',  contextSectionId.value);
-                if (contextDivisionId) fd.append('division_id', contextDivisionId.value);
+                if (item.folderId) {
+                    fd.append('folder_id', item.folderId);
+                } else {
+                    if (contextSectionId)  fd.append('section_id',  contextSectionId.value);
+                    if (contextDivisionId) fd.append('division_id', contextDivisionId.value);
+                }
                 fd.append('title', title);
                 fd.append('document_type', typeEl.value);
                 fd.append('visibility', visibility);

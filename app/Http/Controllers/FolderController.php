@@ -11,6 +11,7 @@ use App\Models\Document;
 use App\Models\DocumentStatusHistory;
 use App\Models\Folder;
 use App\Models\Section;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +31,13 @@ class FolderController extends Controller
         abort_unless(auth()->user()->canUploadTo($division ?? $section), 403);
     }
 
+    /** Deleting a folder is destructive (subfolders + every document inside go with it) — gated
+     *  on the 'folders.delete' privilege, not just upload scope. */
+    private function authorizeDelete(Section $section, ?Division $division = null): void
+    {
+        abort_unless(auth()->user()->canDeleteFolder($division ?? $section), 403);
+    }
+
     // ── Section folders ─────────────────────────────────────────────────────
 
     public function create(string $level, Department $department, Section $section): View
@@ -39,13 +47,24 @@ class FolderController extends Controller
         return view('folders.create', compact('department', 'section'));
     }
 
-    public function store(StoreFolderRequest $request, string $level, Department $department, Section $section): RedirectResponse
+    public function store(StoreFolderRequest $request, string $level, Department $department, Section $section): RedirectResponse|JsonResponse
     {
+        // Folder-upload (webkitdirectory) posts one file at a time but only needs the folder
+        // created once — reuse an existing same-named root folder instead of piling up "Sub-2".
+        if ($request->boolean('find_or_create')) {
+            $existing = $section->folders()->whereRaw('LOWER(name) = ?', [mb_strtolower($request->validated()['name'])])->first();
+            if ($existing) {
+                return response()->json(['id' => $existing->id, 'name' => $existing->name, 'slug' => $existing->slug]);
+            }
+        }
+
         try {
-            DB::transaction(function () use ($request, $department, $section) {
+            $folder = null;
+
+            DB::transaction(function () use ($request, $department, $section, &$folder) {
                 $slug = Folder::uniqueSlugForSection($request->validated()['name'], $section->id);
 
-                $section->folders()->create([
+                $folder = $section->folders()->create([
                     ...$request->validated(),
                     'department_id' => $department->id,
                     'section_id'    => $section->id,
@@ -53,10 +72,19 @@ class FolderController extends Controller
                 ]);
             });
 
+            if ($request->wantsJson()) {
+                return response()->json(['id' => $folder->id, 'name' => $folder->name, 'slug' => $folder->slug]);
+            }
+
             flash()->success("Folder \"{$request->validated()['name']}\" created.");
             return redirect()->route('departments.sections.show', [$department->levelAlias(), $department, $section]);
         } catch (\Throwable $e) {
             Log::error('FolderController@store failed', ['section_id' => $section->id, 'error' => $e->getMessage()]);
+
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'Failed to create folder.'], 500);
+            }
+
             flash()->error('Failed to create folder. Please try again.');
             return back()->withInput();
         }
@@ -85,9 +113,65 @@ class FolderController extends Controller
 
     public function destroy(string $level, Department $department, Section $section, Folder $folder): RedirectResponse
     {
-        $this->authorizeManage($section);
+        $this->authorizeDelete($section);
 
         return $this->doDestroy($department, $section, null, $folder);
+    }
+
+    // ── Section-folder subfolders (one level deep — see folders.parent_id migration) ──────────
+
+    public function createSubfolder(string $level, Department $department, Section $section, Folder $folder): View
+    {
+        $this->authorizeManage($section);
+        abort_if($folder->parent_id !== null, 404);
+
+        return view('folders.create', compact('department', 'section', 'folder'));
+    }
+
+    public function storeSubfolder(StoreFolderRequest $request, string $level, Department $department, Section $section, Folder $folder): RedirectResponse|JsonResponse
+    {
+        abort_if($folder->parent_id !== null, 404);
+
+        // Folder-upload (webkitdirectory) posts one file at a time but only needs the subfolder
+        // created once — reuse an existing same-named child instead of piling up "Sub-2", "Sub-3".
+        if ($request->boolean('find_or_create')) {
+            $existing = $folder->children()->whereRaw('LOWER(name) = ?', [mb_strtolower($request->validated()['name'])])->first();
+            if ($existing) {
+                return response()->json(['id' => $existing->id, 'name' => $existing->name, 'slug' => $existing->slug]);
+            }
+        }
+
+        try {
+            $child = null;
+
+            DB::transaction(function () use ($request, $department, $section, $folder, &$child) {
+                $slug = Folder::uniqueSlugForSection($request->validated()['name'], $section->id);
+
+                $child = $folder->children()->create([
+                    ...$request->validated(),
+                    'department_id' => $department->id,
+                    'section_id'    => $section->id,
+                    'division_id'   => $folder->division_id,
+                    'slug'          => $slug,
+                ]);
+            });
+
+            if ($request->wantsJson()) {
+                return response()->json(['id' => $child->id, 'name' => $child->name, 'slug' => $child->slug]);
+            }
+
+            flash()->success("Subfolder \"{$request->validated()['name']}\" created.");
+            return redirect()->route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $folder]);
+        } catch (\Throwable $e) {
+            Log::error('FolderController@storeSubfolder failed', ['folder_id' => $folder->id, 'error' => $e->getMessage()]);
+
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'Failed to create subfolder.'], 500);
+            }
+
+            flash()->error('Failed to create subfolder. Please try again.');
+            return back()->withInput();
+        }
     }
 
     // ── Division folders ────────────────────────────────────────────────────
@@ -99,13 +183,22 @@ class FolderController extends Controller
         return view('folders.create', compact('department', 'section', 'division'));
     }
 
-    public function storeForDivision(StoreFolderRequest $request, string $level, Department $department, Section $section, Division $division): RedirectResponse
+    public function storeForDivision(StoreFolderRequest $request, string $level, Department $department, Section $section, Division $division): RedirectResponse|JsonResponse
     {
+        if ($request->boolean('find_or_create')) {
+            $existing = $division->folders()->whereRaw('LOWER(name) = ?', [mb_strtolower($request->validated()['name'])])->first();
+            if ($existing) {
+                return response()->json(['id' => $existing->id, 'name' => $existing->name, 'slug' => $existing->slug]);
+            }
+        }
+
         try {
-            DB::transaction(function () use ($request, $department, $section, $division) {
+            $folder = null;
+
+            DB::transaction(function () use ($request, $department, $section, $division, &$folder) {
                 $slug = Folder::uniqueSlugForDivision($request->validated()['name'], $division->id);
 
-                $division->folders()->create([
+                $folder = $division->folders()->create([
                     ...$request->validated(),
                     'department_id' => $department->id,
                     'section_id'    => $section->id,
@@ -113,10 +206,19 @@ class FolderController extends Controller
                 ]);
             });
 
+            if ($request->wantsJson()) {
+                return response()->json(['id' => $folder->id, 'name' => $folder->name, 'slug' => $folder->slug]);
+            }
+
             flash()->success("Folder \"{$request->validated()['name']}\" created.");
             return redirect()->route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division]);
         } catch (\Throwable $e) {
             Log::error('FolderController@storeForDivision failed', ['division_id' => $division->id, 'error' => $e->getMessage()]);
+
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'Failed to create folder.'], 500);
+            }
+
             flash()->error('Failed to create folder. Please try again.');
             return back()->withInput();
         }
@@ -145,9 +247,63 @@ class FolderController extends Controller
 
     public function destroyForDivision(string $level, Department $department, Section $section, Division $division, Folder $folder): RedirectResponse
     {
-        $this->authorizeManage($section, $division);
+        $this->authorizeDelete($section, $division);
 
         return $this->doDestroy($department, $section, $division, $folder);
+    }
+
+    // ── Division-folder subfolders (one level deep) ─────────────────────────
+
+    public function createSubfolderForDivision(string $level, Department $department, Section $section, Division $division, Folder $folder): View
+    {
+        $this->authorizeManage($section, $division);
+        abort_if($folder->parent_id !== null, 404);
+
+        return view('folders.create', compact('department', 'section', 'division', 'folder'));
+    }
+
+    public function storeSubfolderForDivision(StoreFolderRequest $request, string $level, Department $department, Section $section, Division $division, Folder $folder): RedirectResponse|JsonResponse
+    {
+        abort_if($folder->parent_id !== null, 404);
+
+        if ($request->boolean('find_or_create')) {
+            $existing = $folder->children()->whereRaw('LOWER(name) = ?', [mb_strtolower($request->validated()['name'])])->first();
+            if ($existing) {
+                return response()->json(['id' => $existing->id, 'name' => $existing->name, 'slug' => $existing->slug]);
+            }
+        }
+
+        try {
+            $child = null;
+
+            DB::transaction(function () use ($request, $department, $section, $folder, &$child) {
+                $slug = Folder::uniqueSlugForDivision($request->validated()['name'], $folder->division_id);
+
+                $child = $folder->children()->create([
+                    ...$request->validated(),
+                    'department_id' => $department->id,
+                    'section_id'    => $section->id,
+                    'division_id'   => $folder->division_id,
+                    'slug'          => $slug,
+                ]);
+            });
+
+            if ($request->wantsJson()) {
+                return response()->json(['id' => $child->id, 'name' => $child->name, 'slug' => $child->slug]);
+            }
+
+            flash()->success("Subfolder \"{$request->validated()['name']}\" created.");
+            return redirect()->route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder]);
+        } catch (\Throwable $e) {
+            Log::error('FolderController@storeSubfolderForDivision failed', ['folder_id' => $folder->id, 'error' => $e->getMessage()]);
+
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'Failed to create subfolder.'], 500);
+            }
+
+            flash()->error('Failed to create subfolder. Please try again.');
+            return back()->withInput();
+        }
     }
 
     // ── Shared implementation ───────────────────────────────────────────────
@@ -204,10 +360,7 @@ class FolderController extends Controller
             $root->setRelation('amendments', $amendments->values());
         });
 
-        $totalCount = $folder->documents()
-            ->publishable()
-            ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
-            ->count();
+        $visibilityScope = fn ($q) => $q->publishable()->when(! auth()->check(), fn ($q2) => $q2->where('visibility', 'public'));
 
         // Parent options for amendments — root documents within this folder only.
         $parentOptions = auth()->check()
@@ -220,7 +373,21 @@ class FolderController extends Controller
                 ->values()
             : collect();
 
-        return view('folders.show', compact('department', 'section', 'division', 'folder', 'rootDocuments', 'totalCount', 'parentOptions', 'sort', 'filterYear', 'availableYears'));
+        // Only a root folder has subfolders (one level deep) — a subfolder's own $folder->children
+        // is always empty, so this naturally renders nothing on a subfolder's own show page.
+        $subfolders = $folder->children()->withCount(['documents' => $visibilityScope])->get();
+
+        // Every document under this folder AND its subfolders — a folder whose own documents
+        // all live one level down, in a subfolder, must not read as empty.
+        $totalCount = $visibilityScope($folder->documents())->count() + $subfolders->sum('documents_count');
+
+        // Full delete-confirmation impact: same reach as $totalCount, but regardless of
+        // publish/visibility status — doDestroy() removes all of them, not just the
+        // publicly-listed ones counted above.
+        $deleteImpactCount = $folder->documents()->count()
+            + $folder->children()->withCount('documents')->get()->sum('documents_count');
+
+        return view('folders.show', compact('department', 'section', 'division', 'folder', 'rootDocuments', 'totalCount', 'parentOptions', 'sort', 'filterYear', 'availableYears', 'subfolders', 'deleteImpactCount'));
     }
 
     private function doUpdate(UpdateFolderRequest $request, Department $department, Section $section, ?Division $division, Folder $folder): RedirectResponse
@@ -239,22 +406,35 @@ class FolderController extends Controller
         }
     }
 
+    /** Soft-deletes every document directly inside $folder, appending each to &$docsToArchive. */
+    private function deleteFolderDocuments(Folder $folder, array &$docsToArchive): void
+    {
+        $folder->documents()->each(function (Document $doc) use (&$docsToArchive) {
+            DocumentStatusHistory::create([
+                'document_id' => $doc->id,
+                'actor_id'    => auth()->id(),
+                'from_status' => $doc->status,
+                'to_status'   => 'deleted',
+                'note'        => 'Deleted with parent folder.',
+            ]);
+            $doc->delete();
+            $docsToArchive[] = $doc;
+        });
+    }
+
     private function doDestroy(Department $department, Section $section, ?Division $division, Folder $folder): RedirectResponse
     {
         $docsToArchive = [];
 
         try {
             DB::transaction(function () use ($folder, &$docsToArchive) {
-                $folder->documents()->each(function (Document $doc) use (&$docsToArchive) {
-                    DocumentStatusHistory::create([
-                        'document_id' => $doc->id,
-                        'actor_id'    => auth()->id(),
-                        'from_status' => $doc->status,
-                        'to_status'   => 'deleted',
-                        'note'        => 'Deleted with parent folder.',
-                    ]);
-                    $doc->delete();
-                    $docsToArchive[] = $doc;
+                $this->deleteFolderDocuments($folder, $docsToArchive);
+
+                // Subfolders aren't covered by a DB cascade (soft deletes don't trigger FK
+                // cascades), so walk them explicitly — one level deep, see folders.parent_id.
+                $folder->children()->each(function (Folder $child) use (&$docsToArchive) {
+                    $this->deleteFolderDocuments($child, $docsToArchive);
+                    $child->delete();
                 });
 
                 $folder->delete();

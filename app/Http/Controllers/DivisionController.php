@@ -124,9 +124,11 @@ class DivisionController extends Controller
             $root->setRelation('amendments', $amendments->values());
         });
 
+        // Every document under this division — direct, in a folder, or in a folder's subfolder —
+        // since Division::documents() matches on division_id alone, which every document under
+        // it carries regardless of folder nesting.
         $totalCount = $division->documents()
             ->publishable()
-            ->whereNull('folder_id')
             ->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))
             ->count();
 
@@ -146,11 +148,15 @@ class DivisionController extends Controller
                 ->values()
             : collect();
 
-        // Folders under this division, with document counts
+        // Folders under this division, with document counts — each count adds in the folder's
+        // own subfolder(s), on top of documents placed directly in the folder.
+        $folderVisibility = fn ($q) => auth()->check() ? $q : $q->where('visibility', 'public');
         $folders = $division->folders()
             ->when(! auth()->check(), fn ($q) => $q->where('visibility', 'public'))
-            ->withCount(['documents' => fn ($q) => auth()->check() ? $q : $q->where('visibility', 'public')])
-            ->get();
+            ->withCount(['documents' => $folderVisibility])
+            ->with(['children' => fn ($q) => $q->withCount(['documents' => $folderVisibility])])
+            ->get()
+            ->each(fn ($f) => $f->documents_count += $f->children->sum('documents_count'));
 
         return view('divisions.show', compact('department', 'section', 'division', 'rootDocuments', 'totalCount', 'parentOptions', 'sort', 'filterYear', 'availableYears', 'folders'));
     }

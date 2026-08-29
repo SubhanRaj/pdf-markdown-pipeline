@@ -17,6 +17,7 @@ class Folder extends Model
         'department_id',
         'section_id',
         'division_id',
+        'parent_id',
         'name',
         'slug',
         'description',
@@ -52,6 +53,17 @@ class Folder extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(Document::class)->orderBy('created_at');
+    }
+
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(Folder::class, 'parent_id');
+    }
+
+    /** Subfolders — one level deep only, see the folders.parent_id migration. */
+    public function children(): HasMany
+    {
+        return $this->hasMany(Folder::class, 'parent_id')->orderBy('name');
     }
 
     /** Generate a slug unique among direct section folders (division_id IS NULL). */

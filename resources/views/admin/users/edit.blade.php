@@ -18,6 +18,9 @@
 <form id="resendActivationForm" method="POST" action="{{ route('admin.users.resend-activation', $user) }}" class="hidden">
     @csrf
 </form>
+<form id="sendPasswordResetForm" method="POST" action="{{ route('admin.users.send-password-reset', $user) }}" class="hidden">
+    @csrf
+</form>
 
 <form
     id="editUserForm"
@@ -116,6 +119,24 @@
             </div>
         </div>
         @endif
+
+        {{-- ── Section: Password ── --}}
+        <div class="px-6 py-5">
+            <div class="flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-3">
+                <p class="text-sm text-slate-600 dark:text-slate-300 flex items-center gap-2">
+                    <i class="ti ti-key text-base flex-shrink-0"></i>
+                    Forgot their password? Email them a reset link, or copy it and send it yourself.
+                </p>
+                <div class="flex items-center gap-3 whitespace-nowrap">
+                    <button type="submit" form="sendPasswordResetForm" class="text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-indigo-100 underline">
+                        Email reset link
+                    </button>
+                    <button type="button" onclick="copyPasswordResetLink()" class="text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-indigo-100 underline">
+                        Copy reset link
+                    </button>
+                </div>
+            </div>
+        </div>
 
         {{-- ── Section: Role & Assignment ── --}}
         <div class="px-6 py-5">
@@ -378,6 +399,27 @@
     if (sectSel && sectSel.value) filterDivisions(sectSel.value);
 
 })();
+
+async function copyPasswordResetLink() {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+    const res = await fetch('{{ route('admin.users.password-reset-link', $user) }}', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrfToken },
+    });
+    const data = await res.json();
+
+    Swal.fire({
+        icon: 'info',
+        title: 'Password reset link',
+        html: `<input type="text" readonly value="${data.url}" onclick="this.select()" class="w-full text-xs border border-slate-300 dark:border-slate-600 rounded px-2 py-2 bg-slate-50 dark:bg-slate-900 dark:text-slate-200">
+               <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">Valid for 60 minutes. Send this to the user yourself — it isn't emailed.</p>`,
+        confirmButtonText: 'Copy',
+        showCancelButton: true,
+        cancelButtonText: 'Close',
+    }).then((result) => {
+        if (result.isConfirmed) navigator.clipboard.writeText(data.url);
+    });
+}
 </script>
 @endpush
 

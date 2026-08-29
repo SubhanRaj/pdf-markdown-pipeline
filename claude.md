@@ -163,6 +163,7 @@ Unique constraint: `(section_id, slug)`. Slug generated via `Division::uniqueSlu
 | `department_id` | FK → departments | `restrictOnDelete` |
 | `section_id` | FK → sections | `restrictOnDelete` |
 | `division_id` | FK → divisions **nullable** | `nullOnDelete` — non-null for division folders; null for direct section folders |
+| `parent_id` | FK → folders **nullable** | `nullOnDelete`, added M94 — non-null makes this row a **subfolder** of another folder. One level deep only: a folder whose own `parent_id` is set cannot itself have a `parent_id`-set child (enforced in `FolderController@createSubfolder`/`storeSubfolder`, not a DB constraint) |
 | `name` | string | Display name (e.g. "Court Case – Liquor License Appeal 2024") |
 | `slug` | string | Auto-generated from name; uses `HasUnicodeSlug` trait |
 | `description` | text nullable | Optional summary of the matter (max 500 chars) |
@@ -171,15 +172,19 @@ Unique constraint: `(section_id, slug)`. Slug generated via `Division::uniqueSlu
 | `metadata` | json nullable | Case number, year, tags, etc. |
 | `timestamps` + `softDeletes` | | |
 
-Unique constraint: `(section_id, division_id, slug)` — MySQL treats NULL as distinct, so section and division folders may share slugs.
+Unique constraint: `(section_id, division_id, slug)` — MySQL treats NULL as distinct, so section and division folders may share slugs. A subfolder shares this same scope (its own `section_id`/`division_id`, inherited from its parent at creation), so its slug just needs to be unique within that section/division, same as a root folder.
 
 Slug helpers:
-- `Folder::uniqueSlugForSection($name, $sectionId, $exceptId?)` — unique within direct section folders (`division_id IS NULL`).
-- `Folder::uniqueSlugForDivision($name, $divisionId, $exceptId?)` — unique within division folders.
+- `Folder::uniqueSlugForSection($name, $sectionId, $exceptId?)` — unique within direct section folders (`division_id IS NULL`) — used for both root folders and their subfolders.
+- `Folder::uniqueSlugForDivision($name, $divisionId, $exceptId?)` — unique within division folders — same, root or subfolder.
 
 Both check `withTrashed()` and append `-2`, `-3` on collision. **Folder slug is immutable after creation** — vault paths depend on it; `UpdateFolderRequest` does not accept a `slug` field.
 
-**Archive cascade:** `FolderController@destroy` soft-deletes all contained documents (with `DocumentStatusHistory` rows) inside the same `DB::transaction()`, then soft-deletes the folder. `ManagesDocumentFiles::archiveFiles()` is called per document, physically moving files to the private disk. On folder restore, `restoreFiles()` is called for each document. Same pattern as `RuleSetController@destroy`.
+**Subfolders (M94, one level deep):** `Folder::children()` (hasMany, `parent_id`) / `Folder::parent()` (belongsTo). `Section::folders()`/`Division::folders()` are scoped `whereNull('parent_id')` — only root folders show up in a section/division's own folder listing; a subfolder is reached only through its parent folder's own show page. A document's `folder_id` points at whichever Folder it's in — root or subfolder, no distinction at the `Document` level, so every existing document route/query (show, edit, download, zip) already works unchanged for subfolder documents.
+
+**Archive cascade:** `FolderController@destroy` soft-deletes all contained documents (with `DocumentStatusHistory` rows) AND every subfolder (with its own documents), inside the same `DB::transaction()`, then soft-deletes the folder. `ManagesDocumentFiles::archiveFiles()` is called per document, physically moving files to the private disk. On folder restore, `restoreFiles()` is called for each document. Same pattern as `RuleSetController@destroy`. Gated on the `folders.delete` privilege (M94) — `User::canDeleteFolder()` — not just upload scope, since deleting a folder is destructive in a way uploading to it isn't; `role=admin` keeps this automatically via `ORG_ADMIN_PRIVILEGES`.
+
+**Folder upload (M94):** the folder-upload button (`<input webkitdirectory>`) on a folder/section/division's upload modal creates one folder/subfolder per picked directory — the picked folder itself becomes the new folder (or subfolder, one level only), and everything inside it at any depth is placed inside that one folder, rather than mirroring the picked structure exactly. Repeat uploads of a same-named folder reuse the existing one (`find_or_create` on `FolderController@store`/`storeForDivision`/`storeSubfolder`/`storeSubfolderForDivision`) instead of creating "Name-2", "Name-3".
 
 ### `rule_sets`
 | Column | Type | Notes |
@@ -348,6 +353,8 @@ full design rationale (the incident that motivated it, decisions confirmed befor
 'documents.force-delete' // permanently delete from archive (requires reason + letter upload)
 'documents.verify'       // mark documents as verified
 'documents.approve'      // approve/reject/reclassify pending uploads (scoped to upload boundary)
+'documents.move'         // move/copy a document to another section, division, or folder (M94)
+'folders.delete'         // delete a folder (and its subfolder + every document inside) (M94)
 'organization.head'      // upload/delete anywhere across all departments
 'department.head'        // scoped to their assigned department
 'section.head'           // scoped to their assigned section
@@ -882,6 +889,8 @@ Controller method signatures **must** declare `string $level` as their first par
 | GET | `/documents/{id}/structure` | `documents.structure` | Admin/policy-manager/upload-scoped (`canConvertDocument()`, M82) |
 | PATCH | `/documents/{id}/markdown` | `documents.markdown.update` | Admin (Form Request check) |
 | DELETE | `/documents/{id}/markdown` | `documents.markdown.discard` | Admin (controller check) |
+| POST | `/documents/{id}/move` | `documents.move` | Auth + `documents.move` privilege (M94) |
+| POST | `/documents/{id}/copy` | `documents.copy` | Auth + `documents.move` privilege (M94) |
 
 **New Conversion (standalone, M70)** — owner-only, checked inline in `QuickConversionController`
 (`$quickConversion->user_id === auth()->id() || auth()->user()->isAdmin()`), no policy class.
@@ -923,11 +932,15 @@ Controller method signatures **must** declare `string $level` as their first par
 | POST | `/departments/{level}/{dept}/sections/{section}/folders` | `departments.sections.folders.store` | Auth |
 | GET | `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | `departments.sections.folders.show` | Public* |
 | PATCH | `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | `departments.sections.folders.update` | Auth |
-| DELETE | `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | `departments.sections.folders.destroy` | Auth |
+| DELETE | `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | `departments.sections.folders.destroy` | Auth + `folders.delete` privilege |
+| GET | `/departments/{level}/{dept}/sections/{section}/folders/{folder}/subfolders/create` | `departments.sections.folders.subfolders.create` | Auth |
+| POST | `/departments/{level}/{dept}/sections/{section}/folders/{folder}/subfolders` | `departments.sections.folders.subfolders.store` | Auth |
 | POST | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders` | `departments.sections.divisions.folders.store` | Auth |
 | GET | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.show` | Public* |
 | PATCH | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.update` | Auth |
-| DELETE | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.destroy` | Auth |
+| DELETE | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.destroy` | Auth + `folders.delete` privilege |
+| GET | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}/subfolders/create` | `departments.sections.divisions.folders.subfolders.create` | Auth |
+| POST | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}/subfolders` | `departments.sections.divisions.folders.subfolders.store` | Auth |
 | GET | `/departments/{level}/{dept}/rules` | `departments.rules.index` | Public |
 | POST | `/departments/{level}/{dept}/rules` | `departments.rules.store` | Auth |
 | GET | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.show` | Public |
@@ -1060,9 +1073,23 @@ Upload is initiated from a section show page or rule set show page via a modal. 
 4. On success: JSON `{'redirect': folder_url}`
 5. Parent options in the upload modal are all root docs in the **folder** (for amendment chains within the folder)
 
+A subfolder (M94) is just another `Folder` row — both folder-based upload paths above work unchanged whether `folder_id` points at a root folder or a subfolder; the store branch never checks `parent_id`.
+
 `StoreDocumentRequest` — `section_id`, `rule_set_id`, and `folder_id` are mutually exclusive contexts (`required_without_all:` group). `division_id` is optional, only valid alongside `section_id`. `folder_id` is optional, only valid alongside `section_id`; if the folder belongs to a division, `division_id` must also be provided. When `folder_id` is provided, the store branch uses `Folder::with('division.section.department')` to derive all parent context. Each fetch in the JS loop builds its own `FormData` with the per-file title and the shared type/visibility/context-ids — `FormData(form)` is **not** used because the file input is outside the `<form>` element (left vs right column layout).
 
 **Converted Markdown** lands in the same vault directory, same base filename, `.md` extension. `markdown_path` stores the full relative path on `public` disk.
+
+### Document move / copy (M94)
+
+`POST /documents/{id}/move` and `POST /documents/{id}/copy` (`DocumentController@move`/`@copy`) relocate or duplicate a document to another section, division, or folder — **within the same department only**; there's no cross-department option, since a document's department ties both to where its file lives on disk and to who may administer it, so that's a delete-and-reupload, not a move. Both are reached from a "Move / Copy" panel on the document edit page (cascading Section → Division → Folder → Subfolder selects, built from `BuildsUploadScopeTree`, pruned to the user's own upload scope and this one department).
+
+**Scope:** rule-set/policy documents are out of scope entirely (`guardMovable()` rejects any document with `rule_set_id` set) — they live under a department-wide container, not a section/division/folder, so "move to a folder" doesn't apply. A Government Order is not a rule-set document — `document_type = 'go'` is just a tag on an ordinary section/division/folder document — so GOs move and copy like any other document. An amendment (`parent_id` set) can't be moved on its own; moving or copying its root document takes every one of its amendments along automatically, to the same destination, so a move/copy never orphans an amendment thread at the old location or leaves it stranded with no root.
+
+**Authorization:** gated on the `documents.move` privilege (`User::canMoveDocument()`), not `documents.edit` — relocating a document's file is a bigger action than editing its title, so a Designation can grant one without the other. `role=admin` gets it automatically via `ORG_ADMIN_PRIVILEGES`. The destination's own scope is still checked too (`canUploadTo($folder ?? $division ?? $section)`), so a move/copy can't land somewhere the user couldn't otherwise upload to.
+
+**Move** relocates the document's physical files (`original_pdf_path`, `markdown_path`) into the destination's vault directory (same path convention as upload — see above), regenerates its slug in the new scope (`Document::uniqueSlugForFolder`/`ForDivision`/`ForSection`), and updates `section_id`/`division_id`/`folder_id`/`vault_path`/`slug` in place — same `Document` row, same id.
+
+**Copy** duplicates the files (new filename, `_copy_{timestamp}` suffix) and creates an independent second `Document` row with a fresh slug in the destination scope; the original is untouched. Each copy gets a `DocumentStatusHistory` entry noting which document it was copied from.
 
 ### PDF streaming
 
@@ -1085,9 +1112,10 @@ Documents carry a `visibility` column independent of the processing-status workf
 | `public` (default) | All visitors, including unauthenticated guests |
 | `authenticated` | Logged-in users only |
 
-Folders carry their own, separate `visibility` column with the same two values — gating the
-folder's own browse page. Departments, sections, and divisions have no `visibility` column of
-their own at all (only `requires_approval`, an unrelated upload-workflow toggle).
+Folders, sections, and divisions each carry their own, separate `visibility` column with the
+same two values (sections/divisions added M84, 2026-08-22) — gating that unit's own browse page.
+Departments have no `visibility` column of their own (only `requires_approval`, an unrelated
+upload-workflow toggle).
 
 **Folder visibility is the ceiling on every document inside it, not a separate, independent
 check (fixed 2026-08-17).** A document's own `visibility` used to be the *only* thing every
@@ -1095,9 +1123,10 @@ guest-facing check looked at — a document marked Public that lived inside an A
 folder was still directly viewable, downloadable, searchable, and sitemap-indexed by a guest who
 had (or found) its URL, even though the folder page itself correctly blocked guest browsing. Fixed
 by adding `Document::isPubliclyVisible(): bool` (checks the document's own `visibility` **and**,
-if it has a `folder_id`, that the folder's `visibility` is also `public`) and a matching
-`Document::scopePubliclyVisible()` query scope — every guest-facing check now goes through one of
-these instead of reading the `visibility` column directly:
+for whichever of `folder_id`/`division_id`/`section_id` it has set, that unit's own `visibility`
+is also `public` — extended to cover section/division alongside folder once M84 gave them their
+own `visibility` column) and a matching `Document::scopePubliclyVisible()` query scope — every
+guest-facing check now goes through one of these instead of reading the `visibility` column directly:
 - `DocumentController@show/pdf/showRuleSetDoc/pdfRuleSetDoc/showDivisionDoc/pdfDivisionDoc/`
   `showSectionFolderDoc/pdfSectionFolderDoc/showDivisionFolderDoc/pdfDivisionFolderDoc/ogImage/index`
 - `DownloadController` (zip downloads) — `folderEntries()` additionally short-circuits to an empty
@@ -1114,16 +1143,19 @@ these instead of reading the `visibility` column directly:
   or already gates the containing folder itself before ever reaching the document query (so guests
   only reach it when the folder is already known-public). See `tests/Feature/DocumentFolderVisibilityTest.php`.
 
-**Upload modals** — section, rule-set, and folder upload modals include a visibility radio
-selector (defaults to Public). `folders/show.blade.php`'s modal is the one exception: since a
-folder is a known, fixed context there (unlike section/rule-set uploads, which never target a
-folder), the radio defaults to **Authenticated** instead when `$folder->visibility ===
-'authenticated'`, and picking Public anyway raises a SweetAlert2 warning ("won't make them visible
-to guests — the folder's own restriction still applies") before allowing the upload to proceed.
-This is UX sugar only, not the enforcement — the `isPubliclyVisible()` fix above is what actually
-prevents the leak regardless of what gets saved, so overriding the warning is safe by design, not
-just discouraged. `StoreDocumentRequest` validates and passes the value through to
-`Document::create()` unchanged; there's no server-side coercion forcing it to match the folder.
+**Upload modals** — section, division, folder, and rule-set upload modals all include a
+visibility radio selector. Section, division, and folder uploads (rule-set uploads have no
+container visibility to inherit) default the radio to **Authenticated** when the container
+itself (`$section`/`$division`/`$folder`) is `authenticated`, and picking Public anyway raises a
+SweetAlert2 warning ("won't make them visible to guests — the section's/division's/folder's own
+restriction still applies") before allowing the upload to proceed. Originally this default/warning
+existed only on the folder modal (section and division uploads always defaulted to Public
+regardless of the container's own visibility) — extended to match on section and division too
+(M94), since the same silent-mismatch bug applied equally to all three. This is UX sugar only, not
+the enforcement — the `isPubliclyVisible()` fix above is what actually prevents the leak regardless
+of what gets saved, so overriding the warning is safe by design, not just discouraged.
+`StoreDocumentRequest` validates and passes the value through to `Document::create()` unchanged;
+there's no server-side coercion forcing it to match the container.
 
 **`documents/show`** — green "Public" or amber "Authenticated Only" badge shown in the document
 header, reflecting the document's own `visibility` value as-is (not the effective/inherited one) —
@@ -1161,8 +1193,8 @@ Document show also has a "Share" button on the same row as the status pills, rig
 
 ### Folder views
 
-- **`folders/show`** — folder hub page: header (name, description, visibility badge, `requires_approval` status), action buttons (Edit, Archive), "Create Document" upload modal. Document list shows all docs in the folder with amendment hierarchy (parent_id chain). Supports same sort/filter (amendment number, effective year) as section/division show pages. Upload modal parent-selection lists root docs within the same folder (for intra-folder amendments). `->publishable()` scope applied to all document queries.
-- **`folders/create`** and **`folders/edit`** — name + description + visibility radio + `requires_approval` toggle. Slug is auto-generated (create) and read-only (edit).
+- **`folders/show`** — folder hub page: header (name, description, visibility badge, `requires_approval` status), action buttons (Edit, Archive, and Add Subfolder on a root folder only), "Create Document" upload modal (with the folder-upload button, M94). Document list shows all docs directly in the folder with amendment hierarchy (parent_id chain); a **Subfolders** section above it lists the folder's own subfolders (M94, empty on a subfolder's own page — one level deep), each linking to that subfolder's own `folders/show` page — a subfolder uses this exact same view and every route, it's just another `Folder` row with `parent_id` set. Supports same sort/filter (amendment number, effective year) as section/division show pages. Upload modal parent-selection lists root docs within the same folder (for intra-folder amendments). `->publishable()` scope applied to all document queries. The folder's displayed document count (and the delete-confirmation impact count) includes its subfolder's documents too (M94) — a folder whose contents all live one level down no longer reads as empty; a small note ("No documents directly in this folder — all N are in the subfolder(s) above") replaces the empty-state message in that case.
+- **`folders/create`** and **`folders/edit`** — name + description + visibility radio + `requires_approval` toggle. Slug is auto-generated (create) and read-only (edit). The same view doubles as the subfolder-create form when reached via `.../folders/{folder}/subfolders/create` — breadcrumb, page title, and the store URL switch to "Add Subfolder" / the subfolder-store route when a parent `$folder` is present.
 
 Folder pages respect `folder->visibility`: if `authenticated` and guest, abort 403.
 
@@ -1588,7 +1620,7 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 7. **Slug-based URLs with level disambiguation** — `Department`, `Section`, `RuleSet`, `Document` all use `getRouteKeyName() = 'slug'`. IDs never appear in public URLs. A `{level}` alias (`dept` / `sectt`) precedes `{department}` in every URL. Always pass `[$dept->levelAlias(), $dept]` to route helpers — never just `$dept` alone.
 8. **`POST /documents` is AJAX-only** — always returns JSON regardless of `Accept` header. `StoreDocumentRequest::failedValidation()` overrides the default redirect to throw `HttpResponseException` with 422 JSON. The JS `fetch` call always sends `Accept: application/json` + `X-CSRF-TOKEN` + `X-Requested-With: XMLHttpRequest`.
 9. **PDF served via controller routes** — `DocumentController@pdf` and `@pdfRuleSetDoc` stream from the `public` disk with `Content-Disposition: inline`. Guests see 403 on non-verified documents. Always link via these routes — raw `Storage::url()` links bypass the auth gate.
-10. **Five-way document taxonomy** — documents belong to one of five contexts: a direct `Section` (GOs, notices, circulars), an `Internal Division` (desk/cell-issued orders), a `RuleSet` (Acts, Rules, amendments), a `Section Folder` (patravali/case file under a section), or a `Division Folder` (patravali/case file under a division). FK layout: `folder_id` non-null = folder doc (also has `section_id`; may have `division_id`); `rule_set_id` non-null = rule-set doc; `section_id` + `division_id` both non-null + `folder_id` null = direct division doc; `section_id` non-null + `division_id` null + `folder_id` null = direct section doc. The `documents/show` view handles all five contexts via flags — no template duplication. Routing priority when iterating: `$doc->folder ? ($doc->division ? documents.divisions.folders.show : documents.folders.show) : ($doc->division ? documents.divisions.show : ($doc->section ? documents.show : documents.rules.show))`. Display context name: `$doc->folder?->name ?? $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name`.
+10. **Five-way document taxonomy** — documents belong to one of five contexts: a direct `Section` (GOs, notices, circulars), an `Internal Division` (desk/cell-issued orders), a `RuleSet` (Acts, Rules, amendments), a `Section Folder` (patravali/case file under a section), or a `Division Folder` (patravali/case file under a division). FK layout: `folder_id` non-null = folder doc (also has `section_id`; may have `division_id`); `rule_set_id` non-null = rule-set doc; `section_id` + `division_id` both non-null + `folder_id` null = direct division doc; `section_id` non-null + `division_id` null + `folder_id` null = direct section doc. The `documents/show` view handles all five contexts via flags — no template duplication. Routing priority when iterating: `$doc->folder ? ($doc->division ? documents.divisions.folders.show : documents.folders.show) : ($doc->division ? documents.divisions.show : ($doc->section ? documents.show : documents.rules.show))`. Display context name: `$doc->folder?->name ?? $doc->division?->name ?? $doc->section?->name ?? $doc->ruleSet?->name`. Subfolders (M94) don't add a sixth context — a subfolder is still just a `Folder`, so a subfolder document is a `Section Folder`/`Division Folder` document exactly as above, distinguished only by `Folder::parent_id` being set, which nothing at the `Document` level ever needs to check. Move/copy (M94) relocates a document across these same five contexts (minus `RuleSet`, which is out of scope for move/copy) without ever changing which of the five FK layouts above applies — a moved folder-doc is still a folder-doc, just under a different `folder_id`.
 11. **Internal divisions are sub-entities of sections, not replacements** — a `Division` belongs to a `Section`. Division docs carry both `section_id` (always set — the issuing authority) and `division_id` (the internal grouping). This models the real-world situation where every letter is issued by the section regardless of which internal desk handles the matter. Sections can have both direct docs and divisions simultaneously. Amendments can cross division boundaries — parent options on the division upload modal list all root docs in the section, not just the division.
 11a. **Division slug is immutable after creation** — `UpdateDivisionRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths under `divisions/{slug}/`.
 12. **Rule-set slug is immutable after creation** — `UpdateRuleSetRequest` does not accept a `slug` field; the edit form shows slug as read-only. Changing the slug would break all existing vault file paths.
@@ -1624,13 +1656,15 @@ Current accepted types: PDF, Word (doc/docx), Excel (xls/xlsx), PowerPoint (ppt/
 
 28. **`uploads_require_approval` is a per-user bulk-mode flag, not a permanent restriction** — it is designed to be toggled on during initial legacy-document onboarding and turned off once done. It is independent of the context-level `requires_approval` flag on sections/divisions/rule_sets/folders, which is a permanent per-context policy. Either flag alone is sufficient to trigger `pending_approval`.
 
-29. **Folders (Patravalis) are physical-file groupings, not organizational units** — `Section` and `Division` model the org chart (who issues the letter). `Folder` models the physical filing concept (a named dossier grouping all correspondence on a specific matter — court case, license dispute, audit query, service matter). Folders live under a section or division. A section/division can have both direct docs and folders simultaneously. Folders are not nested. Folder slug is immutable after creation (vault paths depend on it). `UpdateFolderRequest` does not accept a `slug` field. `shouldRequireApproval()` accepts `Folder` as a valid context type alongside `Section|Division|RuleSet`.
+29. **Folders (Patravalis) are physical-file groupings, not organizational units** — `Section` and `Division` model the org chart (who issues the letter). `Folder` models the physical filing concept (a named dossier grouping all correspondence on a specific matter — court case, license dispute, audit query, service matter). Folders live under a section or division. A section/division can have both direct docs and folders simultaneously. Folders may be nested **one level deep** (M94, `Folder::parent_id`) — a folder whose own `parent_id` is set cannot have children of its own; this is enforced in `FolderController`, not a DB constraint, so don't add subfolder-creation UI/routes anywhere without that same check. Folder slug is immutable after creation (vault paths depend on it). `UpdateFolderRequest` does not accept a `slug` field. `shouldRequireApproval()` accepts `Folder` as a valid context type alongside `Section|Division|RuleSet` — true for a subfolder too, since it's the same model.
 
 30. **Folder/Division/Section visibility gates the container page AND is a hard ceiling on every document inside it (M84, 2026-08-22 — supersedes the pre-M84 "does not cascade" claim this item used to make, which had gone stale against the actual code and `DocumentFolderVisibilityTest`/`DocumentVerifyTest` coverage for a while before being caught)** — if `folder.visibility`/`division.visibility`/`section.visibility === 'authenticated'`, that container's show page (and, for Folder, its document PDF routes) abort 403 for guests; `SectionController`/`DivisionController` additionally drop an out-of-scope *authenticated* user to the same public-only view instead of hard-aborting (see "View-scoping" above). Separately, `Document::isPubliclyVisible()`/`scopePubliclyVisible()` treat a document's own `visibility` as necessary but not sufficient — a document only counts as publicly visible if its own flag is `public` **and** every non-null container it sits in (`folder`, `division`, `section`) is also `public`; one `authenticated` container anywhere in the chain overrides a `public` document inside it. A public document is NOT independently reachable by direct URL once any container above it is `authenticated` — `authorizeDocumentView()`/`authorizeZipView()` route-level checks call `isPubliclyVisible()`, not the raw `visibility` column, so the ceiling is enforced everywhere, not just at the container page.
 
 31. **Policy reuses `RuleSet` with a `kind` discriminator — not a parallel model** — `RuleSet.kind` (`rules` | `policy`) drives the same controller (`RuleSetController`), the same five `DocumentController` rule-set-document methods, and the same Blade views, branching only where the two genuinely differ: permission (`canManagePolicy()` vs the generic `canUploadTo()`/admin-only rules), and policy-only columns (`state`, `policy_type`, `effective_start_date`/`effective_end_date`, `policy_status`, `previous_policy_id`). Route names mirror this exactly — `departments.policy.*`/`documents.policy.*` sit next to `departments.rules.*`/`documents.rules.*`, both resolved via a `kind` route default applied **per-route** (`Route::get(...)->name(...)->defaults('kind', ...)`), never on the `Route::prefix()->name()->group()` chain itself — `RouteRegistrar::group()` does not return a chainable `Route` instance, so `->defaults()` on it throws `BadMethodCallException`. Do not introduce a separate `Policy` model/controller/view set; extend the `kind`-aware branches in the existing ones instead.
 
 32. **A policy document is valid until superseded, not until its stated end date** — `policy_status` (`current` | `superseded`) is the only field the app trusts to answer "is this the policy to cite." `effective_start_date`/`effective_end_date` are descriptive only. Creating a new policy document under the same container as an existing `current` one automatically flips the old row to `superseded` and links it via `previous_policy_id` — this happens inside `PolicyDocumentController::store()` (a separate endpoint from container creation, `RuleSetController::store()`, since 2026-07-23's container/policy-document split; see POLICY_PERIODS.md §1). Superseded policy documents are never deleted or hidden — they stay fully browsable and citable at their original URL forever (old case references must keep resolving), and amendments may still be uploaded to them.
+33. **Moving/copying a document always takes its amendments with it (M94)** — an amendment (`parent_id` set) can never be moved or copied on its own; `guardMovable()` rejects that. Moving or copying the root document loops over `$document->amendments` and relocates/duplicates each one to the same destination as the root, so an amendment thread never gets split across two locations. Do not "simplify" `DocumentController@move`/`@copy` to only touch the one document passed in — that would silently orphan every amendment at the old location.
+34. **Document-relocating actions get their own privilege, separate from `documents.edit`** — `folders.delete` (folder + subfolder + contents deletion) and `documents.move` (move/copy to another section/division/folder) are both gated on their own privilege, not bundled into `documents.edit`/upload scope, because they're more destructive/consequential than editing a title or visibility flag. Follow this same split for any future action in this category — don't fold a new destructive action into an existing broader privilege just to avoid adding a checkbox.
 
 ## Frontend architecture
 
@@ -1848,6 +1882,7 @@ This keeps Unicode letters + combining marks intact and collapses everything els
 - **Passwordless onboarding (2026-07-26, admin password override removed 2026-08-05).** `UserManagementController::store()`/`update()` never accept a password — `StoreUserRequest`/`UpdateUserRequest` have no password field at all. The user is created with an unusable placeholder (`Hash::make(Str::random(40))`) and `email_verified_at = null`, then `URL::temporarySignedRoute('onboarding.show', now()->addHours(72), ['user' => $id])` is mailed via `App\Mail\AccountOnboarding`. `email_verified_at` doubles as the link's single-use gate — `App\Http\Controllers\Auth\OnboardingController::show()`/`store()` redirect to `/login` once it's non-null, so a second visit to an already-used link can't reopen the set-password form. No token table — Laravel's signed-URL HMAC is the whole mechanism. The admin edit form originally kept a "leave blank to keep current password" manual override as a mail-outage escape hatch, but that let an admin set/see-set an officer's password directly, at odds with the "officer always sets their own password" principle — removed; "Resend activation link" (still shown on the edit page while `email_verified_at` is null) is now the only recovery path. Self-service `profile.*` (own password only, via `UpdateProfileRequest`) is unaffected — this only ever concerned the admin-facing edit form.
 - **Email-OTP login (2026-07-26).** `App\Http\Controllers\Auth\LoginController` — `POST /login` validates credentials via `Auth::guard('web')->validate()` **without** calling `Auth::login()`, then stashes `session(['login.id', 'login.remember', 'otp.code', 'otp.expires_at', 'otp.last_sent_at'])` and emails a 6-digit code via `App\Mail\LoginOtp`, redirecting to `/login/otp`. `POST /login/otp/verify` is the only place `Auth::login()` is called, gated by `hash_equals()` + expiry check. Because no session is ever authenticated before OTP succeeds, there is no "authenticated but unverified" window — plain `middleware('auth')` on every protected route already fully covers the gap, no extra middleware needed. `POST /login/otp/resend` enforces a 45s cooldown (`otp.last_sent_at`) on top of the `two-factor` rate limiter, specifically to protect email send volume. The `two-factor` limiter (`AppServiceProvider`, keyed by `session('login.id')|ip`) was already defined for exactly this "pending 2FA user" case — reused as-is, not reinvented. Interacts with the 7-day sliding session/remember-me above: Laravel's remember-me cookie re-authenticates via `Auth::viaRemember()` without ever touching `/login` again, so a remembered user skips both the password screen and the OTP screen until the remember cookie or session actually lapses — this is *why* OTP-on-every-login doesn't mean OTP-on-every-page-load.
 - **Forgot / reset password (2026-08-13).** `App\Http\Controllers\Auth\ForgotPasswordController` uses Laravel's core `Password` broker (`Illuminate\Support\Facades\Password`) — the same `password_reset_tokens` mechanism Fortify's own reset feature wraps — rather than Fortify's routes (which stay disabled via `Fortify::ignoreRoutes()`, see above) or a bespoke signed-URL scheme like onboarding's. `Password::sendResetLink()` always returns the same flash message regardless of whether the email matches an account (`passwords.sent` vs. silently no-op'ing for an unknown email look identical to the user, closing the obvious email-enumeration hole). `User::sendPasswordResetNotification($token)` is overridden to send our own branded `App\Mail\ResetPassword` Mailable instead of Fortify/Notifiable's default Markdown notification, keeping the same `emails.layout` wrapper as `LoginOtp`/`AccountOnboarding`. Token is single-use (deleted from `password_reset_tokens` on success) and expires in 60 minutes (`config('auth.passwords.users.expire')`, framework default, unchanged). `ForgotPasswordController::reset()` also rotates `remember_token` on success, invalidating any existing "remember me" cookies for that account. **Never auto-logs in** — `Password::reset()`'s callback only saves the new password; the controller redirects to `/login`, so a reset always re-enters the normal email + password + OTP sequence from a clean slate, same as any other sign-in. Routes: `GET/POST /forgot-password` (`password.request`/`password.email`), `GET/POST /reset-password{/token}` (`password.reset`/`password.update`) — all `guest`-only, all behind the new `password-reset` rate limiter (same dual-key email+IP / IP-only shape as `login`, see Rate limiting below).
+- **Admin-initiated password reset (M95, 2026-08-29).** The user edit page (`/admin/users/{user}/edit`) has two admin-only actions using the same broker as the self-service flow above. `UserManagementController::sendPasswordReset()` calls `Password::sendResetLink()` for the target user — the officer gets the normal reset email without visiting the login page first. `UserManagementController::passwordResetLink()` calls `Password::createToken()` directly and returns the reset URL as JSON instead of emailing it, so an admin can hand the link to an officer who can't reach their inbox through another channel. Both reuse the existing `password_reset_tokens` table, 60-minute expiry, and single-use token — there's no separate mechanism to keep in sync with the self-service flow. Routes: `POST /admin/users/{user}/send-password-reset` (`admin.users.send-password-reset`), `POST /admin/users/{user}/password-reset-link` (`admin.users.password-reset-link`), both under the standard `admin.*` group (`auth`, `is_admin`, `throttle:mutations`).
 - Mail: `app/Mail/AccountOnboarding.php`, `app/Mail/LoginOtp.php`, `app/Mail/ResetPassword.php`, all `->view()`-based (not Markdown mail), all extending `resources/views/emails/layout.blade.php` (shared inline-CSS wrapper — email clients don't support Tailwind). Transport-agnostic by design: `.env`'s `MAIL_MAILER` picks `resend` (needs `RESEND_API_KEY`, `composer.json` has `resend/resend-php` — NOT `symfony/resend-mailer`, which looks right but isn't what Laravel's own `MailManager::createResendTransport()` actually instantiates) or `smtp` (NIC/Gmail/etc, `MAIL_HOST`/`PORT`/`USERNAME`/`PASSWORD`) — neither Mailable references a transport directly, both just call through `Mail::to()->send()`. Currently active in production with a real Resend key.
 - **Profile self-edit** (`GET /profile/edit`, `PATCH /profile`) — any authenticated user may edit their own name, username, email, mobile, post, and password. Role, privileges, department, and section are read-only (admin-assigned). Validated by `UpdateProfileRequest` which scopes uniqueness checks to `auth()->user()->id` and has no role/privilege fields. The `admin.users.edit` / `admin.users.update` routes are strictly admin-only and must not be used for self-editing by non-admins.
 - Sidebar avatar and name are clickable links: admins → `admin.users.edit` for their own record; non-admins → `profile.edit`.

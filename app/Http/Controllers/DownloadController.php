@@ -35,11 +35,17 @@ class DownloadController extends Controller
             return [];
         }
 
-        return $folder->documents()->publishable()
+        $entries = $folder->documents()->publishable()
             ->when($this->isGuest(), fn ($q) => $q->where('visibility', 'public'))
             ->get()
             ->map(fn ($doc) => ['document' => $doc, 'dir' => $dir])
             ->all();
+
+        foreach ($folder->children as $child) {
+            $entries = [...$entries, ...$this->folderEntries($child, trim("{$dir}/".Str::slug($child->name), '/'))];
+        }
+
+        return $entries;
     }
 
     /** @return array<int, array{document: \App\Models\Document, dir: string}> */

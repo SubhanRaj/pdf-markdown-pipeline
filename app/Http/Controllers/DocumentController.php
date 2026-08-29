@@ -61,6 +61,275 @@ class DocumentController extends Controller
         abort_unless($context !== null && $user->hasPrivilege('documents.edit') && $user->canUploadTo($context), 403);
     }
 
+    /**
+     * Move/copy destination picker for the edit page — this department's own section/division/
+     * folder/subfolder tree, pruned to what the current user may actually upload to (same tree
+     * the bulk-upload picker uses). Null for a rule-set/policy document (out of scope — those
+     * live under a department-wide container, not a section/division/folder), when the user
+     * lacks the 'documents.move' privilege, or when they have no upload scope in this department.
+     */
+    private function moveTargetTree(Document $document): ?array
+    {
+        $user = auth()->user();
+
+        if ($document->rule_set_id !== null || ! ($user->isAdmin() || $user->hasPrivilege('documents.move'))) {
+            return null;
+        }
+
+        $tree = $this->buildUploadScopeTree($user);
+
+        return collect($tree)->firstWhere('id', $document->department_id);
+    }
+
+    /**
+     * Same authorize() logic move()/copy() both need, kept separate from authorizeEdit() —
+     * relocating a document's file is gated on 'documents.move', not 'documents.edit'.
+     */
+    private function authorizeMove(Document $document): void
+    {
+        $user = auth()->user();
+
+        if ($user->isAdmin()) {
+            return;
+        }
+
+        $context = $document->folder ?? $document->division ?? $document->section;
+
+        abort_unless($context !== null && $user->canMoveDocument($context), 403);
+    }
+
+    /** @return array{0: string, 1: Section|Division|Folder} */
+    private function resolveMoveTarget(Request $request): array
+    {
+        $data = $request->validate([
+            'target_type' => ['required', 'in:section,division,folder'],
+            'target_id'   => ['required', 'integer'],
+        ]);
+
+        $target = match ($data['target_type']) {
+            'section'  => Section::with('department')->findOrFail($data['target_id']),
+            'division' => Division::with('section.department')->findOrFail($data['target_id']),
+            'folder'   => Folder::with('division.section.department', 'section.department')->findOrFail($data['target_id']),
+        };
+
+        return [$data['target_type'], $target];
+    }
+
+    /** @return array{0: Department, 1: Section, 2: ?Division, 3: ?Folder, 4: string} */
+    private function vaultContextFor(string $type, Section|Division|Folder $target): array
+    {
+        if ($type === 'folder') {
+            $folder     = $target;
+            $section    = $folder->section;
+            $division   = $folder->division;
+            $department = $section->department;
+            $vaultDir   = implode('/', array_filter([
+                'document_vault', $department->level, $department->slug, $section->wing, $section->slug,
+                $division ? 'divisions' : null, $division?->slug, 'folders', $folder->slug,
+            ]));
+
+            return [$department, $section, $division, $folder, $vaultDir];
+        }
+
+        if ($type === 'division') {
+            $division   = $target;
+            $section    = $division->section;
+            $department = $section->department;
+            $vaultDir   = implode('/', array_filter([
+                'document_vault', $department->level, $department->slug, $section->wing, $section->slug,
+                'divisions', $division->slug,
+            ]));
+
+            return [$department, $section, $division, null, $vaultDir];
+        }
+
+        $section    = $target;
+        $department = $section->department;
+        $vaultDir   = implode('/', array_filter([
+            'document_vault', $department->level, $department->slug, $section->wing, $section->slug,
+        ]));
+
+        return [$department, $section, null, null, $vaultDir];
+    }
+
+    /** @return array{0: string, 1: array} route name + params for this document's own show page. */
+    private function showRouteFor(Document $document): array
+    {
+        $department = $document->department;
+        $levelAlias = $department->levelAlias();
+
+        if ($document->folder_id) {
+            return $document->division_id
+                ? ['documents.divisions.folders.show', [$levelAlias, $department, $document->section, $document->division, $document->folder, $document]]
+                : ['documents.folders.show', [$levelAlias, $department, $document->section, $document->folder, $document]];
+        }
+
+        if ($document->division_id) {
+            return ['documents.divisions.show', [$levelAlias, $department, $document->section, $document->division, $document]];
+        }
+
+        return ['documents.show', [$levelAlias, $department, $document->section, $document]];
+    }
+
+    /** Guards shared by move() and copy() — same reasons either action can't apply. */
+    private function guardMovable(Document $document): void
+    {
+        abort_if($document->rule_set_id !== null, 422, 'Rule-set/policy documents cannot be moved or copied here.');
+        abort_if($document->parent_id !== null, 422, 'An amendment can\'t be moved on its own — move its root document instead, and its amendments go with it.');
+    }
+
+    /** Moves one document's files into $vaultDir under $newSlug; returns the changed path columns. */
+    private function relocateDocumentFiles(Document $document, string $vaultDir, string $newSlug): array
+    {
+        $paths = ['slug' => $newSlug];
+
+        foreach (['original_pdf_path', 'markdown_path'] as $field) {
+            $old = $document->{$field};
+            if ($old && Storage::disk('public')->exists($old)) {
+                $new = $vaultDir.'/'.basename($old);
+                Storage::disk('public')->move($old, $new);
+                $paths[$field] = $new;
+            }
+        }
+
+        return $paths;
+    }
+
+    /** Copies one document's files into $vaultDir under $newSlug; returns the new Document row. */
+    private function duplicateDocument(Document $source, string $vaultDir, string $newSlug, array $overrides, int $actorId): Document
+    {
+        $paths = [];
+        foreach (['original_pdf_path', 'markdown_path'] as $field) {
+            $old = $source->{$field};
+            if ($old && Storage::disk('public')->exists($old)) {
+                $new = $vaultDir.'/'.pathinfo($old, PATHINFO_FILENAME).'_copy_'.now()->format('YmdHis').'.'.pathinfo($old, PATHINFO_EXTENSION);
+                Storage::disk('public')->copy($old, $new);
+                $paths[$field] = $new;
+            }
+        }
+
+        $copy = Document::create([
+            ...$overrides,
+            'user_id'           => $actorId,
+            'title'             => $source->title,
+            'slug'              => $newSlug,
+            'document_type'     => $source->document_type,
+            'language'          => $source->language,
+            'original_filename' => $source->original_filename,
+            'original_pdf_path' => $paths['original_pdf_path'] ?? $source->original_pdf_path,
+            'markdown_path'     => $paths['markdown_path'] ?? null,
+            'status'            => $source->status,
+            'visibility'        => $source->visibility,
+            'metadata'          => $source->metadata,
+        ]);
+
+        DocumentStatusHistory::create([
+            'document_id' => $copy->id,
+            'actor_id'    => $actorId,
+            'from_status' => null,
+            'to_status'   => $copy->status,
+            'note'        => "Copied from \"{$source->title}\" (#{$source->id}).",
+        ]);
+
+        return $copy;
+    }
+
+    /**
+     * Relocates a document (and its files) to another section/division/folder in the SAME
+     * department. Cross-department moves aren't offered — a document's department is tied to
+     * where its file physically lives on disk and to who may administer it, so hopping
+     * departments is a delete-and-reupload, not a move.
+     */
+    public function move(Request $request, string $id): RedirectResponse
+    {
+        $document = Document::with(['section.department', 'division.section.department', 'folder.division.section.department', 'folder.section.department', 'amendments'])->findOrFail($id);
+        $this->authorizeMove($document);
+        $this->guardMovable($document);
+
+        [$type, $target] = $this->resolveMoveTarget($request);
+        [$department, $section, $division, $folder, $vaultDir] = $this->vaultContextFor($type, $target);
+
+        abort_unless($department->id === $document->department_id, 422);
+        abort_unless(auth()->user()->canUploadTo($folder ?? $division ?? $section), 403);
+
+        $slugFor = fn (string $title) => match ($type) {
+            'folder'   => Document::uniqueSlugForFolder($title, $folder->id),
+            'division' => Document::uniqueSlugForDivision($title, $division->id),
+            'section'  => Document::uniqueSlugForSection($title, $section->id),
+        };
+
+        // An amendment lives wherever its root document lives — move it along, not just the root.
+        DB::transaction(function () use ($document, $section, $division, $folder, $vaultDir, $slugFor) {
+            $context = [
+                'section_id'  => $section->id,
+                'division_id' => $division?->id,
+                'folder_id'   => $folder?->id,
+                'vault_path'  => $vaultDir,
+            ];
+
+            $document->update([...$this->relocateDocumentFiles($document, $vaultDir, $slugFor($document->title)), ...$context]);
+
+            foreach ($document->amendments as $amendment) {
+                $amendment->update([...$this->relocateDocumentFiles($amendment, $vaultDir, $slugFor($amendment->title)), ...$context]);
+            }
+        });
+
+        $amendmentCount = $document->amendments->count();
+        flash()->success("\"{$document->title}\" moved".($amendmentCount ? " with its {$amendmentCount} amendment(s)" : '').'.');
+        [$routeName, $params] = $this->showRouteFor($document->fresh(['section', 'division', 'folder']));
+
+        return redirect()->route($routeName, $params);
+    }
+
+    /**
+     * Duplicates a document's file(s) and metadata into another section/division/folder in the
+     * SAME department, as a second, independent Document row — the original is untouched.
+     */
+    public function copy(Request $request, string $id): RedirectResponse
+    {
+        $document = Document::with(['section.department', 'division.section.department', 'folder.division.section.department', 'folder.section.department', 'amendments'])->findOrFail($id);
+        $this->authorizeMove($document);
+        $this->guardMovable($document);
+
+        [$type, $target] = $this->resolveMoveTarget($request);
+        [$department, $section, $division, $folder, $vaultDir] = $this->vaultContextFor($type, $target);
+
+        abort_unless($department->id === $document->department_id, 422);
+        abort_unless(auth()->user()->canUploadTo($folder ?? $division ?? $section), 403);
+
+        $slugFor = fn (string $title) => match ($type) {
+            'folder'   => Document::uniqueSlugForFolder($title, $folder->id),
+            'division' => Document::uniqueSlugForDivision($title, $division->id),
+            'section'  => Document::uniqueSlugForSection($title, $section->id),
+        };
+
+        $copy = null;
+
+        // An amendment's copy stays attached to its root's copy — copying only the root would
+        // otherwise strand the amendments behind at the old location with no thread to belong to.
+        DB::transaction(function () use ($request, $document, $department, $section, $division, $folder, $vaultDir, $slugFor, &$copy) {
+            $context = [
+                'department_id' => $department->id,
+                'section_id'    => $section->id,
+                'division_id'   => $division?->id,
+                'folder_id'     => $folder?->id,
+                'vault_path'    => $vaultDir,
+            ];
+
+            $copy = $this->duplicateDocument($document, $vaultDir, $slugFor($document->title), $context, $request->user()->id);
+
+            foreach ($document->amendments as $amendment) {
+                $this->duplicateDocument($amendment, $vaultDir, $slugFor($amendment->title), [...$context, 'parent_id' => $copy->id], $request->user()->id);
+            }
+        });
+
+        $amendmentCount = $document->amendments->count();
+        flash()->success("\"{$document->title}\" copied".($amendmentCount ? " with its {$amendmentCount} amendment(s)" : '').'.');
+        [$routeName, $params] = $this->showRouteFor($copy->fresh(['section', 'division', 'folder']));
+
+        return redirect()->route($routeName, $params);
+    }
+
     public function bulkUploadForm(): View
     {
         $user = auth()->user();
@@ -543,8 +812,9 @@ class DocumentController extends Controller
     public function edit(string $level, Department $department, Section $section, Document $document): View
     {
         $this->authorizeEdit($document);
+        $moveTree = $this->moveTargetTree($document);
 
-        return view('documents.edit', compact('document', 'department', 'section'));
+        return view('documents.edit', compact('document', 'department', 'section', 'moveTree'));
     }
 
     public function update(UpdateDocumentRequest $request, string $level, Department $department, Section $section, Document $document): RedirectResponse
@@ -948,8 +1218,9 @@ class DocumentController extends Controller
     public function editRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): View
     {
         $this->authorizeEdit($document);
+        $moveTree = $this->moveTargetTree($document);
 
-        return view('documents.edit', compact('document', 'department', 'ruleSet'));
+        return view('documents.edit', compact('document', 'department', 'ruleSet', 'moveTree'));
     }
 
     public function updateRuleSetDoc(UpdateDocumentRequest $request, string $level, Department $department, RuleSet $ruleSet, Document $document): RedirectResponse
@@ -1038,8 +1309,9 @@ class DocumentController extends Controller
     public function editDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): View
     {
         $this->authorizeEdit($document);
+        $moveTree = $this->moveTargetTree($document);
 
-        return view('documents.edit', compact('document', 'department', 'section', 'division'));
+        return view('documents.edit', compact('document', 'department', 'section', 'division', 'moveTree'));
     }
 
     public function updateDivisionDoc(UpdateDocumentRequest $request, string $level, Department $department, Section $section, Division $division, Document $document): RedirectResponse
@@ -1128,8 +1400,9 @@ class DocumentController extends Controller
     public function editSectionFolderDoc(string $level, Department $department, Section $section, Folder $folder, Document $document): View
     {
         $this->authorizeEdit($document);
+        $moveTree = $this->moveTargetTree($document);
 
-        return view('documents.edit', compact('document', 'department', 'section', 'folder'));
+        return view('documents.edit', compact('document', 'department', 'section', 'folder', 'moveTree'));
     }
 
     public function updateSectionFolderDoc(UpdateDocumentRequest $request, string $level, Department $department, Section $section, Folder $folder, Document $document): RedirectResponse
@@ -1218,8 +1491,9 @@ class DocumentController extends Controller
     public function editDivisionFolderDoc(string $level, Department $department, Section $section, Division $division, Folder $folder, Document $document): View
     {
         $this->authorizeEdit($document);
+        $moveTree = $this->moveTargetTree($document);
 
-        return view('documents.edit', compact('document', 'department', 'section', 'division', 'folder'));
+        return view('documents.edit', compact('document', 'department', 'section', 'division', 'folder', 'moveTree'));
     }
 
     public function updateDivisionFolderDoc(UpdateDocumentRequest $request, string $level, Department $department, Section $section, Division $division, Folder $folder, Document $document): RedirectResponse

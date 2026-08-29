@@ -38,6 +38,6 @@ class Section extends Model
     /** Direct section folders only (division_id IS NULL). */
     public function folders(): HasMany
     {
-        return $this->hasMany(Folder::class)->whereNull('division_id')->orderBy('name');
+        return $this->hasMany(Folder::class)->whereNull('division_id')->whereNull('parent_id')->orderBy('name');
     }
 }

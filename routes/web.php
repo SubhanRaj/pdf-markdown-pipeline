@@ -130,6 +130,9 @@ Route::prefix('departments')->name('departments.')->group(function () {
                 Route::get('/create',   [FolderController::class, 'createForDivision'])->name('create')->middleware(['auth', 'throttle:mutations']);
                 Route::get('/{folder}', [FolderController::class, 'showForDivision'])->name('show');
                 Route::get('/{folder}/download', [DownloadController::class, 'divisionFolder'])->name('download');
+                // Subfolders — one level deep. Show/edit/download reuse the routes above,
+                // since a subfolder is bound as {folder} the same as a root folder.
+                Route::get('/{folder}/subfolders/create', [FolderController::class, 'createSubfolderForDivision'])->name('subfolders.create')->middleware(['auth', 'throttle:mutations']);
             });
         });
         // Section folders — public show only
@@ -137,6 +140,8 @@ Route::prefix('departments')->name('departments.')->group(function () {
             Route::get('/create',   [FolderController::class, 'create'])->name('create')->middleware(['auth', 'throttle:mutations']);
             Route::get('/{folder}', [FolderController::class, 'show'])->name('show');
             Route::get('/{folder}/download', [DownloadController::class, 'folder'])->name('download');
+            // Subfolders — one level deep. Show/edit/download reuse the routes above.
+            Route::get('/{folder}/subfolders/create', [FolderController::class, 'createSubfolder'])->name('subfolders.create')->middleware(['auth', 'throttle:mutations']);
         });
     });
 
@@ -216,6 +221,9 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
         Route::patch('/{id}/markdown',             [DocumentController::class, 'updateMarkdown'])->where('id', '[0-9]+')->name('markdown.update');
         Route::post('/{id}/verify',                [DocumentController::class, 'verify'])->where('id', '[0-9]+')->name('verify');
         Route::delete('/{id}/markdown',            [DocumentController::class, 'discardMarkdown'])->where('id', '[0-9]+')->name('markdown.discard');
+        // Move/copy to another section/division/folder — same department only (see guardMovable()).
+        Route::post('/{id}/move',                  [DocumentController::class, 'move'])->where('id', '[0-9]+')->name('move');
+        Route::post('/{id}/copy',                  [DocumentController::class, 'copy'])->where('id', '[0-9]+')->name('copy');
         Route::post('/', [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads');
         Route::get('/{level}/{department}/{section}/{document}/review', [DocumentController::class, 'edit'])->name('edit');
         Route::patch('/{level}/{department}/{section}/{document}',      [DocumentController::class, 'update'])->name('update');
@@ -288,6 +296,8 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
                     Route::get('/{folder}/edit',  [FolderController::class, 'editForDivision'])->name('edit');
                     Route::patch('/{folder}',     [FolderController::class, 'updateForDivision'])->name('update');
                     Route::delete('/{folder}',    [FolderController::class, 'destroyForDivision'])->name('destroy');
+                    // Subfolders — edit/update/destroy reuse the routes above.
+                    Route::post('/{folder}/subfolders', [FolderController::class, 'storeSubfolderForDivision'])->name('subfolders.store');
                 });
             });
 
@@ -297,6 +307,8 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
                 Route::get('/{folder}/edit',  [FolderController::class, 'edit'])->name('edit');
                 Route::patch('/{folder}',     [FolderController::class, 'update'])->name('update');
                 Route::delete('/{folder}',    [FolderController::class, 'destroy'])->name('destroy');
+                // Subfolders — edit/update/destroy reuse the routes above.
+                Route::post('/{folder}/subfolders', [FolderController::class, 'storeSubfolder'])->name('subfolders.store');
             });
         });
 
@@ -359,6 +371,8 @@ Route::prefix('admin')->name('admin.')->middleware(['auth', 'is_admin', 'throttl
         Route::patch('/{user}',    [UserManagementController::class, 'update'])->name('update');
         Route::delete('/{user}',   [UserManagementController::class, 'destroy'])->name('destroy');
         Route::post('/{user}/resend-activation', [UserManagementController::class, 'resendActivation'])->name('resend-activation');
+        Route::post('/{user}/send-password-reset', [UserManagementController::class, 'sendPasswordReset'])->name('send-password-reset');
+        Route::post('/{user}/password-reset-link', [UserManagementController::class, 'passwordResetLink'])->name('password-reset-link');
     });
 
     // Designations — admin-managed presets mapping real-world posts to default scope/privileges

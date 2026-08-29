@@ -1,5 +1,6 @@
 @php
     $isDivisionFolder = isset($division) && $division !== null;
+    $isSubfolder = $folder->parent_id !== null;
     $editUrl = $isDivisionFolder
         ? route('departments.sections.divisions.folders.edit', [$department->levelAlias(), $department, $section, $division, $folder])
         : route('departments.sections.folders.edit', [$department->levelAlias(), $department, $section, $folder]);
@@ -12,6 +13,24 @@
     $downloadUrl = $isDivisionFolder
         ? route('departments.sections.divisions.folders.download', [$department->levelAlias(), $department, $section, $division, $folder])
         : route('departments.sections.folders.download', [$department->levelAlias(), $department, $section, $folder]);
+    $createSubfolderUrl = $isDivisionFolder
+        ? route('departments.sections.divisions.folders.subfolders.create', [$department->levelAlias(), $department, $section, $division, $folder])
+        : route('departments.sections.folders.subfolders.create', [$department->levelAlias(), $department, $section, $folder]);
+    $subfolderShowUrl = fn ($sub) => $isDivisionFolder
+        ? route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $sub])
+        : route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $sub]);
+    $parentUrl = $isSubfolder ? $subfolderShowUrl($folder->parent) : null;
+    $subfolderStoreUrl = $isSubfolder ? null : ($isDivisionFolder
+        ? route('departments.sections.divisions.folders.subfolders.store', [$department->levelAlias(), $department, $section, $division, $folder])
+        : route('departments.sections.folders.subfolders.store', [$department->levelAlias(), $department, $section, $folder]));
+    $pageData = [
+        'storeUrl' => route('documents.store'),
+        'csrfToken' => csrf_token(),
+        'parentOptions' => $parentOptions,
+        'currentFolderId' => $folder->id,
+        'isSubfolder' => $isSubfolder,
+        'subfolderStoreUrl' => $subfolderStoreUrl,
+    ];
 @endphp
 <x-layout
     :title="$folder->name"
@@ -26,10 +45,11 @@
     ['name' => $department->name,            'url' => route('departments.show', [$department->levelAlias(), $department])],
     ['name' => $section->name,               'url' => route('departments.sections.show', [$department->levelAlias(), $department, $section])],
     ...($isDivisionFolder ? [['name' => $division->name, 'url' => route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division])]] : []),
+    ...($isSubfolder ? [['name' => $folder->parent->name, 'url' => $parentUrl]] : []),
     ['name' => $folder->name,                'url' => null],
 ]" />
 
-<script id="page-data" type="application/json">@json(['storeUrl' => route('documents.store'), 'csrfToken' => csrf_token(), 'parentOptions' => $parentOptions])</script>
+<script id="page-data" type="application/json">@json($pageData)</script>
 
 {{-- ── Folder header ────────────────────────────────────────────────────────── --}}
 <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
@@ -63,6 +83,10 @@
                 <span class="text-slate-300 dark:text-slate-600">›</span>
                 <a href="{{ route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division]) }}" class="text-xs text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors">{{ $division->name }}</a>
                 @endif
+                @if($isSubfolder)
+                <span class="text-slate-300 dark:text-slate-600">›</span>
+                <a href="{{ $parentUrl }}" class="text-xs text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors">{{ $folder->parent->name }}</a>
+                @endif
                 <span class="text-slate-300 dark:text-slate-600">·</span>
                 <span class="text-xs text-slate-400 dark:text-slate-500">{{ $totalCount }} {{ Str::plural('document', $totalCount) }}</span>
             </div>
@@ -86,6 +110,13 @@
             <i class="ti ti-upload text-base"></i>
             <span class="hidden sm:inline">Upload Document</span>
         </button>
+        @if(!$isSubfolder)
+        <a href="{{ $createSubfolderUrl }}"
+           class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-cyan-400 dark:hover:border-cyan-500 text-slate-600 dark:text-slate-300 hover:text-cyan-600 dark:hover:text-cyan-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
+            <i class="ti ti-folder-plus text-base"></i>
+            <span class="hidden sm:inline">Add Subfolder</span>
+        </a>
+        @endif
         @endif
         @if(auth()->user()->isAdmin() || auth()->user()->canUploadTo($folder))
         <a href="{{ $editUrl }}"
@@ -93,7 +124,7 @@
             <i class="ti ti-pencil text-base"></i>
         </a>
         @endif
-        @if(auth()->user()->isAdmin())
+        @if(auth()->user()->canDeleteFolder($folder))
         <button type="button" id="delete-folder-btn"
                 class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-red-400 dark:hover:border-red-500 text-slate-600 dark:text-slate-300 hover:text-red-600 dark:hover:text-red-400 text-sm font-medium px-3 py-2 rounded-lg transition-all">
             <i class="ti ti-trash text-base"></i>
@@ -136,6 +167,16 @@
                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif"
                            style="display:none">
                 </div>
+                <button type="button" id="fld-folder-btn" onclick="document.getElementById('fld-folder-input').click()"
+                        class="text-xs text-cyan-600 dark:text-cyan-400 hover:underline flex items-center justify-center gap-1 flex-shrink-0">
+                    <i class="ti ti-folder-up"></i> Or upload a whole folder
+                </button>
+                <input type="file" id="fld-folder-input" webkitdirectory directory multiple style="display:none">
+                @if(!$isSubfolder)
+                <p class="text-[11px] text-slate-400 dark:text-slate-500 text-center -mt-1">The picked folder becomes a subfolder here (reusing one with the same name if it exists). Everything inside it, at any depth, goes into that one subfolder.</p>
+                @else
+                <p class="text-[11px] text-slate-400 dark:text-slate-500 text-center -mt-1">This is already a subfolder, so every file in the picked folder (and any of its own subfolders) is placed here directly.</p>
+                @endif
                 <div id="fld-queue-wrap" class="flex-1 overflow-hidden flex flex-col min-h-0" style="display:none">
                     <div class="flex items-center justify-between mb-1.5 flex-shrink-0">
                         <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
@@ -271,6 +312,27 @@
 </div>
 @endauth
 
+{{-- ── Subfolders ────────────────────────────────────────────────────────────── --}}
+@if($subfolders->isNotEmpty())
+<div class="mb-6">
+    <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Subfolders</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        @foreach($subfolders as $sub)
+        <a href="{{ $subfolderShowUrl($sub) }}"
+           class="flex items-center gap-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-cyan-400 dark:hover:border-cyan-500 rounded-xl px-4 py-3 transition-colors">
+            <div class="w-9 h-9 rounded-lg bg-cyan-500/10 dark:bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                <i class="ti ti-folder text-cyan-500 dark:text-cyan-400"></i>
+            </div>
+            <div class="min-w-0">
+                <p class="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{{ $sub->name }}</p>
+                <p class="text-xs text-slate-400 dark:text-slate-500">{{ $sub->documents_count }} {{ Str::plural('document', $sub->documents_count) }}</p>
+            </div>
+        </a>
+        @endforeach
+    </div>
+</div>
+@endif
+
 {{-- ── Documents ─────────────────────────────────────────────────────────────── --}}
 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
     <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between gap-4 flex-wrap">
@@ -320,6 +382,12 @@
         @else
         <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Documents will appear here once available.</p>
         @endauth
+    </div>
+    @elseif($rootDocuments->isEmpty())
+    <div class="flex flex-col items-center justify-center py-10 text-center">
+        <i class="ti ti-folder-share text-3xl text-slate-200 dark:text-slate-600 mb-3"></i>
+        <p class="text-sm text-slate-500 dark:text-slate-400">No documents directly in this folder</p>
+        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">All {{ $totalCount }} {{ Str::plural('document', $totalCount) }} are in the subfolder(s) above.</p>
     </div>
     @else
     <div class="divide-y divide-slate-100 dark:divide-slate-700/60">
@@ -414,7 +482,7 @@
         fldTitle.value = single ? uploadFiles[0].titleInput.value : '';
     }
 
-    function addFiles(files) {
+    function addFiles(files, folderId) {
         Array.from(files).forEach(file => {
             const row = document.createElement('div');
             row.className = 'queue-row flex items-start gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700';
@@ -451,7 +519,7 @@
             row.appendChild(icon); row.appendChild(meta);
             row.appendChild(statusBadge); row.appendChild(removeBtn);
             queueList.appendChild(row);
-            const item = { file, titleInput, titleWrap, statusBadge, row };
+            const item = { file, titleInput, titleWrap, statusBadge, row, folderId: folderId || null };
             uploadFiles.push(item);
             removeBtn.addEventListener('click', () => {
                 if (isUploading) return;
@@ -464,6 +532,67 @@
     }
 
     fileInput.addEventListener('change', () => { if (fileInput.files.length) addFiles(fileInput.files); fileInput.value = ''; });
+
+    // ── Folder upload (webkitdirectory) ─────────────────────────────────────
+    // Every browser exposing this gives each picked file a webkitRelativePath like
+    // "PickedFolder/file.pdf" or "PickedFolder/Sub/file.pdf" — parts[0] is the picked
+    // folder itself (not a real subfolder here), so a file lands one level deep at parts[1].
+    // Only one level of subfolder nesting exists app-wide, so anything deeper just collapses
+    // into that first-level subfolder instead of being rejected.
+    const folderInput = document.getElementById('fld-folder-input');
+    const subfolderCache = new Map();
+
+    async function ensureSubfolder(name) {
+        if (subfolderCache.has(name)) return subfolderCache.get(name);
+        const promise = (async () => {
+            if (!page.subfolderStoreUrl) return null;
+            try {
+                const fd = new FormData();
+                fd.append('_token', page.csrfToken);
+                fd.append('name', name);
+                fd.append('find_or_create', '1');
+                const res = await fetch(page.subfolderStoreUrl, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': page.csrfToken },
+                    body: fd,
+                });
+                const json = await res.json();
+                return res.ok ? json.id : null;
+            } catch (e) {
+                console.error('Subfolder create failed:', name, e);
+                return null;
+            }
+        })();
+        subfolderCache.set(name, promise);
+        return promise;
+    }
+
+    if (folderInput) {
+        folderInput.addEventListener('change', async () => {
+            const files = Array.from(folderInput.files);
+            folderInput.value = '';
+            if (!files.length) return;
+
+            if (page.isSubfolder || !page.subfolderStoreUrl) {
+                // Already one level deep — nowhere further to nest, flatten everything here.
+                addFiles(files, page.currentFolderId);
+                return;
+            }
+
+            // The picked folder itself becomes one subfolder here (named after it), and
+            // everything inside it — at any depth — lands inside that one subfolder, since
+            // only one level of nesting exists app-wide.
+            for (const file of files) {
+                const parts = (file.webkitRelativePath || file.name).split('/');
+                if (parts.length <= 1) {
+                    addFiles([file], page.currentFolderId);
+                } else {
+                    const id = await ensureSubfolder(parts[0]);
+                    addFiles([file], id || page.currentFolderId);
+                }
+            }
+        });
+    }
     dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.borderColor = '#0891b2'; });
     dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = ''; });
     dropZone.addEventListener('drop', e => {
@@ -529,7 +658,8 @@
                 fd.append('_token', page.csrfToken);
                 if (contextSectionId)  fd.append('section_id',  contextSectionId.value);
                 if (contextDivisionId) fd.append('division_id', contextDivisionId.value);
-                if (contextFolderId)   fd.append('folder_id',   contextFolderId.value);
+                const folderId = item.folderId || (contextFolderId ? contextFolderId.value : null);
+                if (folderId) fd.append('folder_id', folderId);
                 fd.append('title', title);
                 fd.append('document_type', typeEl.value);
                 fd.append('visibility', visibility);
@@ -595,13 +725,21 @@
     if (deleteBtn) {
         deleteBtn.addEventListener('click', function () {
             const isDark = document.documentElement.classList.contains('dark');
-            const docCount = {{ $totalCount }};
+            const docCount = {{ $deleteImpactCount }};
+            const subfolderCount = {{ $subfolders->count() }};
+            let warning;
+            if (docCount > 0 && subfolderCount > 0) {
+                warning = '<p class="text-sm text-red-500">This will also delete <strong>' + subfolderCount + ' subfolder(s)</strong> and move <strong>' + docCount + ' document(s)</strong> inside them to archive.</p>';
+            } else if (docCount > 0) {
+                warning = '<p class="text-sm text-red-500">This will also move <strong>' + docCount + ' document(s)</strong> to archive.</p>';
+            } else if (subfolderCount > 0) {
+                warning = '<p class="text-sm text-red-500">This will also delete <strong>' + subfolderCount + ' subfolder(s)</strong>.</p>';
+            } else {
+                warning = '<p class="text-sm text-gray-400">No documents are associated with this folder.</p>';
+            }
             Swal.fire({
                 title: 'Delete Folder?',
-                html: '<p class="text-sm mb-2">You are about to delete <strong>{{ e($folder->name) }}</strong>.</p>'
-                    + (docCount > 0
-                        ? '<p class="text-sm text-red-500">This will also move <strong>' + docCount + ' document(s)</strong> to archive.</p>'
-                        : '<p class="text-sm text-gray-400">No documents are associated with this folder.</p>'),
+                html: '<p class="text-sm mb-2">You are about to delete <strong>{{ e($folder->name) }}</strong>.</p>' + warning,
                 icon: 'warning',
                 showCancelButton: true,
                 confirmButtonText: 'Yes, delete it',

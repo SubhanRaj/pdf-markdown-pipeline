@@ -14,6 +14,8 @@ $privilegeLabels = [
     'documents.force-delete' => ['label' => 'Permanently delete (requires letter)', 'group' => 'Documents'],
     'documents.verify'       => ['label' => 'Verify / mark as verified',  'group' => 'Documents'],
     'documents.approve'      => ['label' => 'Approve / reject pending uploads', 'group' => 'Documents'],
+    'documents.move'         => ['label' => 'Move / copy a document to another location', 'group' => 'Documents'],
+    'folders.delete'         => ['label' => 'Delete folders (and everything inside them)', 'group' => 'Documents'],
     'section.head'           => ['label' => 'Section Head (create divisions in own section)', 'group' => 'Organisational'],
     'department.head'        => ['label' => 'Department Head (create sections/divisions in own dept)', 'group' => 'Organisational'],
     'organization.head'      => ['label' => 'Organisation Head (full access across all depts)', 'group' => 'Organisational'],

@@ -439,10 +439,17 @@ more times.
 | `DepartmentController` | `Store`/`UpdateDepartmentRequest`: `isAdmin() \|\| hasPrivilege('organization.head')` | `create()`, `edit()`, `destroy()` |
 | `SectionController` | `Store`/`UpdateSectionRequest`: `isAdmin() \|\| (department.head && department_id match)` | `create()`, `edit()`, `destroy()` |
 | `DivisionController` | `Store`/`UpdateDivisionRequest`: `isAdmin() \|\| (section.head && section_id match) \|\| (department.head && department_id match)` | `create()`, `edit()`, `destroy()` |
-| `FolderController` | `Store`/`UpdateFolderRequest`: `canUploadTo(division ?? section)` | `create()`, `edit()`, `destroy()`, `createForDivision()`, `editForDivision()`, `destroyForDivision()` |
+| `FolderController` | `Store`/`UpdateFolderRequest`: `canUploadTo(division ?? section)` | `create()`, `edit()`, `destroy()`†, `createForDivision()`, `editForDivision()`, `destroyForDivision()`† |
 | `DocumentController` | `UpdateDocumentRequest`: `isAdmin() \|\| (ruleSet.kind === 'policy' && canManagePolicy(ruleSet))` | `edit()`, `editRuleSetDoc()`, `editDivisionDoc()`, `editSectionFolderDoc()`, `editDivisionFolderDoc()` |
 
 `RuleSetController` (H-04) already covered `kind=rules`/`kind=policy` the same way.
+
+† Updated M94 (2026-08-27): `destroy()`/`destroyForDivision()` now go through a separate
+`authorizeDelete()` helper (`User::canDeleteFolder()` — the `folders.delete` privilege plus
+`canUploadTo()`), not the plain `canUploadTo()` gate this row originally described. Deleting a
+folder is destructive enough (subfolders and every document inside go with it) to warrant its own
+assignable privilege rather than reusing upload scope. `create()`/`edit()`/`createForDivision()`/
+`editForDivision()` are unaffected.
 
 **Verification:** exercised `Department::edit()` and `Section::edit()` live via `php artisan
 tinker` against real `User`/`Department`/`Section` records (read-only calls, no mutation) — a

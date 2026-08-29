@@ -44,28 +44,32 @@ trait BuildsUploadScopeTree
                 ->orderBy('name')
                 ->get()
                 ->map(function (Section $section) use ($scope, $user, $mapParentOptions) {
+                    // Subfolders — one level deep, see the folders.parent_id migration.
+                    $mapFolder = fn ($f) => [
+                        'id'            => $f->id,
+                        'name'          => $f->name,
+                        'parentOptions' => $mapParentOptions($f->documents()->whereNull('parent_id')),
+                        'subfolders'    => $f->children()->get()->map(fn ($c) => [
+                            'id'            => $c->id,
+                            'name'          => $c->name,
+                            'parentOptions' => $mapParentOptions($c->documents()->whereNull('parent_id')),
+                        ])->values(),
+                    ];
+
                     $divisions = $section->divisions()
                         ->when($scope === 'division', fn ($q) => $q->where('id', $user->division_id))
                         ->get()
                         ->map(fn (Division $division) => [
                             'id'      => $division->id,
                             'name'    => $division->name,
-                            'folders' => $division->folders()->get()->map(fn ($f) => [
-                                'id'            => $f->id,
-                                'name'          => $f->name,
-                                'parentOptions' => $mapParentOptions($f->documents()->whereNull('parent_id')),
-                            ])->values(),
+                            'folders' => $division->folders()->get()->map($mapFolder)->values(),
                         ])->values();
 
                     return [
                         'id'      => $section->id,
                         'name'    => $section->name,
                         'wing'    => $section->wing,
-                        'folders' => $scope === 'division' ? [] : $section->folders()->get()->map(fn ($f) => [
-                            'id'            => $f->id,
-                            'name'          => $f->name,
-                            'parentOptions' => $mapParentOptions($f->documents()->whereNull('parent_id')),
-                        ])->values(),
+                        'folders' => $scope === 'division' ? [] : $section->folders()->get()->map($mapFolder)->values(),
                         // Reused for the section itself AND every division under it —
                         // amendments are allowed to cross division boundaries within a section.
                         'parentOptions' => $mapParentOptions($section->documents()->whereNull('division_id')),

@@ -132,11 +132,14 @@ class SectionController extends Controller
             ->withCount(['documents' => $visibilityScope])
             ->get();
 
-        // Section folders (direct, not under a division) with document counts
+        // Section folders (direct, not under a division) with document counts — each count
+        // adds in the folder's own subfolder(s), on top of its direct documents.
         $folders = $section->folders()
             ->when($publicOnly, fn ($q) => $q->where('visibility', 'public'))
             ->withCount(['documents' => $visibilityScope])
-            ->get();
+            ->with(['children' => fn ($q) => $q->withCount(['documents' => $visibilityScope])])
+            ->get()
+            ->each(fn ($f) => $f->documents_count += $f->children->sum('documents_count'));
 
         // For the "Amends" dropdown in the upload modal — direct section docs only
         $parentOptions = auth()->check() && ! $publicOnly

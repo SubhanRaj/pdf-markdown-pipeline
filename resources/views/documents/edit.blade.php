@@ -231,6 +231,58 @@
 
         </form>
     </div>
+
+    @php
+        $canMove = $moveTree && $document->parent_id === null;
+        $amendmentCount = $canMove ? $document->amendments()->count() : 0;
+    @endphp
+    @if($canMove)
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 mt-6">
+        <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+            <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <i class="ti ti-arrows-right-left text-indigo-500"></i> Move / Copy
+            </h3>
+            <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                Relocate or duplicate this document to another section, division, or folder within {{ $department->name }}. Cross-department moves aren't supported.
+                @if($amendmentCount)
+                Its {{ $amendmentCount }} {{ Str::plural('amendment', $amendmentCount) }} {{ $amendmentCount === 1 ? 'goes' : 'go' }} with it.
+                @endif
+            </p>
+        </div>
+        <div class="px-6 py-5 space-y-4">
+            <div>
+                <label for="move-section" class="field-label">Section</label>
+                <select id="move-section" class="field-input mt-1"></select>
+            </div>
+            <div id="move-division-wrap" style="display:none">
+                <label for="move-division" class="field-label">Division <span class="text-slate-400 font-normal">(optional)</span></label>
+                <select id="move-division" class="field-input mt-1"></select>
+            </div>
+            <div id="move-folder-wrap" style="display:none">
+                <label for="move-folder" class="field-label">Folder <span class="text-slate-400 font-normal">(optional)</span></label>
+                <select id="move-folder" class="field-input mt-1"></select>
+            </div>
+            <div id="move-subfolder-wrap" style="display:none">
+                <label for="move-subfolder" class="field-label">Subfolder <span class="text-slate-400 font-normal">(optional)</span></label>
+                <select id="move-subfolder" class="field-input mt-1"></select>
+            </div>
+            <div id="move-err" class="field-err-msg" style="display:none"></div>
+            <div class="flex items-center gap-3 pt-1">
+                <button type="button" id="move-btn"
+                        class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                    <i class="ti ti-folder-symlink text-base"></i> Move here
+                </button>
+                <button type="button" id="copy-btn"
+                        class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                    <i class="ti ti-copy text-base"></i> Copy here
+                </button>
+            </div>
+        </div>
+    </div>
+    <script id="move-tree-data" type="application/json">@json($moveTree)</script>
+    <form id="move-form" method="POST" action="{{ route('documents.move', $document->id) }}" style="display:none">@csrf</form>
+    <form id="copy-form" method="POST" action="{{ route('documents.copy', $document->id) }}" style="display:none">@csrf</form>
+    @endif
 </div>
 
 @push('scripts')
@@ -269,6 +321,114 @@ try {
     console.error('Edit doc form init failed:', err);
 }
 </script>
+
+@if($canMove)
+<script>
+(function () {
+    let tree;
+    try { tree = JSON.parse(document.getElementById('move-tree-data').textContent); }
+    catch (e) { console.error('move-tree-data parse failed', e); return; }
+
+    const sectionSel    = document.getElementById('move-section');
+    const divisionSel   = document.getElementById('move-division');
+    const folderSel     = document.getElementById('move-folder');
+    const subfolderSel  = document.getElementById('move-subfolder');
+    const divisionWrap  = document.getElementById('move-division-wrap');
+    const folderWrap    = document.getElementById('move-folder-wrap');
+    const subfolderWrap = document.getElementById('move-subfolder-wrap');
+    const errBox        = document.getElementById('move-err');
+
+    function fillOptions(select, items, placeholder) {
+        select.innerHTML = '';
+        if (placeholder) {
+            const opt = document.createElement('option');
+            opt.value = ''; opt.textContent = placeholder;
+            select.appendChild(opt);
+        }
+        items.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.id; opt.textContent = item.name;
+            select.appendChild(opt);
+        });
+    }
+
+    function currentSection() {
+        return (tree.sections || []).find(s => String(s.id) === sectionSel.value);
+    }
+    function currentDivision() {
+        const sec = currentSection();
+        return sec && divisionSel.value ? (sec.divisions || []).find(d => String(d.id) === divisionSel.value) : null;
+    }
+    function currentFolder() {
+        const div = currentDivision();
+        const sec = currentSection();
+        const folders = div ? (div.folders || []) : (sec ? (sec.folders || []) : []);
+        return folderSel.value ? folders.find(f => String(f.id) === folderSel.value) : null;
+    }
+
+    function onSectionChange() {
+        const sec = currentSection();
+        const divisions = sec ? (sec.divisions || []) : [];
+        divisionWrap.style.display = divisions.length ? '' : 'none';
+        fillOptions(divisionSel, divisions, '— Direct in section —');
+        onDivisionChange();
+    }
+
+    function onDivisionChange() {
+        const sec = currentSection();
+        const div = currentDivision();
+        const folders = div ? (div.folders || []) : (sec ? (sec.folders || []) : []);
+        folderWrap.style.display = folders.length ? '' : 'none';
+        fillOptions(folderSel, folders, '— None —');
+        onFolderChange();
+    }
+
+    function onFolderChange() {
+        const folder = currentFolder();
+        const subfolders = folder ? (folder.subfolders || []) : [];
+        subfolderWrap.style.display = subfolders.length ? '' : 'none';
+        fillOptions(subfolderSel, subfolders, '— None —');
+    }
+
+    fillOptions(sectionSel, tree.sections || [], null);
+    onSectionChange();
+
+    sectionSel.addEventListener('change', onSectionChange);
+    divisionSel.addEventListener('change', onDivisionChange);
+    folderSel.addEventListener('change', onFolderChange);
+
+    function resolveTarget() {
+        if (subfolderSel.value) return { type: 'folder', id: subfolderSel.value };
+        if (folderSel.value)    return { type: 'folder', id: folderSel.value };
+        if (divisionSel.value)  return { type: 'division', id: divisionSel.value };
+        if (sectionSel.value)   return { type: 'section', id: sectionSel.value };
+        return null;
+    }
+
+    function submitTo(formId) {
+        errBox.style.display = 'none';
+        const target = resolveTarget();
+        if (!target) { errBox.textContent = 'Pick a destination first.'; errBox.style.display = 'block'; return; }
+
+        const form = document.getElementById(formId);
+        ['target_type', 'target_id'].forEach(name => {
+            let input = form.querySelector(`[name="${name}"]`);
+            if (!input) {
+                input = document.createElement('input');
+                input.type = 'hidden'; input.name = name;
+                form.appendChild(input);
+            }
+        });
+        form.querySelector('[name="target_type"]').value = target.type;
+        form.querySelector('[name="target_id"]').value = target.id;
+        form.submit();
+    }
+
+    document.getElementById('move-btn').addEventListener('click', () => submitTo('move-form'));
+    document.getElementById('copy-btn').addEventListener('click', () => submitTo('copy-form'));
+})();
+</script>
+@endif
 @endpush
 
 </x-layout>

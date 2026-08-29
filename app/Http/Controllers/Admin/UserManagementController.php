@@ -12,11 +12,13 @@ use App\Models\Designation;
 use App\Models\Division;
 use App\Models\Section;
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
@@ -117,6 +119,28 @@ class UserManagementController extends Controller
         $url = URL::temporarySignedRoute('onboarding.show', now()->addHours(72), ['user' => $user->id]);
 
         Mail::to($user->email)->send(new AccountOnboarding($user, $url));
+    }
+
+    /** Email a password reset link to the user, same flow as "Forgot password" on the login page. */
+    public function sendPasswordReset(User $user): RedirectResponse
+    {
+        Password::sendResetLink(['email' => $user->email]);
+
+        flash()->success("Password reset link sent to {$user->email}.");
+
+        return back();
+    }
+
+    /**
+     * Return the reset link itself instead of emailing it, so an admin can hand it to the user
+     * directly (WhatsApp, in person) when the officer can't get to their inbox.
+     */
+    public function passwordResetLink(User $user): JsonResponse
+    {
+        $token = Password::createToken($user);
+        $url   = route('password.reset', ['token' => $token, 'email' => $user->email]);
+
+        return response()->json(['url' => $url]);
     }
 
     public function show(User $user): View

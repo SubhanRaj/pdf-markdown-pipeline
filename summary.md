@@ -4535,3 +4535,97 @@ at all.
 `resources/views/rule_sets/policy_documents/create.blade.php`,
 `resources/views/rule_sets/policy_documents/edit.blade.php`. Also fixed in
 `excise-budget-tracker`: `resources/views/auth/otp.blade.php`.
+
+## M94 — Subfolders, folder upload, document move/copy, nested document counts, visibility-default consistency (COMPLETED 2026-08-27)
+
+**Subfolders, one level deep.** `Folder` gained a self-referencing nullable `parent_id`
+(`Folder::children()`/`parent()`), same self-reference pattern already used by `RuleSet` for
+policy documents. A folder whose own `parent_id` is set cannot have children of its own — enforced
+in `FolderController`, not a DB constraint. `Section::folders()`/`Division::folders()` are now
+scoped `whereNull('parent_id')` so subfolders don't leak into a section/division's own folder
+listing; a subfolder is reached only through its parent folder's show page, which lists its
+subfolders above its documents. A document's `folder_id` doesn't distinguish root from subfolder,
+so every existing document route (show, edit, download, zip) already worked for a subfolder
+document with no changes. New routes: `GET .../folders/{folder}/subfolders/create` and
+`POST .../folders/{folder}/subfolders`, for both section- and division-scoped parents;
+show/edit/destroy reuse the existing folder routes,
+since a subfolder is just another `Folder` row. Folder deletion (and its zip download) now walks
+into subfolders too — deleting a folder soft-deletes its subfolders and every document inside them
+(soft deletes don't trigger FK cascades, so this has to be explicit).
+
+**Folder (directory) upload.** A "Or upload a whole folder" control (`<input webkitdirectory>`)
+sits next to the file picker on every upload modal — folder, section, and division. The picked
+folder becomes one real `Folder` in the app (reusing an existing same-named one instead of piling
+up "Name-2", via a `find_or_create` flag on the folder-store endpoints), and everything inside the
+picked folder, at any depth, lands inside that one folder — the app only supports one level of
+nesting, so a deeper picked structure collapses rather than being rejected. On a folder page that's
+already a subfolder, a folder upload just places files directly (no further nesting possible).
+
+**Document move / copy.** New "Move / Copy" panel on the document edit page — cascading
+Section → Division → Folder → Subfolder selects (`BuildsUploadScopeTree`, extended to include
+subfolders), pruned to the user's own upload scope and the document's own department (no
+cross-department option — a document's department ties to where its file lives on disk and to who
+administers it, so that's a delete-and-reupload, not a move). `POST /documents/{id}/move` relocates
+the document's files and updates its row in place; `POST /documents/{id}/copy` duplicates the files
+and metadata into an independent second row, leaving the original untouched. Rule-set/policy
+documents are out of scope (they have no section/division/folder to move into); a plain GO moves
+and copies like any other document, since `document_type = 'go'` is just a tag, not a rule-set
+document. An amendment can't be moved on its own — moving or copying a root document takes every
+one of its amendments along to the same destination automatically, so a move/copy never splits an
+amendment thread across two locations.
+
+**New privileges: `folders.delete`, `documents.move`.** Folder deletion was previously admin-only
+with no assignable privilege; it's now gated on `folders.delete` (`User::canDeleteFolder()`),
+addable from the same checkbox panel as every other document privilege. Move/copy is gated on its
+own `documents.move` privilege, not bundled into `documents.edit` — relocating a document's file is
+a bigger action than editing its title. Both auto-grant to `role=admin` via `ORG_ADMIN_PRIVILEGES`,
+so no existing admin account loses anything. The folder delete confirmation dialog now states how
+many subfolders and documents (including subfolder documents) a deletion actually removes, instead
+of only counting the folder's own direct documents.
+
+**Nested document counts were wrong.** A folder's displayed document count, and the folder cards
+shown on section/division pages, only counted documents placed directly in that folder — a folder
+whose contents all lived one level down, in a subfolder, read as "0 documents" and showed the
+misleading "No documents yet" empty state despite having real files inside. Fixed by adding each
+subfolder's count in wherever a folder's total is shown or computed (`FolderController`,
+`SectionController`, `DivisionController`). Division and Section's own totals needed no fix —
+`Division::documents()`/`Section::documents()` already match on the denormalized `division_id`/
+`section_id` every document carries regardless of folder nesting. Checked the query cost of this
+before shipping it: every column these counts filter on already has an index (`foreignId()->
+constrained()` creates one automatically), and a full section-page render is 15 queries, all
+single-table indexed lookups — no caching layer added, nothing to justify one at this scale.
+
+**Visibility default/warning was folder-only; now consistent everywhere.** The folder upload modal
+already defaulted its visibility radio to Authenticated (and warned before letting you upload
+Public anyway) when the folder itself was Authenticated-only — section and division upload modals
+never had this, always defaulting to Public regardless of the section's/division's own visibility.
+The actual access-control ceiling (`Document::isPubliclyVisible()`) was never affected either way —
+this only fixes the upload form silently defaulting to a value at odds with where the document was
+actually going.
+
+**Files changed:** `database/migrations/2026_08_27_000001_add_parent_id_to_folders_table.php`,
+`app/Models/Folder.php`, `app/Models/Section.php`, `app/Models/Division.php`, `app/Models/User.php`,
+`app/Http/Controllers/FolderController.php`, `app/Http/Controllers/DocumentController.php`,
+`app/Http/Controllers/SectionController.php`, `app/Http/Controllers/DivisionController.php`,
+`app/Http/Controllers/DownloadController.php`,
+`app/Http/Controllers/Concerns/BuildsUploadScopeTree.php`, `routes/web.php`,
+`resources/views/folders/show.blade.php`, `resources/views/folders/create.blade.php`,
+`resources/views/sections/show.blade.php`, `resources/views/divisions/show.blade.php`,
+`resources/views/documents/edit.blade.php`, `resources/views/admin/_privilege_checkboxes.blade.php`.
+
+## M95 — Admin-initiated password reset (COMPLETED 2026-08-29)
+
+**Two new actions on the user edit page.** "Email reset link" calls the same `Password::sendResetLink()`
+broker call the public "Forgot password" form uses, so an admin can trigger it on an officer's behalf
+without the officer visiting the login page first. "Copy reset link" generates the reset token
+(`Password::createToken()`) and returns the URL directly, for an officer who can't get to their inbox —
+the admin sends the link through whatever channel actually reaches them (phone, in person), instead of
+waiting on mail delivery. Both reuse the existing reset flow end to end: same `password_reset_tokens`
+table, same 60-minute expiry, same single-use token, same `/reset-password/{token}` form.
+
+**New routes:** `POST /admin/users/{user}/send-password-reset` (`admin.users.send-password-reset`) and
+`POST /admin/users/{user}/password-reset-link` (`admin.users.password-reset-link`), both behind the
+same `is_admin` middleware as the rest of `admin.*`.
+
+**Files changed:** `routes/web.php`, `app/Http/Controllers/Admin/UserManagementController.php`,
+`resources/views/admin/users/edit.blade.php`.

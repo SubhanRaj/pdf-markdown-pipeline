@@ -35,6 +35,8 @@ class User extends Authenticatable
         'documents.force-delete', // permanent delete from archive (requires letter)
         'documents.verify',
         'documents.approve',      // approve / reject / reclassify pending uploads
+        'documents.move',         // move / copy a document to another section, division, or folder
+        'folders.delete',         // delete folders (and their subfolders + documents)
         'organization.head',      // upload/delete anywhere across all departments
         'department.head',        // scoped to assigned department
         'section.head',           // scoped to assigned section
@@ -57,6 +59,8 @@ class User extends Authenticatable
         'documents.restore',
         'documents.verify',
         'documents.approve',
+        'documents.move',
+        'folders.delete',
     ];
 
     protected $fillable = [
@@ -311,6 +315,34 @@ class User extends Authenticatable
      */
     public function canDeleteFrom(object $context): bool
     {
+        return $this->canUploadTo($context);
+    }
+
+    /**
+     * Whether this user may delete a Folder (and, with it, its subfolders and every document
+     * inside them). Gated on the 'folders.delete' privilege, not just upload scope — deleting a
+     * folder is destructive in a way uploading to it isn't.
+     */
+    public function canDeleteFolder(object $context): bool
+    {
+        if (! ($this->isAdmin() || $this->hasPrivilege('folders.delete'))) {
+            return false;
+        }
+
+        return $this->canUploadTo($context);
+    }
+
+    /**
+     * Whether this user may move/copy a document to another section, division, or folder.
+     * Gated on the 'documents.move' privilege, not documents.edit — relocating a document's
+     * file is a bigger action than editing its title or visibility.
+     */
+    public function canMoveDocument(object $context): bool
+    {
+        if (! ($this->isAdmin() || $this->hasPrivilege('documents.move'))) {
+            return false;
+        }
+
         return $this->canUploadTo($context);
     }
 

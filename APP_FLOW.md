@@ -1,6 +1,6 @@
 # Application Flow — Diagrams
 
-**Date:** 2026-07-17 (Authorization diagram §4 updated 2026-08-19, M79 — System Admin/Admin role split + view-scoping)
+**Date:** 2026-07-17 (Authorization diagram §4 updated 2026-08-19, M79 — System Admin/Admin role split + view-scoping; §4 updated again and §7 added 2026-08-27, M94 — subfolders + document move/copy)
 **Purpose:** Visual map of how a request moves through this app — upload, taxonomy resolution,
 approval, conversion, review, verify/archive — plus authorization and the component map. Kept in
 its own file since `README.md` is already long; linked from there. For the Markdown/OCR/structure
@@ -187,12 +187,14 @@ flowchart TD
     C -->|create edit destroy on dept, section, division, folder| E[Per-controller authorization helper]
     C -->|convert, OCR, structure, verify, markdown edit| F[documents.verify/edit privilege scoped via canUploadTo, OR admin/policy department head]
     C -->|approve reject reclassify| Gp[documents.approve privilege, scoped to approver own org boundary]
+    C -->|delete a folder| Fd[folders.delete privilege scoped via canUploadTo — M94]
+    C -->|move or copy a document| Fm[documents.move privilege scoped via canUploadTo destination and source — M94]
     C -->|convert-status poll| H[Auth only, no scope check, documented low-severity gap]
 
     class R entry
     class A,B,V,C decision
     class ALL good
-    class G,D,E,F,Gp,VS scoped
+    class G,D,E,F,Gp,VS,Fd,Fm scoped
     class H warn
 ```
 
@@ -204,6 +206,10 @@ H-07/M79 (2026-08-19) — five independently-duplicated "admin, or policy depart
 scoped management path at all before this fix. `VS` is new as of the same pass — viewing was
 previously **completely unscoped** for every authenticated user (see the note below); `H` is the
 still-open `SECURITY.md` L-04 gap: any logged-in user can poll any document's conversion status by ID.
+`Fd` and `Fm` are M94 (2026-08-27) — folder deletion and document move/copy each got their own
+privilege, separate from `documents.edit`/upload scope, since both are more destructive than
+editing metadata; previously folder deletion checked `isAdmin()` only (no assignable privilege
+existed) and move/copy didn't exist at all.
 
 **Note on `B` (System Admin) vs. departmental authority (M74, split further M79):** `B` gates only
 the site-management console (`/admin/users`, `/admin/designations`, `/admin/activity-logs`,
@@ -307,3 +313,65 @@ Default TTL is 48h (`QUICK_CONVERSION_TTL_HOURS`) — the prune job is dispatche
 until `expires_at`, at upload time (`PruneQuickConversion::dispatch($id)->delay($expiresAt)`); no
 scheduler/cron involved. Owner-only throughout — checked inline in the controller, not a policy
 class. See `NEW_CONVERSION_PLAN.md` and `claude.md`'s "New Conversion" section for the full design.
+
+## 7. Folder hierarchy and document move/copy (M94)
+
+A folder may have subfolders, one level deep only — a folder whose own `parent_id` is set can't
+have children of its own. A subfolder is still just a `Folder` row; every document route/query
+that already worked for a root folder works unchanged for a subfolder.
+
+```mermaid
+flowchart TD
+    classDef entry fill:#e0e7ff,stroke:#4338ca,color:#312e81
+    classDef branch fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef good fill:#d1fae5,stroke:#059669,color:#064e3b
+
+    Dept[Department] --> Sec[Section]
+    Sec --> Div[Division, optional]
+    Sec --> RootF1[Folder, direct on section]
+    Div --> RootF2[Folder, direct on division]
+    RootF1 --> Sub1[Subfolder — one level only]
+    RootF2 --> Sub2[Subfolder — one level only]
+    Sec --> Doc1[Document, direct on section]
+    Div --> Doc2[Document, direct on division]
+    RootF1 --> Doc3[Document]
+    Sub1 --> Doc4[Document]
+
+    class Dept,Sec entry
+    class Div,RootF1,RootF2,Sub1,Sub2 branch
+    class Doc1,Doc2,Doc3,Doc4 good
+```
+
+A folder's displayed document count, and its delete-confirmation impact count, both add in every
+subfolder's documents — a folder whose contents all live one level down must not read as empty or
+under-count what deleting it actually removes.
+
+**Move / copy** relocates or duplicates a document across this same tree, within one department:
+
+```mermaid
+flowchart TD
+    classDef entry fill:#e0e7ff,stroke:#4338ca,color:#312e81
+    classDef decision fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef good fill:#d1fae5,stroke:#059669,color:#064e3b
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+
+    E[Document edit page — Move / Copy panel] --> T{Pick target: section, division, folder, or subfolder}
+    T --> G{Guard checks}
+    G -->|rule-set/policy document| R1[Rejected — out of scope, no section/division/folder to move into]
+    G -->|is itself an amendment| R2[Rejected — move its root instead]
+    G -->|target in a different department| R3[Rejected — cross-department not supported]
+    G -->|ok| A{Move or Copy}
+    A -->|Move| MV[Files relocated on disk, row updated in place, same id]
+    A -->|Copy| CP[Files duplicated, new independent Document row created]
+    MV --> AM[Every amendment of this document moves with it, same destination]
+    CP --> AC[Every amendment gets its own copy too, parent_id repointed at the new root's copy]
+
+    class E entry
+    class T,G,A decision
+    class MV,CP,AM,AC good
+    class R1,R2,R3 bad
+```
+
+Gated on the `documents.move` privilege (not `documents.edit`) plus the destination's own upload
+scope — see diagram 4. Original files/rows are untouched by a copy; a move never leaves an
+amendment behind at the old location.

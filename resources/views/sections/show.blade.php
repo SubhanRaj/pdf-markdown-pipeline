@@ -13,7 +13,13 @@
 ]" />
 
 {{-- Data island for JS — use @json() not {{ json_encode() }} to avoid HTML-entity corruption --}}
-@php $pageData = ['storeUrl' => route('documents.store'), 'csrfToken' => csrf_token(), 'parentOptions' => $parentOptions]; @endphp
+@php $pageData = [
+    'storeUrl' => route('documents.store'),
+    'csrfToken' => csrf_token(),
+    'parentOptions' => $parentOptions,
+    'currentSectionId' => $section->id,
+    'folderStoreUrl' => route('departments.sections.folders.store', [$department->levelAlias(), $department, $section]),
+]; @endphp
 <script id="page-data" type="application/json">@json($pageData)</script>
 
 {{-- ── Section header ─────────────────────────────────────────────────────── --}}
@@ -136,6 +142,12 @@
                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif,.tiff,.tif,.bmp,.heic,.heif,.svg"
                            style="display:none">
                 </div>
+                <button type="button" id="doc-folder-btn" onclick="document.getElementById('doc-folder-input').click()"
+                        class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center justify-center gap-1 flex-shrink-0">
+                    <i class="ti ti-folder-up"></i> Or upload a whole folder
+                </button>
+                <input type="file" id="doc-folder-input" webkitdirectory directory multiple style="display:none">
+                <p class="text-[11px] text-slate-400 dark:text-slate-500 text-center -mt-1">The picked folder is created here (reusing one with the same name if it exists). Everything inside it, at any depth, goes into it.</p>
                 {{-- File queue (shown when files are selected) --}}
                 <div id="file-queue-wrap" class="flex-1 overflow-hidden flex flex-col min-h-0" style="display:none">
                     <div class="flex items-center justify-between mb-1.5 flex-shrink-0">
@@ -182,14 +194,14 @@
                         <label class="field-label">Visibility</label>
                         <div class="flex gap-3 mt-1">
                             <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" name="visibility" value="public" checked
+                                <input type="radio" name="visibility" value="public" id="doc-visibility-public" @checked($section->visibility !== 'authenticated')
                                        class="text-indigo-600 focus:ring-indigo-500">
                                 <span class="text-sm text-slate-700 dark:text-slate-200 flex items-center gap-1">
                                     <i class="ti ti-world text-sm text-green-500"></i> Public
                                 </span>
                             </label>
                             <label class="flex items-center gap-2 cursor-pointer">
-                                <input type="radio" name="visibility" value="authenticated"
+                                <input type="radio" name="visibility" value="authenticated" @checked($section->visibility === 'authenticated')
                                        class="text-indigo-600 focus:ring-indigo-500">
                                 <span class="text-sm text-slate-700 dark:text-slate-200 flex items-center gap-1">
                                     <i class="ti ti-lock text-sm text-amber-500"></i> Authenticated Only
@@ -197,6 +209,11 @@
                             </label>
                         </div>
                         <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Public documents are visible to all visitors. Authenticated Only restricts access to logged-in users.</p>
+                        @if($section->visibility === 'authenticated')
+                        <p class="mt-1 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                            <i class="ti ti-alert-triangle text-sm"></i> This section is Authenticated Only, so documents default to the same. Marking one Public here has no real effect — guests still can't reach it while the section itself is restricted.
+                        </p>
+                        @endif
                     </div>
 
                     {{-- Language --}}
@@ -546,7 +563,7 @@
     }
 
     // ── Queue management ──────────────────────────────────────────────────────
-    function addFiles(files) {
+    function addFiles(files, folderId) {
         Array.from(files).forEach(file => {
             const row = document.createElement('div');
             row.className = 'queue-row flex items-start gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700';
@@ -596,7 +613,7 @@
             row.appendChild(removeBtn);
             queueList.appendChild(row);
 
-            const item = { file, titleInput, titleWrap, statusBadge, row };
+            const item = { file, titleInput, titleWrap, statusBadge, row, folderId: folderId || null };
             uploadFiles.push(item);
             removeBtn.addEventListener('click', () => {
                 if (isUploading) return;
@@ -606,6 +623,55 @@
             });
         });
         syncUI();
+    }
+
+    // ── Folder upload (webkitdirectory) ─────────────────────────────────────
+    // The picked folder is created here as a real Folder. Everything inside it, at any depth,
+    // goes into that one folder (only one level of subfolder nesting exists app-wide, so a
+    // folder picked at section level always becomes a root folder here).
+    const folderInput = document.getElementById('doc-folder-input');
+    const folderCache = new Map();
+
+    async function ensureFolder(name) {
+        if (folderCache.has(name)) return folderCache.get(name);
+        const promise = (async () => {
+            try {
+                const fd = new FormData();
+                fd.append('_token', page.csrfToken);
+                fd.append('name', name);
+                fd.append('find_or_create', '1');
+                const res = await fetch(page.folderStoreUrl, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': page.csrfToken },
+                    body: fd,
+                });
+                const json = await res.json();
+                return res.ok ? json.id : null;
+            } catch (e) {
+                console.error('Folder create failed:', name, e);
+                return null;
+            }
+        })();
+        folderCache.set(name, promise);
+        return promise;
+    }
+
+    if (folderInput) {
+        folderInput.addEventListener('change', async () => {
+            const files = Array.from(folderInput.files);
+            folderInput.value = '';
+            if (!files.length) return;
+
+            for (const file of files) {
+                const parts = (file.webkitRelativePath || file.name).split('/');
+                if (parts.length <= 1) {
+                    addFiles([file]);
+                } else {
+                    const id = await ensureFolder(parts[0]);
+                    addFiles([file], id);
+                }
+            }
+        });
     }
 
     function clearQueue() {
@@ -644,6 +710,21 @@
 
         const type            = typeSelect.value;
         const visibility      = form.querySelector('[name="visibility"]:checked')?.value || 'public';
+
+        @if($section->visibility === 'authenticated')
+        if (visibility === 'public') {
+            const { isConfirmed } = await Swal.fire({
+                icon: 'warning',
+                title: 'This section is Authenticated Only',
+                text: 'Marking these documents Public won\'t make them visible to guests — the section\'s own restriction still applies. Continue anyway?',
+                showCancelButton: true,
+                confirmButtonText: 'Upload as Public anyway',
+                cancelButtonText: 'Cancel',
+            });
+            if (!isConfirmed) return;
+        }
+        @endif
+
         const language        = form.querySelector('[name="language"]')?.value || 'english';
         const parentId        = parentSelect ? (parentSelect.value || '') : '';
         const contextInput    = form.querySelector('[name="section_id"]');
@@ -675,7 +756,8 @@
             try {
                 const fd = new FormData();
                 fd.append('_token', page.csrfToken);
-                if (contextInput) fd.append(contextInput.name, contextInput.value);
+                if (item.folderId) fd.append('folder_id', item.folderId);
+                else if (contextInput) fd.append(contextInput.name, contextInput.value);
                 fd.append('title', title);
                 fd.append('document_type', type);
                 fd.append('visibility', visibility);

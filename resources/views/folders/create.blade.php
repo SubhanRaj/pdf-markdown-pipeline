@@ -1,16 +1,26 @@
 @php
     $isDivisionFolder = isset($division) && $division !== null;
-    $storeUrl = $isDivisionFolder
-        ? route('departments.sections.divisions.folders.store', [$department->levelAlias(), $department, $section, $division])
-        : route('departments.sections.folders.store', [$department->levelAlias(), $department, $section]);
-    $backUrl = $isDivisionFolder
-        ? route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division])
-        : route('departments.sections.show', [$department->levelAlias(), $department, $section]);
+    // A subfolder create form is this same view, with $folder passed as the parent to nest under.
+    $isSubfolder = isset($folder) && $folder !== null;
+    $storeUrl = $isSubfolder
+        ? ($isDivisionFolder
+            ? route('departments.sections.divisions.folders.subfolders.store', [$department->levelAlias(), $department, $section, $division, $folder])
+            : route('departments.sections.folders.subfolders.store', [$department->levelAlias(), $department, $section, $folder]))
+        : ($isDivisionFolder
+            ? route('departments.sections.divisions.folders.store', [$department->levelAlias(), $department, $section, $division])
+            : route('departments.sections.folders.store', [$department->levelAlias(), $department, $section]));
+    $backUrl = $isSubfolder
+        ? ($isDivisionFolder
+            ? route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder])
+            : route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $folder]))
+        : ($isDivisionFolder
+            ? route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division])
+            : route('departments.sections.show', [$department->levelAlias(), $department, $section]));
 @endphp
 <x-layout
-    title="Add Folder"
-    page-title="Add Folder"
-    page-subtitle="Create a new folder (patravali) under {{ $isDivisionFolder ? $division->name : $section->name }}"
+    :title="$isSubfolder ? 'Add Subfolder' : 'Add Folder'"
+    :page-title="$isSubfolder ? 'Add Subfolder' : 'Add Folder'"
+    page-subtitle="Create a new folder (patravali) under {{ $isSubfolder ? $folder->name : ($isDivisionFolder ? $division->name : $section->name) }}"
 >
 
 <x-breadcrumb :items="[
@@ -19,7 +29,9 @@
     ['name' => $department->levelLabel(),    'url' => null],
     ['name' => $department->name,            'url' => route('departments.show', [$department->levelAlias(), $department])],
     ['name' => $section->name,               'url' => route('departments.sections.show', [$department->levelAlias(), $department, $section])],
-    ['name' => 'Add Folder',                 'url' => null],
+    ...($isDivisionFolder ? [['name' => $division->name, 'url' => route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division])]] : []),
+    ...($isSubfolder ? [['name' => $folder->name, 'url' => $backUrl]] : []),
+    ['name' => $isSubfolder ? 'Add Subfolder' : 'Add Folder', 'url' => null],
 ]" />
 
 <form id="folderForm" method="POST" action="{{ $storeUrl }}" novalidate class="max-w-2xl">
@@ -40,6 +52,10 @@
                 @if($isDivisionFolder)
                 <span class="text-slate-300 dark:text-slate-600">›</span>
                 <span>{{ $division->name }}</span>
+                @endif
+                @if($isSubfolder)
+                <span class="text-slate-300 dark:text-slate-600">›</span>
+                <span>{{ $folder->name }}</span>
                 @endif
             </div>
 
