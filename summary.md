@@ -4648,3 +4648,45 @@ listener for `Illuminate\Auth\Events\PasswordReset` in `AppServiceProvider`, alo
 
 **Files changed:** `app/Http/Controllers/Admin/ActivityLogController.php`,
 `app/Providers/AppServiceProvider.php`.
+
+## M97 — Resilient bulk/folder upload queue (COMPLETED 2026-08-31)
+
+**The bug report.** A 45-file folder upload (Performance Audit division, Account section) over
+the production Cloudflare Tunnel returned a 413 on the first file, then 419 on every file after
+that.
+
+**Root cause.** The three upload modals (sections, divisions, folders `show.blade.php`) already
+upload one file per request, sequentially, but fire each request immediately after the last
+finishes with no gap. `documents.store` carries `throttle:uploads` (20/min/user). 45 requests
+with no pacing clears that cap well inside a minute on any normal connection, so everything past
+roughly the 20th file starts failing — which is what "spamming" errors past the first few files
+actually was, regardless of the exact status code reported.
+
+**Fix — two parts.** `uploads` rate limiter raised 20/min → 40/min in `AppServiceProvider` (this
+bulk-loading period is exactly the "raise it during initial bulk load" case its own comment
+already called out). Plus new `public/js/resilient-upload.js`, shared by all three modals (no
+bundler/build step — loaded as a plain `<script src>` the same way `public/vendor/alpinejs`
+already is), as defense-in-depth regardless of where the limit sits:
+
+- `ResilientUpload.request(url, formData, page)` spaces requests roughly 1.8s apart (safely under
+  the 40/min cap) and, if the cap is still hit, reads the 429's `Retry-After` header and retries.
+  It also retries once on a 419 by calling the new `GET documents.csrf-token` route for a fresh
+  token — cheap insurance against a stale session mid-batch, independent of the pacing fix.
+- `ResilientUpload.Queue`, a small IndexedDB wrapper (no library — a single object store is
+  enough for this), persists each picked file as it's queued and removes it once uploaded. A
+  reload or crash mid-batch now prompts to resume the leftover queue instead of losing all 45
+  picks and forcing a re-select.
+- Each modal can no longer be closed (backdrop click, the X button, Escape) while a batch is
+  uploading, and shows a progress bar plus "Uploading N of 45…" (the text status line already
+  existed; the bar is new) so the officer can see it's working rather than assume it hung.
+
+Also raised, same pass, as general headroom for large/slow uploads (not the cause of this
+incident): `public/.htaccess` and `.dev-php-ini/uploads.ini`'s `max_execution_time`/
+`max_input_time` 300s → 600s, plus an explicit `max_file_uploads = 50` (PHP's default is 20 —
+irrelevant today since each request carries one file, but removes the ceiling if a
+multi-file-per-request path is ever added).
+
+**Files changed:** `public/js/resilient-upload.js` (new), `routes/web.php` (added
+`GET documents/csrf-token`), `app/Providers/AppServiceProvider.php`, `public/.htaccess`,
+`.dev-php-ini/uploads.ini`, `resources/views/sections/show.blade.php`,
+`resources/views/divisions/show.blade.php`, `resources/views/folders/show.blade.php`.

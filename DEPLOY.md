@@ -55,8 +55,9 @@ PHP_INI_SCAN_DIR="/etc/php/8.5/cli/conf.d:$(pwd)/.dev-php-ini" php artisan serve
 ```
 
 `.dev-php-ini/uploads.ini` (gitignored, project-local, no `sudo` needed) sets
-`upload_max_filesize`/`post_max_size = 300M`, `max_execution_time`/`max_input_time = 300`,
-`memory_limit = 512M` — same values `.htaccess` already uses in production. Keep the default
+`upload_max_filesize`/`post_max_size = 300M`, `max_execution_time`/`max_input_time = 600`,
+`max_file_uploads = 50`, `memory_limit = 512M` — same values `.htaccess` already uses in
+production (raised from 300s/no explicit `max_file_uploads` in M97, 2026-08-31). Keep the default
 scan-dir (`/etc/php/8.5/cli/conf.d`, path varies by distro/PHP version — check with
 `php -i | grep 'additional .ini'`) first in the colon-separated list, or every CLI extension
 (`mysqli`, `pdo`, `mbstring`, etc.) normally loaded from there silently stops loading instead.

@@ -16,10 +16,12 @@
 @php $pageData = [
     'storeUrl' => route('documents.store'),
     'csrfToken' => csrf_token(),
+    'csrfTokenUrl' => route('documents.csrf-token'),
     'parentOptions' => $parentOptions,
     'folderStoreUrl' => route('departments.sections.divisions.folders.store', [$department->levelAlias(), $department, $section, $division]),
 ]; @endphp
 <script id="page-data" type="application/json">@json($pageData)</script>
+<script src="{{ asset('js/resilient-upload.js') }}"></script>
 
 {{-- ── Division header ─────────────────────────────────────────────────────── --}}
 <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
@@ -96,7 +98,7 @@
 @auth
 <div id="modal-upload"
      style="display:none;position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.6)"
-     onclick="if(event.target===this)this.style.display='none'">
+     onclick="if(event.target===this)window.__closeUploadModal()">
     <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(960px,95vw);max-height:90vh;overflow-y:auto"
          class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl flex flex-col">
         <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
@@ -105,7 +107,7 @@
                 <span class="text-sm font-semibold text-slate-800 dark:text-slate-100">Upload Document</span>
                 <span class="text-xs text-slate-400 dark:text-slate-500">— {{ $division->name }}</span>
             </div>
-            <button type="button" onclick="document.getElementById('modal-upload').style.display='none'"
+            <button type="button" onclick="window.__closeUploadModal()"
                     class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                 <i class="ti ti-x"></i>
             </button>
@@ -245,13 +247,18 @@
                         </p>
                     </div>
 
-                    <div class="flex items-center gap-3 mt-auto pt-2">
-                        <button type="submit" id="div-btn-submit"
-                                class="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors">
-                            <i class="ti ti-upload"></i>
-                            <span id="div-btn-label">Upload</span>
-                        </button>
-                        <span id="div-upload-status" class="text-xs text-slate-400 dark:text-slate-500"></span>
+                    <div class="flex flex-col gap-2 mt-auto pt-2">
+                        <div class="flex items-center gap-3">
+                            <button type="submit" id="div-btn-submit"
+                                    class="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors">
+                                <i class="ti ti-upload"></i>
+                                <span id="div-btn-label">Upload</span>
+                            </button>
+                            <span id="div-upload-status" class="text-xs text-slate-400 dark:text-slate-500"></span>
+                        </div>
+                        <div id="div-progress-track" style="display:none" class="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                            <div id="div-progress-bar" class="h-full bg-teal-500 transition-all" style="width:0%"></div>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -410,8 +417,14 @@
     const statusEl  = document.getElementById('div-upload-status');
     const fldTitle     = document.getElementById('div-title');
     const fldTitleHint = document.getElementById('div-title-hint');
+    const progressTrack = document.getElementById('div-progress-track');
+    const progressBar   = document.getElementById('div-progress-bar');
 
     if (!fileInput || !form) return;
+
+    // Persists the picked queue in IndexedDB so a reload/crash mid-batch doesn't force
+    // re-picking all the files — see public/js/resilient-upload.js.
+    const queue = new ResilientUpload.Queue('division-{{ $division->id }}');
 
     fldTitle.addEventListener('input', () => {
         if (uploadFiles.length === 1) uploadFiles[0].titleInput.value = fldTitle.value;
@@ -453,7 +466,7 @@
         fldTitle.value = single ? uploadFiles[0].titleInput.value : '';
     }
 
-    function addFiles(files, folderId) {
+    function addFiles(files, folderId, skipPersist) {
         Array.from(files).forEach(file => {
             const row = document.createElement('div');
             row.className = 'queue-row flex items-start gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700';
@@ -490,12 +503,14 @@
             row.appendChild(icon); row.appendChild(meta);
             row.appendChild(statusBadge); row.appendChild(removeBtn);
             queueList.appendChild(row);
-            const item = { file, titleInput, titleWrap, statusBadge, row, folderId: folderId || null };
+            const item = { file, titleInput, titleWrap, statusBadge, row, folderId: folderId || null, queueId: null };
             uploadFiles.push(item);
+            if (!skipPersist) queue.add(file, item.folderId).then(id => { item.queueId = id; });
             removeBtn.addEventListener('click', () => {
                 if (isUploading) return;
                 row.remove();
                 uploadFiles.splice(uploadFiles.indexOf(item), 1);
+                queue.remove(item.queueId);
                 syncUI();
             });
         });
@@ -561,8 +576,36 @@
     });
     if (clearBtn) clearBtn.addEventListener('click', () => {
         if (isUploading) return;
+        uploadFiles.forEach(it => queue.remove(it.queueId));
         uploadFiles = []; queueList.innerHTML = ''; syncUI();
     });
+
+    window.__closeUploadModal = function () {
+        if (isUploading) return;
+        const m = document.getElementById('modal-upload');
+        if (m) m.style.display = 'none';
+    };
+
+    // Offers to resume a queue left over from a reload/crash mid-upload.
+    (async function offerResume() {
+        const rows = await queue.all();
+        if (!rows.length) return;
+        const { isConfirmed } = await Swal.fire({
+            icon: 'info',
+            title: rows.length + ' file' + (rows.length > 1 ? 's' : '') + ' never finished uploading',
+            text: 'Found ' + rows.length + ' file(s) queued from an earlier session on this device. Resume the upload, or discard them?',
+            showCancelButton: true,
+            confirmButtonText: 'Resume upload',
+            cancelButtonText: 'Discard',
+        });
+        if (isConfirmed) {
+            rows.forEach(r => addFiles([r.file], r.folderId, true));
+            rows.forEach((r, i) => { uploadFiles[i].queueId = r.id; });
+            document.getElementById('modal-upload').style.display = 'block';
+        } else {
+            rows.forEach(r => queue.remove(r.id));
+        }
+    })();
 
     form.addEventListener('submit', async e => {
         e.preventDefault();
@@ -601,6 +644,9 @@
         btnSubmit.disabled = true;
         statusEl.textContent = '';
         btnSubmit.onclick = null;
+        clearBtn && (clearBtn.disabled = true);
+        progressTrack.style.display = 'block';
+        progressBar.style.width = '0%';
 
         let doneCount = 0, errorCount = 0, lastRedirect = null;
 
@@ -612,52 +658,47 @@
             setRowStatus(item, 'uploading');
             statusEl.textContent = 'Uploading ' + (i + 1) + ' of ' + uploadFiles.length + '…';
 
-            try {
-                const fd = new FormData();
-                fd.append('_token', page.csrfToken);
-                if (item.folderId) {
-                    fd.append('folder_id', item.folderId);
-                } else {
-                    if (contextSectionId)  fd.append('section_id',  contextSectionId.value);
-                    if (contextDivisionId) fd.append('division_id', contextDivisionId.value);
-                }
-                fd.append('title', title);
-                fd.append('document_type', typeEl.value);
-                fd.append('visibility', visibility);
-                fd.append('language', language);
-                if (parentInput && parentInput.value) fd.append('parent_id',        parentInput.value);
-                if (amendmentNumber)                  fd.append('amendment_number', amendmentNumber);
-                if (effectiveYear)                    fd.append('effective_year',   effectiveYear);
-                if (effectiveMonth)                   fd.append('effective_month',  effectiveMonth);
-                if (effectiveDay)                     fd.append('effective_day',    effectiveDay);
-                fd.append('file', item.file);
+            const fd = new FormData();
+            if (item.folderId) {
+                fd.append('folder_id', item.folderId);
+            } else {
+                if (contextSectionId)  fd.append('section_id',  contextSectionId.value);
+                if (contextDivisionId) fd.append('division_id', contextDivisionId.value);
+            }
+            fd.append('title', title);
+            fd.append('document_type', typeEl.value);
+            fd.append('visibility', visibility);
+            fd.append('language', language);
+            if (parentInput && parentInput.value) fd.append('parent_id',        parentInput.value);
+            if (amendmentNumber)                  fd.append('amendment_number', amendmentNumber);
+            if (effectiveYear)                    fd.append('effective_year',   effectiveYear);
+            if (effectiveMonth)                   fd.append('effective_month',  effectiveMonth);
+            if (effectiveDay)                     fd.append('effective_day',    effectiveDay);
+            fd.append('file', item.file);
 
-                const res = await fetch(page.storeUrl, {
-                    method: 'POST',
-                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': page.csrfToken },
-                    body: fd,
-                });
-                const ct = res.headers.get('Content-Type') || '';
-                if (!ct.includes('application/json')) {
-                    if (res.status === 419) throw new Error('Session expired — refresh and try again');
-                    throw new Error('HTTP ' + res.status);
-                }
-                const json = await res.json();
-                if (!res.ok) {
-                    setRowStatus(item, 'error', json.errors ? Object.values(json.errors).flat()[0] : (json.message || 'Upload failed'));
-                    errorCount++; continue;
-                }
+            // Handles a stale CSRF token (419) and a hit on the 20/min upload throttle (429)
+            // transparently — see public/js/resilient-upload.js.
+            const { ok, status, json } = await ResilientUpload.request(page.storeUrl, fd, page);
+            if (!json) {
+                setRowStatus(item, 'error', status === 0 ? 'Network error' : 'HTTP ' + status);
+                errorCount++;
+            } else if (!ok) {
+                setRowStatus(item, 'error', json.errors ? Object.values(json.errors).flat()[0] : (json.message || 'Upload failed'));
+                errorCount++;
+            } else {
                 setRowStatus(item, 'done');
                 doneCount++;
                 lastRedirect = json.redirect;
-            } catch (err) {
-                setRowStatus(item, 'error', err.message);
-                errorCount++;
-                console.error('Upload error:', item.file.name, err);
+                await queue.remove(item.queueId);
             }
+
+            progressBar.style.width = Math.round(((i + 1) / uploadFiles.length) * 100) + '%';
+            if (i < uploadFiles.length - 1) await ResilientUpload.sleep(ResilientUpload.PACE_MS);
         }
 
         isUploading = false;
+        clearBtn && (clearBtn.disabled = false);
+        progressTrack.style.display = 'none';
         if (errorCount === 0 && lastRedirect) { window.location.href = lastRedirect; return; }
         if (doneCount > 0 && lastRedirect) {
             statusEl.textContent = doneCount + ' uploaded, ' + errorCount + ' failed.';
@@ -672,10 +713,7 @@
     });
 
     document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') {
-            const m = document.getElementById('modal-upload');
-            if (m) m.style.display = 'none';
-        }
+        if (e.key === 'Escape') window.__closeUploadModal();
     });
 })();
 </script>

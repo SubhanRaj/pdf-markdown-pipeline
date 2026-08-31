@@ -182,6 +182,9 @@ Route::prefix('departments')->name('departments.')->group(function () {
 // and viewers just watching a bulk run, never compete with the mutation cap.
 
 Route::middleware(['auth', 'throttle:reads'])->prefix('documents')->name('documents.')->group(function () {
+    // Lets the bulk/folder upload modals recover from a stale CSRF token mid-batch instead
+    // of 419-ing on every remaining file — see public/js/resilient-upload.js.
+    Route::get('/csrf-token',          fn () => response()->json(['token' => csrf_token()]))->name('csrf-token');
     Route::get('/bulk-upload',         [DocumentController::class, 'bulkUploadForm'])->name('bulk-upload');
     Route::get('/pipeline',            [DocumentController::class, 'pipeline'])->name('pipeline');
     Route::get('/pipeline/health',     [DocumentController::class, 'pipelineHealth'])->name('pipeline.health')->middleware('is_admin');

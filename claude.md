@@ -45,18 +45,25 @@ PHP's defaults (2 MB upload, 8 MB POST) block real document uploads. Four direct
 <IfModule mod_php.c>
     php_value upload_max_filesize 300M
     php_value post_max_size       300M
-    php_value max_execution_time  300
-    php_value max_input_time      300
+    php_value max_execution_time  600
+    php_value max_input_time      600
+    php_value max_file_uploads    50
 </IfModule>
 ```
+`max_execution_time`/`max_input_time` raised 300→600s and `max_file_uploads` added (M97,
+2026-08-31) — headroom for a large file finishing slowly over the production Cloudflare Tunnel,
+and for any future request that bundles more than PHP's default 20-file-per-request cap. Neither
+was the actual cause of the M97 incident (that was the `uploads` rate limiter — see "Rate
+limiting" below); raised alongside it as the same pass of "give bulk uploads more headroom."
 Requires `AllowOverride All` (or `AllowOverride Options FileInfo`) in the Apache vhost/Directory block — otherwise `.htaccess` is silently ignored.
 
 **Option B — `public/.user.ini`** (works for both mod_php and php-fpm, no Apache directive needed, ~5 min TTL)
 ```ini
 upload_max_filesize = 300M
 post_max_size       = 300M
-max_execution_time  = 300
-max_input_time      = 300
+max_execution_time  = 600
+max_input_time      = 600
+max_file_uploads    = 50
 ```
 
 **Option C — system `php.ini`** (cleanest for a dedicated on-premise server; requires Apache/fpm restart to apply)
@@ -1607,7 +1614,7 @@ Named limiters defined in `AppServiceProvider::boot()`. Never use anonymous `thr
 | `login` | 5/min per email+IP + 10/min per IP | Fortify brute-force |
 | `two-factor` | 5/min per session+IP | Fortify 2FA |
 | `mutations` | 60/min | user ID or IP — all auth POST/PATCH/DELETE groups |
-| `uploads` | 20/min | user ID or IP — `POST /documents` only (on top of mutations) |
+| `uploads` | 40/min (raised from 20/min, M97) | user ID or IP — `POST /documents` only (on top of mutations) |
 
 ### File upload validation
 
@@ -1908,7 +1915,8 @@ This keeps Unicode letters + combining marks intact and collapses everything els
 
 ### Rate limiting
 - All auth mutation route groups carry `throttle:mutations` middleware (60/min/user).
-- `POST /documents` additionally carries `throttle:uploads` (20/min/user); disk exhaustion is guarded by the 300 MB file size cap and the mutations limiter. Once the initial legacy-document bulk load is complete, reduce to 5–10/min.
+- `POST /documents` additionally carries `throttle:uploads` (40/min/user, raised from 20/min in M97); disk exhaustion is guarded by the 300 MB file size cap and the mutations limiter. Once the initial legacy-document bulk load is complete, tighten back down (5–10/min is the original target).
+- **Bulk/folder upload pacing (M97, 2026-08-31)** — the three upload modals (`sections/show.blade.php`, `divisions/show.blade.php`, `folders/show.blade.php`) each POST one file at a time already, but with no gap between requests, so a big folder pick could blow through the old 20/min upload throttle within its first minute on any reasonable connection — a real 45-file folder upload over the production Cloudflare Tunnel hit exactly this. Two-part fix: the `uploads` limiter itself went 20→40/min (see "Rate limiting" above — this bulk-loading period is exactly the generous-limit case that comment already called out), and `public/js/resilient-upload.js` (`ResilientUpload.request()`) now paces client requests ~1.8s apart regardless, staying safely under whatever the limiter is set to. If the cap is still hit, it honors the 429's `Retry-After` header and retries instead of failing the rest of the batch. It also retries once on a 419 by fetching a fresh token from `GET documents.csrf-token` — cheap insurance against any stale-session/CSRF edge case mid-batch, independent of the 429 fix. Each modal's picked-file queue is also persisted to IndexedDB (`ResilientUpload.Queue`, namespaced per section/division/folder id) as files are added and cleared as each one uploads, so a tab reload/crash mid-batch prompts to resume instead of losing the picks; the modal can no longer be closed (backdrop click, X, Escape) while a batch is in flight.
 - All named limiters live in `AppServiceProvider::configureRateLimiters()` — never add inline `throttle:N,M` to routes.
 - The `login` and `two-factor` limiters are named in `config/fortify.php` and defined in `AppServiceProvider` — both must remain in sync.
 - `password-reset` (2026-08-13) — same dual-key shape as `login` (5/min per email+IP, 10/min per IP); guards both `POST /forgot-password` and `POST /reset-password` against email-enumeration/mail-bomb and token-guessing respectively.

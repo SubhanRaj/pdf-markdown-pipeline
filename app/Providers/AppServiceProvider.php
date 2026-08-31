@@ -199,12 +199,15 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // ── File uploads ──────────────────────────────────────────────────────
-        // 20/min per user. Sufficient for bulk initial data-entry batches while
-        // capping worst-case disk throughput to 20 × 50 MB = 1 GB/min.
-        // Once initial loading is complete and uploads are 1–2 files at a time,
-        // tighten to 5–10/min via this single constant.
+        // 40/min per user (raised from 20/min, M97, 2026-08-31 — a real 45-file folder
+        // upload cleared the old 20/min cap within its first minute since the modals fire
+        // one request per file with no pacing of their own; see resilient-upload.js, which
+        // now also paces client-side requests to stay under whatever this is set to).
+        // Caps worst-case disk throughput to 40 × 50 MB = 2 GB/min.
+        // Once initial legacy-document loading is complete and uploads are 1–2 files at a
+        // time, tighten back down via this single constant.
         RateLimiter::for('uploads', function (Request $request) {
-            return Limit::perMinute(20)
+            return Limit::perMinute(40)
                 ->by($request->user()?->id ?: $request->ip());
         });
     }
