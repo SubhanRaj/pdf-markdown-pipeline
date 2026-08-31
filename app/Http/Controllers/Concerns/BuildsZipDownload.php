@@ -14,10 +14,12 @@ trait BuildsZipDownload
      *         zip-relative folder path for that document ('' = zip root), mirroring the
      *         section/division/folder or policy-container/period tree it came from.
      *
-     * Markdown only, never the original PDF: bulk-zipping hundreds of PDFs is bandwidth-heavy
-     * and pointless — a PDF is already downloadable one at a time from its own page, and that's
-     * the only place the exact-original file matters. Bulk is for the markdown, which has no
-     * other download path.
+     * Markdown when it exists — bulk-zipping hundreds of original PDFs is bandwidth-heavy, and a
+     * converted document's exact original is already downloadable one at a time from its own
+     * page. A document that hasn't been converted yet has no markdown to fall back to, though,
+     * and skipping it silently made a freshly-uploaded folder's zip come back empty (or 404
+     * entirely) until every file in it was individually converted — so this falls back to the
+     * original upload in that case instead of leaving the document out.
      */
     protected function zipDocuments(string $downloadName, iterable $entries): BinaryFileResponse
     {
@@ -39,12 +41,18 @@ trait BuildsZipDownload
             $used[$key] = ($used[$key] ?? 0) + 1;
             $suffix     = $used[$key] > 1 ? '-'.$used[$key] : '';
 
-            $path = $document->markdown_path;
+            $path      = $document->markdown_path;
+            $extension = 'md';
+
+            if (! $path || ! Storage::disk('public')->exists($path)) {
+                $path      = $document->original_pdf_path;
+                $extension = $path ? pathinfo($path, PATHINFO_EXTENSION) ?: 'pdf' : null;
+            }
 
             if ($path && Storage::disk('public')->exists($path)) {
                 $zip->addFile(
                     Storage::disk('public')->path($path),
-                    ($dir !== '' ? "{$dir}/" : '')."{$base}{$suffix}.md"
+                    ($dir !== '' ? "{$dir}/" : '')."{$base}{$suffix}.{$extension}"
                 );
                 $added++;
             }

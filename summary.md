@@ -4690,3 +4690,37 @@ multi-file-per-request path is ever added).
 `GET documents/csrf-token`), `app/Providers/AppServiceProvider.php`, `public/.htaccess`,
 `.dev-php-ini/uploads.ini`, `resources/views/sections/show.blade.php`,
 `resources/views/divisions/show.blade.php`, `resources/views/folders/show.blade.php`.
+
+## M98 — Two regressions from folder nesting (COMPLETED 2026-08-31)
+
+The M97 nesting work (folder subfolders, folder-upload, move/copy) shipped two real bugs,
+both confirmed against live production data/logs rather than guessed.
+
+**Zip download came back empty for a freshly-uploaded folder.** `BuildsZipDownload::zipDocuments()`
+only ever added a document's markdown file to the zip, skipping it entirely if `markdown_path`
+was still null — which every document is until it's individually converted. A real division
+folder (`payment-order`, Accounts section) had 4 documents uploaded that morning, all
+`status=uploaded`, none converted yet — its zip 404'd "No files to download," which is what
+"zip download doesn't work" actually was: not a crash, an always-empty zip for anything not yet
+converted. Now falls back to `original_pdf_path` (with its real extension, not forced `.pdf`)
+when markdown isn't there yet, so the button always produces something.
+
+**Uploading a picked folder into a division/section failed with "must be selected."**
+`ResolvesUploadDestination::destinationRules()` required `section_id` (`required_without:
+rule_set_id`) unconditionally — but `sections/show.blade.php` and `divisions/show.blade.php`'s
+folder-upload path only ever sends `folder_id` once a folder's been created for the picked
+directory, the same way `folders/show.blade.php`'s own upload modal already worked (it happens to
+also send `section_id`/`division_id` alongside `folder_id`, which is why that page was never
+broken). `DocumentController::store()` already derives section/department entirely from
+`folder_id`/`division_id` when present — the validation rule just hadn't caught up. Changed to
+`required_without_all:rule_set_id,division_id,folder_id` so any of the four destination fields
+alone satisfies it, matching what the controller actually needs.
+
+A third reported symptom — "a folder that already has many folders inside gives an error" —
+didn't reproduce: section/division/folder show pages, creating another subfolder, and
+`find_or_create` folder-upload matching all render/succeed correctly with 10 existing subfolders
+in feature tests. Needs an exact repro (the click path and the error text) before it can be fixed
+without guessing.
+
+**Files changed:** `app/Http/Controllers/Concerns/BuildsZipDownload.php`,
+`app/Http/Requests/Concerns/ResolvesUploadDestination.php`.

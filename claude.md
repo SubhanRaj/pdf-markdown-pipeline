@@ -769,6 +769,13 @@ authorization previously inlined in `StoreDocumentRequest` — was extracted int
 `documents.bulk-upload` is untouched and still the right flow for "I already know where this
 goes, and I have a batch of files." See `NEW_CONVERSION_PLAN.md` for the full design writeup.
 
+`ResolvesUploadDestination::destinationRules()`'s `section_id` is `required_without_all:
+rule_set_id,division_id,folder_id` (M98, 2026-08-31, fixed from `required_without:rule_set_id` —
+a division/section folder-upload only ever sends `folder_id`, which on its own used to fail
+validation even though `DocumentController::store()` already derives the section/department from
+`folder_id` alone). Whenever a fifth destination kind is ever added here, it needs adding to both
+`required_without_all` lists too, or the same "must be selected" false-rejection comes back for it.
+
 ### Frontend interactivity: Alpine, not Livewire (2026-07-26)
 
 Recurring complaint: several pages needed a manual refresh to show anything new — most visibly,
@@ -1929,6 +1936,7 @@ This keeps Unicode letters + combining marks intact and collapses everything els
 - Section-based uploads store at: `document_vault/{level}/{dept_slug}/{wing?}/{section_slug}/{slug}_{YmdHis}.pdf`
 - Rule-set uploads store at: `document_vault/{level}/{dept_slug}/rules/{rule_set_slug}/{slug}_{YmdHis}.pdf`
 - No staging/UUID folder. File I/O happens **before** the DB transaction; on transaction failure, delete the file in the `catch` block.
+- **Bulk zip download falls back to the original file (M98, 2026-08-31).** `BuildsZipDownload::zipDocuments()` prefers each document's `markdown_path`, but a document that hasn't been converted yet has no markdown — before M98 that meant it was just left out of the zip, so a freshly-uploaded folder's zip (or the whole folder, if nothing in it had been converted) came back empty or 404'd "No files to download," which reads as "the zip download is broken" even though nothing errored. Falls back to `original_pdf_path` (keeping its real extension via `pathinfo()`, not forcing `.md`/`.pdf`) whenever markdown isn't there yet, so the zip always has something for every document currently in the folder tree.
 
 ### Forms and mutations — no native GET/POST submissions
 - **Never allow a form to submit natively via GET or POST.** All mutations that originate from a modal or AJAX flow must use `fetch()` with `method: 'POST'` and `Accept: application/json` + `X-CSRF-TOKEN` headers.

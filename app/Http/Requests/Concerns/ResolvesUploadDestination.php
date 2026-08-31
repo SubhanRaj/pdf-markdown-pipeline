@@ -64,10 +64,12 @@ trait ResolvesUploadDestination
     protected function destinationRules(): array
     {
         return [
-            // Exactly one of section_id or rule_set_id must be provided.
-            // division_id is optional and only valid alongside section_id.
-            'section_id'  => ['required_without:rule_set_id', 'nullable', 'integer', 'exists:sections,id'],
-            'rule_set_id' => ['required_without:section_id',  'nullable', 'integer', 'exists:rule_sets,id'],
+            // One of section_id/division_id/folder_id/rule_set_id must be provided — a
+            // division or folder upload already identifies its section through that record
+            // (see DocumentController::store()), so section_id itself is only required when
+            // none of the other three narrower destinations were given either.
+            'section_id'  => ['required_without_all:rule_set_id,division_id,folder_id', 'nullable', 'integer', 'exists:sections,id'],
+            'rule_set_id' => ['required_without_all:section_id,division_id,folder_id',  'nullable', 'integer', 'exists:rule_sets,id'],
             'division_id' => ['nullable', 'integer', 'exists:divisions,id'],
             'folder_id'   => ['nullable', 'integer', 'exists:folders,id'],
         ];
@@ -76,8 +78,8 @@ trait ResolvesUploadDestination
     protected function destinationMessages(): array
     {
         return [
-            'section_id.required_without'  => 'A section or rule set must be selected.',
-            'rule_set_id.required_without' => 'A section or rule set must be selected.',
+            'section_id.required_without_all'  => 'A section, division, folder, or rule set must be selected.',
+            'rule_set_id.required_without_all' => 'A section, division, folder, or rule set must be selected.',
         ];
     }
 }
