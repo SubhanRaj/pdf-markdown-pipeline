@@ -10,6 +10,8 @@ Context file for Claude Code working in this repository. Read this fully before 
 
 **IDE diagnostics:** VSCode is configured with multiple Laravel-aware PHP plugins (Intelephense, Laravel Extra Intellisense, etc.) that produce false positives — `$level` "unused" (it's required by Laravel's route binding contract), `auth()->check()` "undefined method" (static analysis limitation on the auth facade), `Document` "unused" when used only as a closure parameter type hint. **Do not treat these as real errors.** Only act on diagnostics when there is genuine functional impact — wrong logic, missing imports, type mismatches that would cause a runtime exception.
 
+**sudo / root access:** this app is served straight from this working directory on the live box (see "Web server" below), but Claude does not have passwordless sudo here. When a task needs root — the Apache vhost, system `php.ini`, `systemctl reload/restart apache2`, anything under `/etc` — don't look for a workaround that avoids sudo. Give Subhan the exact command(s) to run himself and stop there. If a repo-level fix already covers the same need without root (e.g. `public/.htaccess`'s PHP overrides, since the vhost has `AllowOverride All`), it's fine to use that, but say so explicitly rather than silently substituting it for the root-requiring change that was actually asked for. See `~/Sites/infra-notes/CLAUDE.md` for the same rule kept in sync across projects.
+
 This repo and its context are scoped to engineering work only — no administrative/bureaucratic drafting persona applies here.
 
 ## Project overview
