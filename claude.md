@@ -457,9 +457,13 @@ mid-conversion must not block its folder-mates. `convert()`'s "transition to pro
 dispatch the job" step is now the shared private `queueConversion()`, called by both the
 single-document and folder-wide paths so they can't drift apart. Button lives on
 `folders/show.blade.php` next to Download ZIP, gated the same as the upload button
-(`canUploadTo($folder)`); confirms via SweetAlert2, then one `fetch()` — no client-side per-file
-loop, since queuing a job for each document is cheap and the actual conversion work still runs
-one at a time on the existing single serial queue worker regardless of how fast they're queued.
+(`canUploadTo($folder)`); confirms via SweetAlert2, then one request through
+`ResilientUpload.request()` — same stale-CSRF-token recovery the upload modal on the same page
+gets (M97), added after re-auditing found the button originally used a plain `fetch()` with a
+static token and no retry, inconsistent with everything else on this page. No client-side
+per-file loop needed either way, since queuing a job for each document is cheap and the actual
+conversion work still runs one at a time on the existing single serial queue worker regardless of
+how fast they're queued.
 
 **Fixed 2026-07-16 — status wasn't persisted before dispatch.** Both `convert()` and
 `convertOcr()` used to only fake `status: 'processing'`/`'ocr_pending'` in their JSON response,

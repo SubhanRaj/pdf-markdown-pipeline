@@ -4750,6 +4750,12 @@ skipped"). No per-file loop needed — unlike the upload queue (M97), this one r
 rows and dispatches jobs; the actual conversion work happens on the existing single serial queue
 worker exactly like it already does for one-at-a-time conversions.
 
+**Follow-up fix, found re-auditing today's changes for M100.** The button's `fetch()` used a
+plain static CSRF token with no recovery path, unlike the upload modals it sits right next to —
+inconsistent, given this button lives on the same folder page a big upload could have just spent
+minutes on, so the same stale-token risk M97 fixed for uploads applied here too. Routed through
+`ResilientUpload.request()` instead, which retries once with a fresh token on a 419.
+
 **Files changed:** `app/Http/Controllers/DocumentController.php`, `routes/web.php`,
 `resources/views/folders/show.blade.php`.
 

@@ -813,9 +813,12 @@
 (function () {
     const btn = document.getElementById('convert-all-btn');
     if (!btn) return;
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
     const label = btn.querySelector('span');
     const originalLabel = label.textContent;
+    // A minimal page-data stand-in so this can go through ResilientUpload.request() — same
+    // stale-CSRF-token recovery the upload modal gets, for the same reason (M97): this button
+    // sits on the same folder page a big upload could have just spent minutes on.
+    const page = { csrfToken: document.querySelector('meta[name="csrf-token"]')?.content, csrfTokenUrl: '{{ route('documents.csrf-token') }}' };
 
     btn.addEventListener('click', async function () {
         const { isConfirmed } = await Swal.fire({
@@ -831,26 +834,21 @@
         btn.disabled = true;
         label.textContent = 'Queuing…';
 
-        try {
-            const res = await fetch(btn.dataset.convertAllUrl, {
-                method: 'POST',
-                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.message || 'Could not queue conversions.');
+        const { ok, json } = await ResilientUpload.request(btn.dataset.convertAllUrl, new FormData(), page);
 
+        if (!ok) {
+            Swal.fire({ icon: 'error', title: 'Failed', text: json?.message || 'Could not queue conversions.' });
+        } else {
             await Swal.fire({
                 icon: 'success',
                 title: 'Queued',
-                text: data.queued + ' document(s) queued for conversion' +
-                    (data.skipped ? ', ' + data.skipped + ' skipped (already converted or in progress).' : '.'),
+                text: json.queued + ' document(s) queued for conversion' +
+                    (json.skipped ? ', ' + json.skipped + ' skipped (already converted or in progress).' : '.'),
             });
-        } catch (err) {
-            Swal.fire({ icon: 'error', title: 'Failed', text: err.message });
-        } finally {
-            btn.disabled = false;
-            label.textContent = originalLabel;
         }
+
+        btn.disabled = false;
+        label.textContent = originalLabel;
     });
 })();
 </script>
