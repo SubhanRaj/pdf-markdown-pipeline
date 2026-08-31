@@ -153,7 +153,11 @@
     }
 
     class Queue {
-        constructor(key) { this.key = key; } // namespaces rows so different pages don't mix
+        // `page` is {url, label} — the page to send someone back to so they can resume this
+        // batch (upload logic lives on that page, not here) — shown by the site-wide pending-
+        // uploads indicator in the header (see components/header.blade.php) so a batch queued
+        // here is still visible after navigating away mid-upload.
+        constructor(key, page) { this.key = key; this.page = page || null; }
 
         // Returns the new row's id, or null if IndexedDB is unavailable (private-mode Safari etc.)
         async add(file, folderId) {
@@ -161,7 +165,10 @@
             try { db = await openDb(); } catch (e) { return null; }
             return new Promise(resolve => {
                 const tx  = db.transaction(STORE, 'readwrite');
-                const req = tx.objectStore(STORE).add({ key: this.key, file, folderId: folderId || null });
+                const req = tx.objectStore(STORE).add({
+                    key: this.key, file, folderId: folderId || null,
+                    pageUrl: this.page?.url || null, pageLabel: this.page?.label || null,
+                });
                 req.onsuccess = () => resolve(req.result);
                 req.onerror   = () => resolve(null);
             });
@@ -185,5 +192,17 @@
         }
     }
 
-    window.ResilientUpload = { request, sleep, PACE_MS, Queue, uploadFile, SPLIT_THRESHOLD_BYTES };
+    // Every row across every page's queue, grouped by page — used by the header's pending-
+    // uploads indicator, which has no page-specific key of its own to filter by.
+    async function allQueued() {
+        let db;
+        try { db = await openDb(); } catch (e) { return []; }
+        return new Promise(resolve => {
+            const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror   = () => resolve([]);
+        });
+    }
+
+    window.ResilientUpload = { request, sleep, PACE_MS, Queue, uploadFile, SPLIT_THRESHOLD_BYTES, allQueued };
 })();

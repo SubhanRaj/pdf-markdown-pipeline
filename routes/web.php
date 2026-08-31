@@ -187,6 +187,10 @@ Route::middleware(['auth', 'throttle:reads'])->prefix('documents')->name('docume
     Route::get('/csrf-token',          fn () => response()->json(['token' => csrf_token()]))->name('csrf-token');
     Route::get('/bulk-upload',         [DocumentController::class, 'bulkUploadForm'])->name('bulk-upload');
     Route::get('/pipeline',            [DocumentController::class, 'pipeline'])->name('pipeline');
+    // Lists files still queued in this browser's IndexedDB from an upload batch abandoned
+    // mid-way (e.g. navigated off the page) — read entirely client-side, see resilient-upload.js
+    // and the header's pending-uploads indicator. No server data of its own, so no controller.
+    Route::view('/my-uploads', 'documents.my-uploads')->name('my-uploads.index');
     Route::get('/pipeline/health',     [DocumentController::class, 'pipelineHealth'])->name('pipeline.health')->middleware('is_admin');
     Route::get('/trash',               [DocumentController::class, 'trash'])->name('trash');
     Route::get('/trash/{id}/pdf',      [DocumentController::class, 'trashedPdf'])->name('trashed.pdf');

@@ -462,7 +462,10 @@
 
     // Persists the picked queue in IndexedDB so a reload/crash mid-batch doesn't force
     // re-picking all the files — see public/js/resilient-upload.js.
-    const queue = new ResilientUpload.Queue('folder-{{ $folder->id }}');
+    const queue = new ResilientUpload.Queue('folder-{{ $folder->id }}', {
+        url: {{ Js::from($division ? route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder]) : route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $folder])) }},
+        label: {{ Js::from($folder->name) }},
+    });
 
     fldTitle.addEventListener('input', () => {
         if (uploadFiles.length === 1) uploadFiles[0].titleInput.value = fldTitle.value;

@@ -4841,3 +4841,29 @@ for) is still rejected — verified in the same test file.
 
 **Files changed:** `app/Http/Requests/Concerns/ResolvesUploadDestination.php`,
 `tests/Feature/DivisionFolderUploadTest.php` (new).
+
+## Pending-uploads indicator (2026-08-31)
+
+Uploading is client-driven — the browser reads local files and posts them from whichever
+section/division/folder page the modal is open on. Navigating away mid-batch tears that page's JS
+down, stopping the upload; files not yet sent stay queued in `ResilientUpload`'s IndexedDB (safe,
+resumable — `offerResume()` already handled that), but only the same page's own reload offered to
+resume them. Nothing surfaced an abandoned batch from anywhere else.
+
+`Queue`'s constructor now takes an optional `{url, label}`, stored on each queued row, identifying
+the page to send someone back to and a human-readable name for it. `ResilientUpload.allQueued()`
+reads every row across every page's queue (`Queue.all()` only ever read one page's own). The
+header (`components/header.blade.php`) checks `allQueued()` on every authenticated page load and
+shows a small badge with the pending-file count if anything's queued; it links to `GET
+/documents/my-uploads` (`documents.my-uploads.index`, a bare `Route::view()` — no controller,
+no DB table, the page reads IndexedDB directly), which lists every pending file grouped by its
+origin page with a "Resume here" link back to it.
+
+Filenames and folder/section/division names are user-controlled and get rendered through
+`innerHTML` for the per-group listing — both go through a local `escapeHtml()` first to avoid an
+XSS opening from an unescaped name.
+
+**Files changed:** `public/js/resilient-upload.js`, `resources/views/components/header.blade.php`,
+`resources/views/documents/my-uploads.blade.php` (new), `routes/web.php`,
+`resources/views/sections/show.blade.php`, `resources/views/divisions/show.blade.php`,
+`resources/views/folders/show.blade.php`, `tests/Feature/MyUploadsPageTest.php` (new).

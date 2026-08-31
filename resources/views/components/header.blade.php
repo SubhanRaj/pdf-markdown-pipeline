@@ -46,6 +46,29 @@
             <i id="dark-mode-icon" class="ti ti-moon text-base"></i>
         </button>
 
+        {{-- Pending-uploads indicator — files queued in this browser's IndexedDB (see
+             public/js/resilient-upload.js) that haven't finished uploading yet, e.g. because
+             the user navigated away mid-batch. Hidden until JS finds at least one. --}}
+        @auth
+        <a href="{{ route('documents.my-uploads.index') }}" id="pending-uploads-btn" style="display:none"
+           class="relative w-9 h-9 flex-shrink-0 flex items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+           title="Uploads still in progress on this device">
+            <i class="ti ti-cloud-upload text-base"></i>
+            <span id="pending-uploads-count" class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none"></span>
+        </a>
+        <script src="{{ asset('js/resilient-upload.js') }}"></script>
+        <script>
+        (function () {
+            if (!window.ResilientUpload) return;
+            ResilientUpload.allQueued().then(function (rows) {
+                if (!rows.length) return;
+                document.getElementById('pending-uploads-count').textContent = rows.length;
+                document.getElementById('pending-uploads-btn').style.display = 'flex';
+            });
+        })();
+        </script>
+        @endauth
+
         {{-- New conversion CTA — standalone upload & convert, scoped to users who can upload anywhere --}}
         @auth
         @if(auth()->user()->uploadScope() !== 'none')
