@@ -840,8 +840,18 @@ class DocumentController extends Controller
         $chunkIndex  = (int) $validated['chunk_index'];
         $totalChunks = (int) $validated['total_chunks'];
         $chunkDir    = "pdf-chunk-uploads/{$uploadId}";
+        $ownerFile   = "{$chunkDir}/.owner";
 
         abort_if($chunkIndex >= $totalChunks, 422, 'chunk_index must be less than total_chunks.');
+
+        // upload_id is a client-picked UUID, not a secret — pin the directory to whichever user
+        // sent chunk 0 so a second user guessing/reusing that UUID can't append chunks into (or
+        // trigger assembly of) someone else's in-progress upload.
+        if ($chunkIndex === 0) {
+            Storage::disk('local')->put($ownerFile, (string) $request->user()->id);
+        } elseif (Storage::disk('local')->get($ownerFile) !== (string) $request->user()->id) {
+            abort(404);
+        }
 
         $request->file('file')->storeAs($chunkDir, "{$chunkIndex}.pdf", 'local');
 

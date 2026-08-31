@@ -4809,3 +4809,16 @@ returns the normal failure shape instead of throwing.
 `app/Http/Requests/StoreDocumentChunkRequest.php` (new), `app/Jobs/PruneChunkedUpload.php` (new),
 `routes/web.php`, `resources/views/sections/show.blade.php`,
 `resources/views/divisions/show.blade.php`, `resources/views/folders/show.blade.php`.
+
+**Second follow-up fix, security audit.** `upload_id` is a client-generated UUID sent on every
+chunk, not a per-user secret. Nothing stopped a second authenticated user who observed or guessed
+someone else's `upload_id` — e.g. from a shared network, or just brute luck within the 24h prune
+window — from POSTing a chunk into that same `pdf-chunk-uploads/{upload_id}/` directory: appending
+their own final chunk would trigger `pdfunite` and `createDocumentFromUpload()` against a mix of
+the original uploader's earlier pieces and the attacker's own, misattributed to whichever user's
+session made the finishing request. `storeChunk()` now writes a `.owner` file (the uploading
+user's id) alongside chunk 0 and rejects any later chunk from a different user with a 404.
+Covered by `tests/Feature/ChunkUploadOwnershipTest.php`.
+
+**Files changed:** `app/Http/Controllers/DocumentController.php`,
+`tests/Feature/ChunkUploadOwnershipTest.php` (new).
