@@ -4752,3 +4752,45 @@ worker exactly like it already does for one-at-a-time conversions.
 
 **Files changed:** `app/Http/Controllers/DocumentController.php`, `routes/web.php`,
 `resources/views/folders/show.blade.php`.
+
+## M100 — Client-side PDF split for uploads over the tunnel's edge cap (COMPLETED 2026-08-31)
+
+The app's own 300 MB upload cap is moot for a PDF over ~100 MB: the production Cloudflare Tunnel
+rejects it at the edge before it ever reaches Apache/PHP (see DEPLOY.md's "Cloudflare's own edge
+upload cap"). Confirmed decision going in (asked directly): a big PDF should still end up as one
+Document row after upload — splitting is purely a transport trick, invisible once it's done.
+
+**Client (`public/js/resilient-upload.js`).** A PDF over 95 MB gets split in the browser via
+pdf-lib (CDN, `sections/divisions/folders show.blade.php`) into ≤90 MB pieces — page count per
+piece is estimated from the file's average bytes/page rather than packed exactly page-by-page
+(which would mean re-serializing a growing trial chunk on every page — O(n²) for a large PDF);
+real scanned documents have fairly uniform per-page size, so the estimate lands close to target.
+`ResilientUpload.uploadFile(file, fields, page, onProgress)` is the one call every upload modal's
+submit loop now makes — it transparently splits and uploads a big PDF through
+`documents.store-chunk`, or does a normal single-file `documents.store` POST for everything else,
+reusing the same 419/429 retry and pacing M97 already built. If pdf-lib fails to load (CDN
+blocked, adblocker), it falls straight through to the normal single-file path — no worse than
+before this feature existed.
+
+**Server (`DocumentController`).** `store()`'s actual document-creation logic (vault placement,
+non-PDF-to-PDF conversion, slug, the `Document` row) is now the shared private
+`createDocumentFromUpload()`, called with a real `UploadedFile` from `store()` and with a
+synthetic one from the new `storeChunk()`. Each chunk lands in `storage/app/private/pdf-chunk-
+uploads/{upload_id}/{index}.pdf` (`StoreDocumentChunkRequest`, extending `StoreDocumentRequest`
+so it reuses `authorize()`/`prepareForValidation()`/every non-file rule as-is); the last chunk
+triggers `pdfunite` (poppler-utils, already installed for nothing else — no new PHP PDF library
+needed) to reassemble the pieces, then a synthetic `UploadedFile` pointed at the merged file runs
+through `createDocumentFromUpload()` exactly like a normal upload. A missing piece (client crash
+mid-batch) 422s asking for a full retry rather than silently creating a partial document.
+`PruneChunkedUpload`, dispatched on the first chunk and delayed 24h, deletes an abandoned chunk
+directory if the upload was never finished — same pattern as `PruneQuickConversion`.
+
+Verified end-to-end with a real `pdfunite` merge in a feature test (two 1-page PDFs generated via
+Ghostscript, uploaded as two chunks, reassembled into a genuine 2-page PDF, one `Document` row
+created) before shipping; the test itself is not kept in the repo (it existed to prove the
+mechanism works, not as an ongoing regression guard for this feature's specific plumbing).
+
+**Files changed:** `public/js/resilient-upload.js`, `app/Http/Controllers/DocumentController.php`,
+`app/Http/Requests/StoreDocumentChunkRequest.php` (new), `app/Jobs/PruneChunkedUpload.php` (new),
+`routes/web.php`, `resources/views/sections/show.blade.php`,
+`resources/views/divisions/show.blade.php`, `resources/views/folders/show.blade.php`.

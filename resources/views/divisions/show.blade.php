@@ -15,6 +15,7 @@
 
 @php $pageData = [
     'storeUrl' => route('documents.store'),
+    'storeChunkUrl' => route('documents.store-chunk'),
     'csrfToken' => csrf_token(),
     'csrfTokenUrl' => route('documents.csrf-token'),
     'parentOptions' => $parentOptions,
@@ -22,6 +23,7 @@
 ]; @endphp
 <script id="page-data" type="application/json">@json($pageData)</script>
 <script src="{{ asset('js/resilient-upload.js') }}"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 
 {{-- ── Division header ─────────────────────────────────────────────────────── --}}
 <div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
@@ -658,27 +660,30 @@
             setRowStatus(item, 'uploading');
             statusEl.textContent = 'Uploading ' + (i + 1) + ' of ' + uploadFiles.length + '…';
 
-            const fd = new FormData();
+            const fields = {
+                title: title,
+                document_type: typeEl.value,
+                visibility: visibility,
+                language: language,
+                parent_id: parentInput && parentInput.value ? parentInput.value : null,
+                amendment_number: amendmentNumber,
+                effective_year: effectiveYear,
+                effective_month: effectiveMonth,
+                effective_day: effectiveDay,
+            };
             if (item.folderId) {
-                fd.append('folder_id', item.folderId);
+                fields.folder_id = item.folderId;
             } else {
-                if (contextSectionId)  fd.append('section_id',  contextSectionId.value);
-                if (contextDivisionId) fd.append('division_id', contextDivisionId.value);
+                if (contextSectionId)  fields.section_id  = contextSectionId.value;
+                if (contextDivisionId) fields.division_id = contextDivisionId.value;
             }
-            fd.append('title', title);
-            fd.append('document_type', typeEl.value);
-            fd.append('visibility', visibility);
-            fd.append('language', language);
-            if (parentInput && parentInput.value) fd.append('parent_id',        parentInput.value);
-            if (amendmentNumber)                  fd.append('amendment_number', amendmentNumber);
-            if (effectiveYear)                    fd.append('effective_year',   effectiveYear);
-            if (effectiveMonth)                   fd.append('effective_month',  effectiveMonth);
-            if (effectiveDay)                     fd.append('effective_day',    effectiveDay);
-            fd.append('file', item.file);
 
-            // Handles a stale CSRF token (419) and a hit on the 20/min upload throttle (429)
-            // transparently — see public/js/resilient-upload.js.
-            const { ok, status, json } = await ResilientUpload.request(page.storeUrl, fd, page);
+            // Handles a stale CSRF token (419) and a hit on the upload throttle (429)
+            // transparently, and transparently splits+reassembles a PDF too large for the
+            // tunnel's own edge cap — see public/js/resilient-upload.js.
+            const { ok, status, json } = await ResilientUpload.uploadFile(item.file, fields, page, (n, total) => {
+                statusEl.textContent = 'Uploading ' + (i + 1) + ' of ' + uploadFiles.length + ' — piece ' + n + ' of ' + total + ' (splitting large PDF)…';
+            });
             if (!json) {
                 setRowStatus(item, 'error', status === 0 ? 'Network error' : 'HTTP ' + status);
                 errorCount++;

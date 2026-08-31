@@ -8,9 +8,11 @@ use App\Http\Requests\BulkDeleteDocumentsRequest;
 use App\Http\Requests\BulkRestoreDocumentsRequest;
 use App\Http\Requests\BulkForceDestroyDocumentsRequest;
 use App\Http\Requests\DeleteDocumentRequest;
+use App\Http\Requests\StoreDocumentChunkRequest;
 use App\Http\Requests\StoreDocumentRequest;
 use App\Http\Requests\UpdateDocumentRequest;
 use App\Jobs\ConvertDocumentToMarkdown;
+use App\Jobs\PruneChunkedUpload;
 use App\Models\Department;
 use App\Models\Division;
 use App\Models\Document;
@@ -18,9 +20,11 @@ use App\Models\DocumentStatusHistory;
 use App\Models\Folder;
 use App\Models\RuleSet;
 use App\Models\Section;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -615,8 +619,18 @@ class DocumentController extends Controller
 
     public function store(StoreDocumentRequest $request): JsonResponse
     {
-        $validated = $request->validated();
+        return $this->createDocumentFromUpload($request->validated(), $request->file('file'), $request->user());
+    }
 
+    /**
+     * The actual document-creation work — vault placement, non-PDF-to-PDF conversion, slug,
+     * the Document row itself. Split out of store() (M100, 2026-08-31) so the chunked-upload
+     * completion path (storeChunk(), after pdfunite reassembles the pieces into one PDF) runs
+     * through the exact same logic instead of a second copy of it — a synthetic UploadedFile
+     * pointed at the merged file is indistinguishable from a normal single-file upload here.
+     */
+    private function createDocumentFromUpload(array $validated, UploadedFile $file, User $user): JsonResponse
+    {
         // ── Resolve context: rule-set, folder, division, or direct section upload ──
         $ruleSet  = null;
         $division = null;
@@ -687,9 +701,9 @@ class DocumentController extends Controller
         }
 
         $timestamp   = now()->format('YmdHis');
-        $uploadedMime = $request->file('file')->getMimeType();
+        $uploadedMime = $file->getMimeType();
         $storedName  = "{$slug}_{$timestamp}." . ($uploadedMime === 'application/pdf' ? 'pdf' : 'upload');
-        $storedPath  = $request->file('file')->storeAs($vaultDir, $storedName, 'public');
+        $storedPath  = $file->storeAs($vaultDir, $storedName, 'public');
 
         if (! $storedPath) {
             return response()->json(['message' => 'File could not be saved. Please try again.'], 500);
@@ -734,7 +748,7 @@ class DocumentController extends Controller
 
         // Determine if this upload requires approval (bulk operator flag or context flag)
         $uploadContext   = $folder ?? $division ?? $section ?? $ruleSet;
-        $requireApproval = $uploadContext && $request->user()->shouldRequireApproval($uploadContext);
+        $requireApproval = $uploadContext && $user->shouldRequireApproval($uploadContext);
         $initialStatus   = $requireApproval ? 'pending_approval' : 'uploaded';
 
         try {
@@ -747,7 +761,7 @@ class DocumentController extends Controller
             // rule_set rather than expanding into a pair of them.
             $language = $validated['language'] ?? 'english';
 
-            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $folder, $department, $vaultDir, $pdfPath, $slug, $request, $metadata, $initialStatus, $language, &$document) {
+            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $folder, $department, $vaultDir, $pdfPath, $slug, $file, $user, $metadata, $initialStatus, $language, &$document) {
                 $document = Document::create([
                     'department_id'     => $department->id,
                     'section_id'        => $section?->id,
@@ -755,12 +769,12 @@ class DocumentController extends Controller
                     'rule_set_id'       => $ruleSet?->id,
                     'folder_id'         => $folder?->id,
                     'parent_id'         => $validated['parent_id'] ?? null,
-                    'user_id'           => $request->user()->id,
+                    'user_id'           => $user->id,
                     'title'             => $validated['title'],
                     'slug'              => $slug,
                     'document_type'     => $validated['document_type'],
                     'language'          => $language,
-                    'original_filename' => preg_replace('/[^\w\s\-\.\(\)]/', '_', $request->file('file')->getClientOriginalName()),
+                    'original_filename' => preg_replace('/[^\w\s\-\.\(\)]/', '_', $file->getClientOriginalName()),
                     'original_pdf_path' => $pdfPath,
                     'vault_path'        => $vaultDir,
                     'status'            => $initialStatus,
@@ -770,7 +784,7 @@ class DocumentController extends Controller
 
                 DocumentStatusHistory::create([
                     'document_id' => $document->id,
-                    'actor_id'    => $request->user()->id,
+                    'actor_id'    => $user->id,
                     'from_status' => null,
                     'to_status'   => $initialStatus,
                     'note'        => $initialStatus === 'pending_approval'
@@ -807,6 +821,68 @@ class DocumentController extends Controller
 
             return response()->json(['message' => 'Upload failed. Please try again.'], 500);
         }
+    }
+
+    /**
+     * One piece of a large PDF the browser split client-side before upload (see the pdf-split
+     * script in sections/divisions/folders show.blade.php) — added because the app's own 300 MB
+     * cap is moot when the production Cloudflare Tunnel's own edge enforces a lower one first
+     * (100 MB on the current plan, see DEPLOY.md). Every chunk lands here in order; all but the
+     * last are just stored and acknowledged. The last chunk triggers `pdfunite` (poppler-utils,
+     * already on the box for nothing else) to reassemble the pieces into the original PDF, then
+     * hands off to createDocumentFromUpload() — the exact same path a normal single-file upload
+     * takes — via a synthetic UploadedFile pointed at the merged file.
+     */
+    public function storeChunk(StoreDocumentChunkRequest $request): JsonResponse
+    {
+        $validated   = $request->validated();
+        $uploadId    = $validated['upload_id'];
+        $chunkIndex  = (int) $validated['chunk_index'];
+        $totalChunks = (int) $validated['total_chunks'];
+        $chunkDir    = "pdf-chunk-uploads/{$uploadId}";
+
+        abort_if($chunkIndex >= $totalChunks, 422, 'chunk_index must be less than total_chunks.');
+
+        $request->file('file')->storeAs($chunkDir, "{$chunkIndex}.pdf", 'local');
+
+        // Only ever scheduled once, on the first chunk — if the upload finishes normally this
+        // just finds the directory already gone when it eventually runs.
+        if ($chunkIndex === 0) {
+            PruneChunkedUpload::dispatch($uploadId)->delay(now()->addHours(24));
+        }
+
+        if ($chunkIndex < $totalChunks - 1) {
+            return response()->json(['received' => $chunkIndex]);
+        }
+
+        // Last chunk — every piece should be on disk now.
+        $chunkPaths = [];
+        for ($i = 0; $i < $totalChunks; $i++) {
+            $path = Storage::disk('local')->path("{$chunkDir}/{$i}.pdf");
+            if (! is_file($path)) {
+                return response()->json(['message' => "Piece {$i} of {$totalChunks} never arrived — please retry the upload from the start."], 422);
+            }
+            $chunkPaths[] = $path;
+        }
+
+        $mergedPath = Storage::disk('local')->path($chunkDir).'/merged.pdf';
+        $merge      = Process::timeout(300)->run(['pdfunite', ...$chunkPaths, $mergedPath]);
+
+        if (! $merge->successful() || ! is_file($mergedPath)) {
+            Log::error('Chunked upload merge failed', ['upload_id' => $uploadId, 'error' => $merge->errorOutput()]);
+            Storage::disk('local')->deleteDirectory($chunkDir);
+
+            return response()->json(['message' => 'Could not reassemble the uploaded pieces. Please try again.'], 500);
+        }
+
+        $originalName  = $validated['original_filename'] ?? 'document.pdf';
+        $syntheticFile = new UploadedFile($mergedPath, $originalName, 'application/pdf', null, true);
+
+        $response = $this->createDocumentFromUpload($validated, $syntheticFile, $request->user());
+
+        Storage::disk('local')->deleteDirectory($chunkDir);
+
+        return $response;
     }
 
     public function edit(string $level, Department $department, Section $section, Document $document): View

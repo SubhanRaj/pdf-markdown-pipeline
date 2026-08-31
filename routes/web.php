@@ -228,6 +228,8 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
         Route::post('/{id}/move',                  [DocumentController::class, 'move'])->where('id', '[0-9]+')->name('move');
         Route::post('/{id}/copy',                  [DocumentController::class, 'copy'])->where('id', '[0-9]+')->name('copy');
         Route::post('/', [DocumentController::class, 'store'])->name('store')->middleware('throttle:uploads');
+        // One piece of a client-split large PDF — see StoreDocumentChunkRequest.
+        Route::post('/chunk', [DocumentController::class, 'storeChunk'])->name('store-chunk')->middleware('throttle:uploads');
         Route::get('/{level}/{department}/{section}/{document}/review', [DocumentController::class, 'edit'])->name('edit');
         Route::patch('/{level}/{department}/{section}/{document}',      [DocumentController::class, 'update'])->name('update');
         Route::delete('/{level}/{department}/{section}/{document}',     [DocumentController::class, 'destroy'])->name('destroy');

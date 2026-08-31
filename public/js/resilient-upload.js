@@ -56,6 +56,80 @@
         return { ok: false, status: 0, json: null };
     }
 
+    // ── Client-side PDF split for files over the tunnel's own edge cap ─────────────────────
+    // The app's own 300 MB validation limit is moot when the production Cloudflare Tunnel
+    // enforces a lower cap first (100 MB on the current plan — see DEPLOY.md); a PDF over
+    // SPLIT_THRESHOLD_BYTES never reaches PHP at all, it 413s at Cloudflare's edge. Split it
+    // into pieces client-side (pdf-lib, loaded via CDN on pages that need this) and upload
+    // each piece to documents.store-chunk; the server reassembles them with pdfunite and
+    // creates one Document, same as a normal single-file upload — see storeChunk() and
+    // StoreDocumentChunkRequest.
+    const SPLIT_THRESHOLD_BYTES = 95 * 1024 * 1024;
+    const MAX_CHUNK_BYTES       = 90 * 1024 * 1024;
+
+    function pageRange(start, end) { return Array.from({ length: end - start }, (_, i) => start + i); }
+
+    // ponytail: estimates pages-per-chunk from the file's average bytes/page rather than
+    // packing exactly (which would mean re-serializing a growing trial chunk after every page —
+    // O(n^2) for an n-page PDF). Real scanned documents have fairly uniform per-page size, so
+    // this lands close to the target; a chunk can still come in over/under it on an unusual
+    // PDF. Upgrade to exact packing if that ever proves too imprecise in practice.
+    async function splitPdf(file, maxBytes) {
+        const srcDoc    = await PDFLib.PDFDocument.load(await file.arrayBuffer(), { ignoreEncryption: true });
+        const pageCount = srcDoc.getPageCount();
+        const avgBytesPerPage = file.size / pageCount;
+        const pagesPerChunk   = Math.max(1, Math.floor((maxBytes / avgBytesPerPage) * 0.85));
+
+        const chunks = [];
+        for (let start = 0; start < pageCount; start += pagesPerChunk) {
+            const end      = Math.min(start + pagesPerChunk, pageCount);
+            const chunkDoc = await PDFLib.PDFDocument.create();
+            (await chunkDoc.copyPages(srcDoc, pageRange(start, end))).forEach(p => chunkDoc.addPage(p));
+            chunks.push(new Blob([await chunkDoc.save()], { type: 'application/pdf' }));
+        }
+        return chunks;
+    }
+
+    // Splits `file` and uploads each piece in order via documents.store-chunk. `fields` is a
+    // plain object of the same form fields a normal upload sends (title, document_type,
+    // section_id/division_id/folder_id, visibility, …) — resent with every chunk since only
+    // the server's last-chunk handling actually reads them. Returns the same {ok, status,
+    // json} shape as request(), from whichever chunk finishes (or fails) last.
+    async function uploadChunkedPdf(file, fields, page, onProgress) {
+        const chunks   = await splitPdf(file, MAX_CHUNK_BYTES);
+        const uploadId = crypto.randomUUID();
+        let result;
+
+        for (let i = 0; i < chunks.length; i++) {
+            const fd = new FormData();
+            Object.entries(fields).forEach(([k, v]) => { if (v !== null && v !== undefined && v !== '') fd.append(k, v); });
+            fd.append('upload_id', uploadId);
+            fd.append('chunk_index', i);
+            fd.append('total_chunks', chunks.length);
+            if (i === chunks.length - 1) fd.append('original_filename', file.name);
+            fd.append('file', chunks[i], `${i}.pdf`);
+
+            if (onProgress) onProgress(i + 1, chunks.length);
+            result = await request(page.storeChunkUrl, fd, page);
+            if (!result.ok) return result; // a chunk failing mid-way isn't resumable yet — stop and surface it
+            if (i < chunks.length - 1) await sleep(PACE_MS);
+        }
+        return result;
+    }
+
+    // What every upload modal's submit loop should call instead of building FormData itself —
+    // transparently splits a PDF over SPLIT_THRESHOLD_BYTES, otherwise uploads normally.
+    // `fields` is the same plain object described in uploadChunkedPdf() above.
+    async function uploadFile(file, fields, page, onProgress) {
+        if (file.type === 'application/pdf' && file.size > SPLIT_THRESHOLD_BYTES && window.PDFLib) {
+            return uploadChunkedPdf(file, fields, page, onProgress);
+        }
+        const fd = new FormData();
+        Object.entries(fields).forEach(([k, v]) => { if (v !== null && v !== undefined && v !== '') fd.append(k, v); });
+        fd.append('file', file);
+        return request(page.storeUrl, fd, page);
+    }
+
     // ── IndexedDB-backed pending queue ──────────────────────────────────────────────────
     const DB_NAME = 'excise-upload-queue';
     const STORE   = 'pending';
@@ -102,5 +176,5 @@
         }
     }
 
-    window.ResilientUpload = { request, sleep, PACE_MS, Queue };
+    window.ResilientUpload = { request, sleep, PACE_MS, Queue, uploadFile, SPLIT_THRESHOLD_BYTES };
 })();
