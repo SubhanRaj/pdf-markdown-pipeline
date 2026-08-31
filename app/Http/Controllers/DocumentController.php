@@ -1628,7 +1628,15 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Unknown structure OCR engine selected.'], 422);
         }
 
-        DB::transaction(function () use ($document) {
+        $this->queueConversion($document, $structureEngine);
+
+        return response()->json(['status' => 'processing']);
+    }
+
+    /** Transitions $document to 'processing' and queues its conversion job — shared by convert() and convertFolder(). */
+    private function queueConversion(Document $document, string $structureEngine, string $note = 'Convert to Markdown queued.'): void
+    {
+        DB::transaction(function () use ($document, $note) {
             $oldStatus = $document->status;
             $document->update(['status' => 'processing']);
 
@@ -1637,13 +1645,63 @@ class DocumentController extends Controller
                 'actor_id'    => auth()->id(),
                 'from_status' => $oldStatus,
                 'to_status'   => 'processing',
-                'note'        => 'Convert to Markdown queued.',
+                'note'        => $note,
             ]);
         });
 
         ConvertDocumentToMarkdown::dispatch($document->id, $structureEngine);
+    }
 
-        return response()->json(['status' => 'processing']);
+    public function convertFolder(string $level, Department $department, Section $section, Folder $folder): JsonResponse
+    {
+        return $this->queueConversionsForFolder($folder);
+    }
+
+    public function convertFolderForDivision(string $level, Department $department, Section $section, Division $division, Folder $folder): JsonResponse
+    {
+        return $this->queueConversionsForFolder($folder);
+    }
+
+    /**
+     * Queues "Convert to Markdown" for every eligible document directly in $folder and in its
+     * subfolders (one level — same reach as the folder's own document count and delete-all
+     * actions). Same per-document eligibility as convert() — convertible status, permission,
+     * and an original file actually on disk — a document that fails any of those is skipped
+     * and counted, not treated as a request error: "convert everything that can be converted"
+     * is the whole point of a folder-wide action, so one already-processing or unreadable
+     * document must not block the rest.
+     */
+    private function queueConversionsForFolder(Folder $folder): JsonResponse
+    {
+        abort_unless(
+            auth()->user()->isAdmin() || auth()->user()->canUploadTo($folder->division ?? $folder->section),
+            403
+        );
+
+        $structureEngine = config('docling.default_ocr_engine');
+
+        $documents = $folder->documents()->get()
+            ->concat($folder->children()->with('documents')->get()->flatMap->documents);
+
+        $queued  = 0;
+        $skipped = 0;
+
+        foreach ($documents as $document) {
+            if (
+                ! $this->canConvertDocument($document)
+                || ! in_array($document->status, ['uploaded', 'review', 'verified', 'failed'], true)
+                || ! $document->original_pdf_path
+                || ! Storage::disk('public')->exists($document->original_pdf_path)
+            ) {
+                $skipped++;
+                continue;
+            }
+
+            $this->queueConversion($document, $structureEngine, 'Convert to Markdown queued (folder-wide).');
+            $queued++;
+        }
+
+        return response()->json(['queued' => $queued, 'skipped' => $skipped]);
     }
 
     /**

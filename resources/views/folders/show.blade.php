@@ -13,6 +13,9 @@
     $downloadUrl = $isDivisionFolder
         ? route('departments.sections.divisions.folders.download', [$department->levelAlias(), $department, $section, $division, $folder])
         : route('departments.sections.folders.download', [$department->levelAlias(), $department, $section, $folder]);
+    $convertAllUrl = $isDivisionFolder
+        ? route('departments.sections.divisions.folders.convert-all', [$department->levelAlias(), $department, $section, $division, $folder])
+        : route('departments.sections.folders.convert-all', [$department->levelAlias(), $department, $section, $folder]);
     $createSubfolderUrl = $isDivisionFolder
         ? route('departments.sections.divisions.folders.subfolders.create', [$department->levelAlias(), $department, $section, $division, $folder])
         : route('departments.sections.folders.subfolders.create', [$department->levelAlias(), $department, $section, $folder]);
@@ -106,6 +109,12 @@
         </a>
         @auth
         @if(auth()->user()->canUploadTo($folder))
+        <button type="button" id="convert-all-btn" data-convert-all-url="{{ $convertAllUrl }}"
+                class="inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-sm font-medium px-3 py-2 rounded-lg transition-all"
+                title="Queue Convert to Markdown for every document in this folder that isn't already converted">
+            <i class="ti ti-markdown text-base"></i>
+            <span class="hidden sm:inline">Convert All to Markdown</span>
+        </button>
         <button type="button"
                 onclick="document.getElementById('modal-upload').style.display='block'"
                 class="inline-flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors">
@@ -792,6 +801,52 @@
             });
         });
     }
+})();
+</script>
+
+<script>
+(function () {
+    const btn = document.getElementById('convert-all-btn');
+    if (!btn) return;
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+    const label = btn.querySelector('span');
+    const originalLabel = label.textContent;
+
+    btn.addEventListener('click', async function () {
+        const { isConfirmed } = await Swal.fire({
+            icon: 'question',
+            title: 'Convert all to Markdown?',
+            text: 'Queues every document in this folder — and its subfolders — that isn\'t already converted or in progress. Already-converted documents are left as-is.',
+            showCancelButton: true,
+            confirmButtonText: 'Convert All',
+            cancelButtonText: 'Cancel',
+        });
+        if (!isConfirmed) return;
+
+        btn.disabled = true;
+        label.textContent = 'Queuing…';
+
+        try {
+            const res = await fetch(btn.dataset.convertAllUrl, {
+                method: 'POST',
+                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Could not queue conversions.');
+
+            await Swal.fire({
+                icon: 'success',
+                title: 'Queued',
+                text: data.queued + ' document(s) queued for conversion' +
+                    (data.skipped ? ', ' + data.skipped + ' skipped (already converted or in progress).' : '.'),
+            });
+        } catch (err) {
+            Swal.fire({ icon: 'error', title: 'Failed', text: err.message });
+        } finally {
+            btn.disabled = false;
+            label.textContent = originalLabel;
+        }
+    });
 })();
 </script>
 

@@ -446,6 +446,21 @@ needs the separate privilege. `documents/show.blade.php` mirrors this as two var
 `$canConvertDoc` (Convert/Retry button) and `$canManageDoc` (Edit/Delete buttons, Compare & Verify
 modal) — kept in sync with the controller manually, same caveat as the M81 note below.
 
+**Folder-scope bulk convert (M99, 2026-08-31).** `POST .../folders/{folder}/convert-all` (and the
+division-folder equivalent, `convertFolderForDivision()` — both delegate into one private
+`queueConversionsForFolder()`) queues every eligible document directly in a folder plus every
+document in its subfolders, one level deep like the folder's own document count. Eligibility is
+the same three checks `convert()` makes for one document — convertible status, `canConvertDocument()`,
+an original file actually on disk — a document failing any of those is skipped and counted, not
+an error; the button's whole point is "convert what can be converted," so a document already
+mid-conversion must not block its folder-mates. `convert()`'s "transition to processing + log +
+dispatch the job" step is now the shared private `queueConversion()`, called by both the
+single-document and folder-wide paths so they can't drift apart. Button lives on
+`folders/show.blade.php` next to Download ZIP, gated the same as the upload button
+(`canUploadTo($folder)`); confirms via SweetAlert2, then one `fetch()` — no client-side per-file
+loop, since queuing a job for each document is cheap and the actual conversion work still runs
+one at a time on the existing single serial queue worker regardless of how fast they're queued.
+
 **Fixed 2026-07-16 — status wasn't persisted before dispatch.** Both `convert()` and
 `convertOcr()` used to only fake `status: 'processing'`/`'ocr_pending'` in their JSON response,
 without saving it to the document — invisible when jobs ran within a second or two, but with the
@@ -957,12 +972,14 @@ Controller method signatures **must** declare `string $level` as their first par
 | DELETE | `/departments/{level}/{dept}/sections/{section}/folders/{folder}` | `departments.sections.folders.destroy` | Auth + `folders.delete` privilege |
 | GET | `/departments/{level}/{dept}/sections/{section}/folders/{folder}/subfolders/create` | `departments.sections.folders.subfolders.create` | Auth |
 | POST | `/departments/{level}/{dept}/sections/{section}/folders/{folder}/subfolders` | `departments.sections.folders.subfolders.store` | Auth |
+| POST | `/departments/{level}/{dept}/sections/{section}/folders/{folder}/convert-all` | `departments.sections.folders.convert-all` | Auth (`canUploadTo`, M99) |
 | POST | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders` | `departments.sections.divisions.folders.store` | Auth |
 | GET | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.show` | Public* |
 | PATCH | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.update` | Auth |
 | DELETE | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}` | `departments.sections.divisions.folders.destroy` | Auth + `folders.delete` privilege |
 | GET | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}/subfolders/create` | `departments.sections.divisions.folders.subfolders.create` | Auth |
 | POST | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}/subfolders` | `departments.sections.divisions.folders.subfolders.store` | Auth |
+| POST | `/departments/{level}/{dept}/sections/{section}/divisions/{division}/folders/{folder}/convert-all` | `departments.sections.divisions.folders.convert-all` | Auth (`canUploadTo`, M99) |
 | GET | `/departments/{level}/{dept}/rules` | `departments.rules.index` | Public |
 | POST | `/departments/{level}/{dept}/rules` | `departments.rules.store` | Auth |
 | GET | `/departments/{level}/{dept}/rules/{rule_set}` | `departments.rules.show` | Public |

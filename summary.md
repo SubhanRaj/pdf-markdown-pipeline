@@ -4724,3 +4724,31 @@ without guessing.
 
 **Files changed:** `app/Http/Controllers/Concerns/BuildsZipDownload.php`,
 `app/Http/Requests/Concerns/ResolvesUploadDestination.php`.
+
+## M99 — Convert All to Markdown at folder scope (COMPLETED 2026-08-31)
+
+A folder's page had no way to convert everything in it at once — each document had to be opened
+individually and converted from its own review page (or from the global Pipeline monitor, which
+lists every convertible document site-wide with no per-folder filter). Added a "Convert All to
+Markdown" button to `folders/show.blade.php`, next to Download ZIP.
+
+Server side: `DocumentController::convertFolder()`/`convertFolderForDivision()` (route-facing,
+matching the section/division folder split every other folder action already uses) both delegate
+into a new private `queueConversionsForFolder()`, which loops every document directly in the
+folder plus every document in its subfolders (one level, same reach as the folder's own document
+count) and queues `ConvertDocumentToMarkdown` for each one that's actually eligible — convertible
+status, permission, and an original file present on disk, the same three checks `convert()`
+already made for a single document. A document that fails any of those is skipped and counted,
+not treated as a request error — the point of a folder-wide action is "convert everything that
+can be converted," so one already-processing document must not block the rest. The shared
+"transition to processing + log history + dispatch the job" step was pulled out of `convert()`
+into `queueConversion()` so both call sites stay in sync without duplicating it.
+
+Client side: a confirm dialog (SweetAlert2, matching every other destructive/bulk action already
+on this page), one `fetch()` call, then a summary ("N document(s) queued for conversion, M
+skipped"). No per-file loop needed — unlike the upload queue (M97), this one request just marks
+rows and dispatches jobs; the actual conversion work happens on the existing single serial queue
+worker exactly like it already does for one-at-a-time conversions.
+
+**Files changed:** `app/Http/Controllers/DocumentController.php`, `routes/web.php`,
+`resources/views/folders/show.blade.php`.

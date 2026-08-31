@@ -301,6 +301,7 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
                     Route::delete('/{folder}',    [FolderController::class, 'destroyForDivision'])->name('destroy');
                     // Subfolders — edit/update/destroy reuse the routes above.
                     Route::post('/{folder}/subfolders', [FolderController::class, 'storeSubfolderForDivision'])->name('subfolders.store');
+                    Route::post('/{folder}/convert-all', [DocumentController::class, 'convertFolderForDivision'])->name('convert-all');
                 });
             });
 
@@ -312,6 +313,7 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
                 Route::delete('/{folder}',    [FolderController::class, 'destroy'])->name('destroy');
                 // Subfolders — edit/update/destroy reuse the routes above.
                 Route::post('/{folder}/subfolders', [FolderController::class, 'storeSubfolder'])->name('subfolders.store');
+                Route::post('/{folder}/convert-all', [DocumentController::class, 'convertFolder'])->name('convert-all');
             });
         });
 
