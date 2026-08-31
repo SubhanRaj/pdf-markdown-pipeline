@@ -4790,6 +4790,15 @@ Ghostscript, uploaded as two chunks, reassembled into a genuine 2-page PDF, one 
 created) before shipping; the test itself is not kept in the repo (it existed to prove the
 mechanism works, not as an ongoing regression guard for this feature's specific plumbing).
 
+**Follow-up fix, same session.** A 0-page or otherwise unreadable PDF made `splitPdf()` throw
+(or, before an explicit page-count check was added, silently return zero chunks), and
+`uploadChunkedPdf()` had nothing catching that — the exception would propagate out of
+`uploadFile()` uncaught, and since the submit loops in all three modals destructure its result
+directly with no `try`/`catch` of their own (`request()` already guarantees a `{ok, status,
+json}` shape for a normal upload, so none was needed there), that crashed the whole batch loop
+mid-upload instead of just failing the one file. `uploadFile()` now catches a split failure and
+returns the normal failure shape instead of throwing.
+
 **Files changed:** `public/js/resilient-upload.js`, `app/Http/Controllers/DocumentController.php`,
 `app/Http/Requests/StoreDocumentChunkRequest.php` (new), `app/Jobs/PruneChunkedUpload.php` (new),
 `routes/web.php`, `resources/views/sections/show.blade.php`,

@@ -3,12 +3,11 @@
 namespace App\Http\Requests;
 
 /**
- * One piece of a large PDF the browser split client-side before upload (see
- * resources/js — or rather resources/views' inline pdf-split script — for the split itself).
- * Same destination/metadata fields as StoreDocumentRequest on every chunk (cheap to resend,
- * and only the last chunk's copy actually gets used) — extending it reuses authorize(),
- * prepareForValidation(), and every non-file rule as-is; only `file` and the three chunk
- * fields differ.
+ * One piece of a large PDF the browser split client-side before upload — see the split logic
+ * in `public/js/resilient-upload.js` (`splitPdf()`/`uploadChunkedPdf()`). Same destination and
+ * metadata fields as StoreDocumentRequest on every chunk (cheap to resend, and only the last
+ * chunk's copy actually gets used) — extending it reuses `authorize()`, `prepareForValidation()`,
+ * and every non-file rule as-is; only `file` and the chunk-tracking fields below differ.
  */
 class StoreDocumentChunkRequest extends StoreDocumentRequest
 {
@@ -20,7 +19,7 @@ class StoreDocumentChunkRequest extends StoreDocumentRequest
     {
         return [
             ...parent::rules(),
-            'file'         => ['required', 'file', 'mimetypes:application/pdf', 'max:'.self::MAX_CHUNK_KB],
+            'file'              => ['required', 'file', 'mimetypes:application/pdf', 'max:'.self::MAX_CHUNK_KB],
             'upload_id'         => ['required', 'uuid'],
             'chunk_index'       => ['required', 'integer', 'min:0'],
             'total_chunks'      => ['required', 'integer', 'min:1', 'max:50'],

@@ -77,6 +77,7 @@
     async function splitPdf(file, maxBytes) {
         const srcDoc    = await PDFLib.PDFDocument.load(await file.arrayBuffer(), { ignoreEncryption: true });
         const pageCount = srcDoc.getPageCount();
+        if (pageCount === 0) throw new Error('This PDF has no pages.');
         const avgBytesPerPage = file.size / pageCount;
         const pagesPerChunk   = Math.max(1, Math.floor((maxBytes / avgBytesPerPage) * 0.85));
 
@@ -119,10 +120,18 @@
 
     // What every upload modal's submit loop should call instead of building FormData itself —
     // transparently splits a PDF over SPLIT_THRESHOLD_BYTES, otherwise uploads normally.
-    // `fields` is the same plain object described in uploadChunkedPdf() above.
+    // `fields` is the same plain object described in uploadChunkedPdf() above. Always resolves
+    // to {ok, status, json} — the submit loops destructure this with no try/catch of their own
+    // (request() already guarantees that shape for a normal upload), so a split/merge failure
+    // here (a 0-page or otherwise unreadable PDF) must be caught and turned into the same
+    // shape rather than thrown, or it would crash the whole batch loop mid-upload.
     async function uploadFile(file, fields, page, onProgress) {
         if (file.type === 'application/pdf' && file.size > SPLIT_THRESHOLD_BYTES && window.PDFLib) {
-            return uploadChunkedPdf(file, fields, page, onProgress);
+            try {
+                return await uploadChunkedPdf(file, fields, page, onProgress);
+            } catch (e) {
+                return { ok: false, status: 0, json: { message: 'Could not split this PDF for upload: ' + e.message } };
+            }
         }
         const fd = new FormData();
         Object.entries(fields).forEach(([k, v]) => { if (v !== null && v !== undefined && v !== '') fd.append(k, v); });
