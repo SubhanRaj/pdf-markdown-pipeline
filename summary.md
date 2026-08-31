@@ -4822,3 +4822,22 @@ Covered by `tests/Feature/ChunkUploadOwnershipTest.php`.
 
 **Files changed:** `app/Http/Controllers/DocumentController.php`,
 `tests/Feature/ChunkUploadOwnershipTest.php` (new).
+
+## Division-scoped folder-upload rejection (2026-08-31)
+
+The originally-reported incident: picking a whole local folder to upload directly on a division
+page (e.g. Performance Audit under Account section) failed with "This action is unauthorized,"
+even though the same flow worked fine at plain section level. M98 had already fixed one half of
+this — `destinationRules()`'s validation — for the section case. The other half,
+`authorizeDestination()`'s own cross-check between `folder_id` and any `section_id`/`division_id`
+also sent, still had the bug, and only for divisions: its `division_id` check was unconditional
+(`$context->division_id && $context->division_id !== $divisionId`), while the equivalent
+`section_id` check already had the right shape (`$sectionId && ...`). The folder-upload picker
+sends `folder_id` alone — never `division_id` — so a folder under a division always failed this
+check: the folder's real `division_id` never equals the `null` the client didn't send. Fixed by
+adding the same `$divisionId &&` guard the `section_id` check already had. A folder_id sent
+alongside a genuinely mismatched `division_id` (the actual spoofing case this cross-check exists
+for) is still rejected — verified in the same test file.
+
+**Files changed:** `app/Http/Requests/Concerns/ResolvesUploadDestination.php`,
+`tests/Feature/DivisionFolderUploadTest.php` (new).

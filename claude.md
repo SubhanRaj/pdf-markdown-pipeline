@@ -795,6 +795,19 @@ validation even though `DocumentController::store()` already derives the section
 `folder_id` alone). Whenever a fifth destination kind is ever added here, it needs adding to both
 `required_without_all` lists too, or the same "must be selected" false-rejection comes back for it.
 
+**Second false-rejection, same root cause, in `authorizeDestination()` this time (2026-08-31).**
+Passing validation isn't enough — `authorizeDestination()` (same trait) cross-checks `folder_id`
+against any `section_id`/`division_id` also sent, to catch a spoofed folder_id from another
+department. Its `division_id` check was unconditional (`$context->division_id && ... !==
+$divisionId`), so any folder-only upload into a *division-scoped* folder — the folder-upload
+picker on `divisions/show.blade.php` sends only `folder_id`, same as the section-level picker —
+was rejected as unauthorized, because the folder's real `division_id` never equalled the `null`
+the client didn't send. The `section_id` check already had the right shape (`$sectionId &&`)
+because M98 fixed the *section*-level case first; the `division_id` check needed the identical
+`$divisionId &&` guard, which it never got. Fixed to match. Covered by
+`tests/Feature/DivisionFolderUploadTest.php`, which also checks the spoof case the cross-check
+exists for still 403s.
+
 ### Frontend interactivity: Alpine, not Livewire (2026-07-26)
 
 Recurring complaint: several pages needed a manual refresh to show anything new — most visibly,
@@ -1119,7 +1132,7 @@ Upload is initiated from a section show page or rule set show page via a modal. 
 
 A subfolder (M94) is just another `Folder` row — both folder-based upload paths above work unchanged whether `folder_id` points at a root folder or a subfolder; the store branch never checks `parent_id`.
 
-`StoreDocumentRequest` — `section_id`, `rule_set_id`, and `folder_id` are mutually exclusive contexts (`required_without_all:` group). `division_id` is optional, only valid alongside `section_id`. `folder_id` is optional, only valid alongside `section_id`; if the folder belongs to a division, `division_id` must also be provided. When `folder_id` is provided, the store branch uses `Folder::with('division.section.department')` to derive all parent context. Each fetch in the JS loop builds its own `FormData` with the per-file title and the shared type/visibility/context-ids — `FormData(form)` is **not** used because the file input is outside the `<form>` element (left vs right column layout).
+`StoreDocumentRequest` — `section_id`, `rule_set_id`, and `folder_id` are mutually exclusive contexts (`required_without_all:` group). `division_id` and `section_id` are both optional whenever `folder_id` is given — the folder-upload picker sends `folder_id` alone, and `authorizeDestination()`/`store()` both derive the rest from the folder itself; `section_id`/`division_id` only need to be sent when they should be cross-checked against the folder (see the `authorizeDestination()` note above). When `folder_id` is provided, the store branch uses `Folder::with('division.section.department')` to derive all parent context. Each fetch in the JS loop builds its own `FormData` with the per-file title and the shared type/visibility/context-ids — `FormData(form)` is **not** used because the file input is outside the `<form>` element (left vs right column layout).
 
 **Converted Markdown** lands in the same vault directory, same base filename, `.md` extension. `markdown_path` stores the full relative path on `public` disk.
 

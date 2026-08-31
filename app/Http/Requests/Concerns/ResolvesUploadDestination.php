@@ -33,7 +33,7 @@ trait ResolvesUploadDestination
             if ($context && $sectionId && $context->section_id !== $sectionId) {
                 return false;
             }
-            if ($context && $context->division_id && $context->division_id !== $divisionId) {
+            if ($context && $divisionId && $context->division_id !== $divisionId) {
                 return false;
             }
         } elseif ($divisionId) {
