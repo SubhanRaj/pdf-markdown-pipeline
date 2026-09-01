@@ -35,6 +35,12 @@ class ConvertQuickConversionToMarkdown implements ShouldQueue
 
         $quickConversion->forceFill(['status' => 'processing'])->save();
 
+        if ($quickConversion->isNativeFormat()) {
+            $this->handleNative($quickConversion);
+
+            return;
+        }
+
         $absolutePdfPath = Storage::disk('public')->path($quickConversion->pdf_path);
 
         try {
@@ -94,9 +100,39 @@ class ConvertQuickConversionToMarkdown implements ShouldQueue
                 RunQuickConversionOcrExtraction::dispatch($quickConversion->id, config('ocr.default'));
             }
         } catch (\Throwable $e) {
-            Log::error('ConvertQuickConversionToMarkdown failed', ['quick_conversion_id' => $quickConversion->id, 'error' => $e->getMessage()]);
-
-            $quickConversion->forceFill(['status' => 'failed', 'error_message' => $e->getMessage()])->save();
+            $this->markFailed($quickConversion, $e);
         }
+    }
+
+    /** Mirrors ConvertDocumentToMarkdown::handleNative() — see that job for the full reasoning. */
+    private function handleNative(QuickConversion $quickConversion): void
+    {
+        try {
+            $absoluteNativePath = Storage::disk('public')->path($quickConversion->native_path);
+            $markdown = $this->engine->convertNativeToMarkdown($absoluteNativePath);
+
+            $markdownPath = preg_replace('/\.[^.\/]+$/', '.md', $quickConversion->native_path);
+            if (! Storage::disk('public')->put($markdownPath, $markdown)) {
+                throw new \RuntimeException("Failed to write markdown file: {$markdownPath}");
+            }
+
+            $quickConversion->update([
+                'markdown_path' => $markdownPath,
+                'status'        => 'review',
+                'metadata'      => array_merge($quickConversion->metadata ?? [], [
+                    'extraction_method' => 'markitdown-native',
+                    'needs_ocr_review'  => false,
+                ]),
+            ]);
+        } catch (\Throwable $e) {
+            $this->markFailed($quickConversion, $e);
+        }
+    }
+
+    private function markFailed(QuickConversion $quickConversion, \Throwable $e): void
+    {
+        Log::error('ConvertQuickConversionToMarkdown failed', ['quick_conversion_id' => $quickConversion->id, 'error' => $e->getMessage()]);
+
+        $quickConversion->forceFill(['status' => 'failed', 'error_message' => $e->getMessage()])->save();
     }
 }

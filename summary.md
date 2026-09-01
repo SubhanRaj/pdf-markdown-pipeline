@@ -4925,3 +4925,80 @@ workbook, or several conversions competing for CPU during a bulk upload — rais
 **Files changed:** `app/Http/Controllers/DocumentController.php`,
 `tests/Feature/NonPdfUploadConversionTest.php` (new), `tests/Fixtures/sample-multisheet.xlsx`
 (new), `tests/Fixtures/sample.docx` (new).
+
+## Word/Excel/PowerPoint kept native — no PDF round-trip, no wasted OCR (2026-09-01)
+
+Following straight on from the timeout/fidelity work above: the user's actual ask was to stop
+converting Word/Excel/PowerPoint to PDF at all — these formats are already selectable text or
+structured cells, so there's nothing for OCR to usefully do, and the PDF round-trip was pure
+overhead (and a theoretical fidelity risk on top of that). markitdown — already installed for the
+PDF pipeline's own text extraction — reads `.docx`/`.xlsx`/`.pptx` (and `.doc`/`.xls`/`.ppt`,
+`.odt`/`.ods`/`.odp`, `.rtf`/`.txt`/`.csv`) natively, confirmed directly on this box against real
+multi-sheet/multi-paragraph fixtures before writing any code.
+
+**Schema:** two new migrations (`documents`, `quick_conversions`) — `original_pdf_path`/`pdf_path`
+made nullable, plus new `native_path` (the original file, kept as-is) and `original_format`
+(default `'pdf'`, so all 452 existing documents stayed exactly as they were — verified after
+migrating). Both applied to the live database.
+
+**Upload:** `DocumentController::createDocumentFromUpload()` and
+`QuickConversionController::store()` both now branch three ways on the upload's real mime — PDF
+(unchanged), native format (new: stored as-is, no LibreOffice call), image (unchanged
+LibreOffice-Draw path, now shared via `PdfConversionEngine::convertToPdf()` instead of being
+duplicated per controller). **Found and fixed a real pre-existing bug in the process**:
+`QuickConversionController` and `PolicyDocumentController` had *no* non-PDF handling at all,
+despite both accepting Word/Excel/images via the same `StoreDocumentRequest::ACCEPTED_MIMETYPES`
+list — an upload of either kind through "New Conversion" or a policy document got silently
+renamed to `original.pdf`/`{slug}.pdf` with its real bytes untouched, guaranteed to fail the
+moment pdfminer/Docling tried to read it as a PDF. This is very likely the actual cause of the
+`.xlsx` upload failure reported the day before — it predates today's disk-write logging fix, so
+there's no log entry to confirm it, but the mechanism fully explains a failure with no visible
+attempted fix, and reproducing the old code path against a real xlsx fixture matches. Both
+controllers now get the same three-way branch as `DocumentController`.
+
+**Conversion:** `ConvertDocumentToMarkdown::handleNative()` and
+`ConvertQuickConversionToMarkdown::handleNative()` call `PdfConversionEngine::convertNativeToMarkdown()`
+(`markitdown <file>`, no Docling, no OCR) and land in `'review'` — never `'ocr_pending'`, since
+there's no scanned layout for OCR to add anything to. `convertOcr()`/the "Run OCR Extraction"
+button are both native-aware (rejected server-side with an explanatory message; hidden entirely
+client-side).
+
+**Everywhere else `original_pdf_path` was assumed present**, `native_path` needed the same
+treatment: `BuildsZipDownload`'s fallback chain, `ManagesDocumentFiles` (archive/restore/delete on
+soft-delete), move/copy (`relocateDocumentFiles`/`duplicateDocument`), `ApprovalController::reclassify()`
+(plus its `pdf_url` → new `native_url` in the JSON the drawer reads), and the admin
+`documents:convert-all` console command's file-existence check.
+
+**On-demand PDF, per the user's explicit ask ("if user want they can also convert it to pdf, else
+just show it as it is"):** `DocumentController::convertToPdf()` (`POST
+/documents/{id}/convert-to-pdf`) runs the same `PdfConversionEngine::convertToPdf()` LibreOffice
+call once, sets `original_pdf_path`, and leaves everything else (native file, Markdown, status)
+untouched — a "Convert to PDF" button next to the viewer, shown only for native-format documents.
+
+**Viewing, per the user's explicit ask ("do both — render in browser and download, like Claude
+does"):** `public/js/native-preview.js` renders `.docx` via docx-preview.js and `.xlsx`/`.xls` via
+SheetJS — both self-hosted-capable, open-source, loaded from `cdn.jsdelivr.net` (the only external
+script host this app's CSP already allows). Every other native format has no good open-source
+in-browser renderer, so it falls back to a plain download link rather than a broken viewer. Used
+on `documents/show.blade.php` (both the main viewer and the Compare & Verify modal),
+`quick_conversions/show.blade.php`, and the approval-queue drawer. A parallel `native` route was
+added everywhere a `pdf` route already existed (`documents.native` and its 4 division/folder/
+rule-set siblings, `conversions.native`, `approvals.native`) to serve the raw native file.
+
+**Evaluated and rejected switching the PDF-conversion tooling itself** (PhpSpreadsheet/PHPWord, or
+a client-side library) — see the M80 write-up above for the reasoning; unchanged by this feature,
+since LibreOffice is still what `convertToPdf()`/the image path use.
+
+**Files changed:** `database/migrations/2026_09_01_094840_...` (new),
+`database/migrations/2026_09_01_095551_...` (new), `app/Models/Document.php`,
+`app/Models/QuickConversion.php`, `app/Services/PdfConversionEngine.php`,
+`app/Http/Controllers/DocumentController.php`, `app/Http/Controllers/QuickConversionController.php`,
+`app/Http/Controllers/PolicyDocumentController.php`, `app/Http/Controllers/ApprovalController.php`,
+`app/Http/Controllers/Concerns/BuildsZipDownload.php`,
+`app/Http/Controllers/Concerns/ManagesDocumentFiles.php`, `app/Jobs/ConvertDocumentToMarkdown.php`,
+`app/Jobs/ConvertQuickConversionToMarkdown.php`, `app/Jobs/PruneQuickConversion.php`,
+`app/Console/Commands/ConvertAllDocuments.php`, `public/js/native-preview.js` (new),
+`resources/views/documents/show.blade.php`, `resources/views/quick_conversions/show.blade.php`,
+`resources/views/approvals/index.blade.php`, `routes/web.php`,
+`tests/Feature/NonPdfUploadConversionTest.php`, `tests/Feature/QuickConversionNativeFormatTest.php`
+(new), `tests/Feature/PolicyDocumentNativeFormatTest.php` (new).

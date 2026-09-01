@@ -17,12 +17,65 @@ class PdfConversionEngine
     /** Reuses the venv markitdown:install already provisions — pdfminer.six is one of its own dependencies. */
     private string $pythonBin;
 
+    private string $markitdownBin;
+
     private string $extractorScript;
 
     public function __construct()
     {
         $this->pythonBin = base_path('vendor/innobrain/markitdown/python/venv/bin/python3');
+        $this->markitdownBin = base_path('vendor/innobrain/markitdown/python/venv/bin/markitdown');
         $this->extractorScript = resource_path('python/pdf_structure_extractor.py');
+    }
+
+    /**
+     * Converts an image (or any other LibreOffice-openable format not in
+     * Document::NATIVE_MARKITDOWN_MIMES) to PDF via headless LibreOffice's Draw component.
+     * Images have no native text layer, so unlike Word/Excel/etc. they still need this — the
+     * OCR pipeline runs against the resulting PDF. Returns the absolute path of the converted
+     * PDF; throws on failure (soffice error, or no output produced).
+     */
+    public function convertToPdf(string $absoluteSourcePath, string $absoluteOutputDir): string
+    {
+        // -env:UserInstallation avoids relying on a writable $HOME for the www-data user (it has
+        // none — /var/www is root-owned); a per-conversion profile dir keeps concurrent
+        // conversions from sharing/locking one LibreOffice profile.
+        $profileDir = storage_path('app/soffice-profile-' . \Illuminate\Support\Str::random(16));
+
+        // 120s -> 240s (2026-09-01): a large/complex source, or several conversions competing
+        // for CPU during a bulk upload, can genuinely take longer than 120s.
+        $result = Process::timeout(240)->run([
+            'soffice', '--headless', '--convert-to', 'pdf', '--outdir', $absoluteOutputDir,
+            '-env:UserInstallation=file://' . $profileDir, $absoluteSourcePath,
+        ]);
+        (new \Illuminate\Filesystem\Filesystem())->deleteDirectory($profileDir);
+
+        $convertedPath = $absoluteOutputDir . '/' . pathinfo($absoluteSourcePath, PATHINFO_FILENAME) . '.pdf';
+
+        if (! $result->successful() || ! is_file($convertedPath)) {
+            throw new \RuntimeException('soffice conversion failed: ' . $result->errorOutput());
+        }
+
+        return $convertedPath;
+    }
+
+    /**
+     * Word/Excel/PowerPoint/ODT/RTF/TXT/CSV go straight through markitdown's own converters
+     * (DocxConverter, XlsxConverter, ...) instead of the PDF-oriented pipeline above — these
+     * formats are already selectable text or structured cells, nothing scanned to OCR or run
+     * Docling structure detection on. See Document::NATIVE_MARKITDOWN_MIMES.
+     *
+     * @throws \RuntimeException on conversion failure — caller decides how to record it.
+     */
+    public function convertNativeToMarkdown(string $absoluteNativePath): string
+    {
+        $result = Process::timeout(120)->run([$this->markitdownBin, $absoluteNativePath]);
+
+        if (! $result->successful()) {
+            throw new \RuntimeException('markitdown failed: ' . $result->errorOutput());
+        }
+
+        return trim($result->output());
     }
 
     /**

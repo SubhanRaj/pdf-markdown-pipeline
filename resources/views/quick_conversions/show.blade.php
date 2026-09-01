@@ -10,7 +10,9 @@ $statusColors = [
 $statusClass = $statusColors[$statusMeta['color']] ?? $statusColors['slate'];
 $isConverting = in_array($quickConversion->status, ['uploaded', 'processing', 'ocr_pending'], true);
 $isDone = in_array($quickConversion->status, ['review', 'failed'], true);
-$pdfUrl = \Illuminate\Support\Facades\Storage::disk('public')->url($quickConversion->pdf_path);
+$isNativeConversion = $quickConversion->isNativeFormat();
+$pdfUrl = $isNativeConversion ? null : \Illuminate\Support\Facades\Storage::disk('public')->url($quickConversion->pdf_path);
+$nativeUrl = $isNativeConversion ? route('conversions.native', $quickConversion) : null;
 $needsOcrReview = (bool) ($quickConversion->metadata['needs_ocr_review'] ?? false);
 ?>
 <x-layout
@@ -114,7 +116,24 @@ $pageData = [
                 <i class="ti ti-file-type-pdf text-sm text-red-500 dark:text-red-400"></i>
                 <span class="text-xs font-bold uppercase tracking-widest text-red-700 dark:text-red-400">Original</span>
             </div>
+            @if($isNativeConversion)
+            <div id="qc-native-preview" class="w-full flex-1 overflow-auto bg-white dark:bg-slate-950"></div>
+            <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.4.0/dist/docx-preview.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+            <script src="{{ asset('js/native-preview.js') }}"></script>
+            <script>
+                renderNativePreview(
+                    document.getElementById('qc-native-preview'),
+                    {{ Js::from($nativeUrl) }},
+                    {{ Js::from($quickConversion->original_format) }},
+                    {{ Js::from($nativeUrl) }},
+                    {{ Js::from($quickConversion->original_filename) }}
+                );
+            </script>
+            @else
             <iframe src="{{ $pdfUrl }}#view=FitH&toolbar=1&navpanes=0" class="w-full flex-1 border-0" title="Original PDF"></iframe>
+            @endif
         </div>
         <div class="w-1/2 flex flex-col min-h-0 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
             <div class="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border-b border-indigo-100 dark:border-indigo-900/40 flex-shrink-0 flex items-center gap-2 flex-wrap">
@@ -140,6 +159,7 @@ $pageData = [
         </button>
         @endif
 
+        @unless($isNativeConversion)
         <select id="ocr-engine-select"
                 class="text-sm font-medium border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 dark:[color-scheme:dark]">
             @foreach(config('ocr.engines') as $engineKey => $engineConfig)
@@ -150,6 +170,7 @@ $pageData = [
                 class="inline-flex items-center gap-1.5 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
             <i class="ti ti-scan text-base"></i> Run OCR
         </button>
+        @endunless
 
         @if($quickConversion->markdown_path)
         <a href="{{ route('conversions.download', $quickConversion) }}"

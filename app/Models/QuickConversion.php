@@ -12,6 +12,8 @@ class QuickConversion extends Model
         'title',
         'original_filename',
         'pdf_path',
+        'native_path',
+        'original_format',
         'markdown_path',
         'structure_path',
         'status',
@@ -28,5 +30,11 @@ class QuickConversion extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /** Same NATIVE_MARKITDOWN_MIMES bucket as Document::isNativeFormat() — see that model for why. */
+    public function isNativeFormat(): bool
+    {
+        return in_array($this->original_format, Document::NATIVE_MARKITDOWN_MIMES, true);
     }
 }

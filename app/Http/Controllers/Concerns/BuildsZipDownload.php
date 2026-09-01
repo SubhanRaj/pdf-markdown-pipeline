@@ -45,8 +45,10 @@ trait BuildsZipDownload
             $extension = 'md';
 
             if (! $path || ! Storage::disk('public')->exists($path)) {
-                $path      = $document->original_pdf_path;
-                $extension = $path ? pathinfo($path, PATHINFO_EXTENSION) ?: 'pdf' : null;
+                // A native-format document (Word/Excel/...) may have no original_pdf_path at
+                // all — see Document::isNativeFormat() — fall back to native_path in that case.
+                $path      = $document->original_pdf_path ?: $document->native_path;
+                $extension = $path ? (pathinfo($path, PATHINFO_EXTENSION) ?: 'pdf') : null;
             }
 
             if ($path && Storage::disk('public')->exists($path)) {

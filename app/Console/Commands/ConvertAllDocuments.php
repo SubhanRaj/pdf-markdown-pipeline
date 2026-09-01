@@ -58,7 +58,8 @@ class ConvertAllDocuments extends Command
                     return 'in-flight';
                 }
 
-                if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
+                $sourcePath = $document->isNativeFormat() ? $document->native_path : $document->original_pdf_path;
+                if (! $sourcePath || ! Storage::disk('public')->exists($sourcePath)) {
                     return 'missing-file';
                 }
 

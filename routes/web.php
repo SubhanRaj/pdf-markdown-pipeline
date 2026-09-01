@@ -72,32 +72,38 @@ Route::prefix('documents')->name('documents.')->group(function () {
     // itself has to be reachable unauthenticated for a crawler to fetch it at all.
     Route::get('/{document}/og-image.jpg', [DocumentController::class, 'ogImage'])->name('og-image');
     // Section-based documents (direct — no division)
-    Route::get('/{level}/{department}/{section}/{document}',     [DocumentController::class, 'show'])->name('show');
-    Route::get('/{level}/{department}/{section}/{document}/pdf', [DocumentController::class, 'pdf'])->name('pdf');
+    Route::get('/{level}/{department}/{section}/{document}',        [DocumentController::class, 'show'])->name('show');
+    Route::get('/{level}/{department}/{section}/{document}/pdf',    [DocumentController::class, 'pdf'])->name('pdf');
+    Route::get('/{level}/{department}/{section}/{document}/native', [DocumentController::class, 'native'])->name('native');
     // Division-based documents
     Route::prefix('/{level}/{department}/{section}/divisions/{division}')->name('divisions.')->group(function () {
-        Route::get('/{document}',     [DocumentController::class, 'showDivisionDoc'])->name('show');
-        Route::get('/{document}/pdf', [DocumentController::class, 'pdfDivisionDoc'])->name('pdf');
+        Route::get('/{document}',        [DocumentController::class, 'showDivisionDoc'])->name('show');
+        Route::get('/{document}/pdf',    [DocumentController::class, 'pdfDivisionDoc'])->name('pdf');
+        Route::get('/{document}/native', [DocumentController::class, 'nativeDivisionDoc'])->name('native');
     });
     // Rule-set-based documents
     Route::prefix('/{level}/{department}/rules/{rule_set}')->name('rules.')->group(function () {
-        Route::get('/{document}',     [DocumentController::class, 'showRuleSetDoc'])->name('show')->defaults('kind', 'rules');
-        Route::get('/{document}/pdf', [DocumentController::class, 'pdfRuleSetDoc'])->name('pdf')->defaults('kind', 'rules');
+        Route::get('/{document}',        [DocumentController::class, 'showRuleSetDoc'])->name('show')->defaults('kind', 'rules');
+        Route::get('/{document}/pdf',    [DocumentController::class, 'pdfRuleSetDoc'])->name('pdf')->defaults('kind', 'rules');
+        Route::get('/{document}/native', [DocumentController::class, 'nativeRuleSetDoc'])->name('native')->defaults('kind', 'rules');
     });
     // Policy-based documents (same controller methods as rule-set docs — RuleSet.kind discriminates)
     Route::prefix('/{level}/{department}/policy/{rule_set}')->name('policy.')->group(function () {
-        Route::get('/{document}',     [DocumentController::class, 'showRuleSetDoc'])->name('show')->defaults('kind', 'policy');
-        Route::get('/{document}/pdf', [DocumentController::class, 'pdfRuleSetDoc'])->name('pdf')->defaults('kind', 'policy');
+        Route::get('/{document}',        [DocumentController::class, 'showRuleSetDoc'])->name('show')->defaults('kind', 'policy');
+        Route::get('/{document}/pdf',    [DocumentController::class, 'pdfRuleSetDoc'])->name('pdf')->defaults('kind', 'policy');
+        Route::get('/{document}/native', [DocumentController::class, 'nativeRuleSetDoc'])->name('native')->defaults('kind', 'policy');
     });
     // Section-folder documents
     Route::prefix('/{level}/{department}/{section}/folders/{folder}')->name('folders.')->group(function () {
-        Route::get('/{document}',     [DocumentController::class, 'showSectionFolderDoc'])->name('show');
-        Route::get('/{document}/pdf', [DocumentController::class, 'pdfSectionFolderDoc'])->name('pdf');
+        Route::get('/{document}',        [DocumentController::class, 'showSectionFolderDoc'])->name('show');
+        Route::get('/{document}/pdf',    [DocumentController::class, 'pdfSectionFolderDoc'])->name('pdf');
+        Route::get('/{document}/native', [DocumentController::class, 'nativeSectionFolderDoc'])->name('native');
     });
     // Division-folder documents
     Route::prefix('/{level}/{department}/{section}/divisions/{division}/folders/{folder}')->name('divisions.folders.')->group(function () {
-        Route::get('/{document}',     [DocumentController::class, 'showDivisionFolderDoc'])->name('show');
-        Route::get('/{document}/pdf', [DocumentController::class, 'pdfDivisionFolderDoc'])->name('pdf');
+        Route::get('/{document}',        [DocumentController::class, 'showDivisionFolderDoc'])->name('show');
+        Route::get('/{document}/pdf',    [DocumentController::class, 'pdfDivisionFolderDoc'])->name('pdf');
+        Route::get('/{document}/native', [DocumentController::class, 'nativeDivisionFolderDoc'])->name('native');
     });
 });
 
@@ -207,6 +213,7 @@ Route::middleware(['auth', 'throttle:reads'])->prefix('conversions')->name('conv
     Route::get('/{quickConversion}',          [QuickConversionController::class, 'show'])->name('show');
     Route::get('/{quickConversion}/status',   [QuickConversionController::class, 'status'])->name('status');
     Route::get('/{quickConversion}/download', [QuickConversionController::class, 'download'])->name('download');
+    Route::get('/{quickConversion}/native',   [QuickConversionController::class, 'native'])->name('native');
 });
 
 // ── Auth-protected mutations ──────────────────────────────────────────────────
@@ -223,6 +230,7 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
         Route::delete('/trash/{id}',               [DocumentController::class, 'forceDestroy'])->name('force-destroy');
         // Markdown conversion — numeric ID, applies across all five document contexts
         Route::post('/{id}/convert',               [DocumentController::class, 'convert'])->where('id', '[0-9]+')->name('convert');
+        Route::post('/{id}/convert-to-pdf',        [DocumentController::class, 'convertToPdf'])->where('id', '[0-9]+')->name('convert-to-pdf');
         Route::post('/{id}/convert-ocr',           [DocumentController::class, 'convertOcr'])->where('id', '[0-9]+')->name('convert-ocr');
         Route::post('/{id}/revert-ocr',            [DocumentController::class, 'revertOcr'])->where('id', '[0-9]+')->name('revert-ocr');
         Route::patch('/{id}/markdown',             [DocumentController::class, 'updateMarkdown'])->where('id', '[0-9]+')->name('markdown.update');
@@ -352,6 +360,7 @@ Route::middleware(['auth', 'throttle:mutations'])->group(function () {
 Route::middleware(['auth', 'throttle:mutations'])->prefix('approvals')->name('approvals.')->group(function () {
     Route::get('/',                  [ApprovalController::class, 'index'])->name('index');
     Route::get('/{id}/pdf',          [ApprovalController::class, 'pdf'])->name('pdf');
+    Route::get('/{id}/native',       [ApprovalController::class, 'native'])->name('native');
     Route::post('/{id}/approve',     [ApprovalController::class, 'approve'])->name('approve');
     Route::post('/{id}/reject',      [ApprovalController::class, 'reject'])->name('reject');
     Route::post('/{id}/reclassify',  [ApprovalController::class, 'reclassify'])->name('reclassify');

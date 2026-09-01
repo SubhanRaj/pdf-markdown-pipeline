@@ -10,59 +10,90 @@ use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
 
-// Runs the real `soffice --headless --convert-to pdf` conversion — see
-// DocumentController::createDocumentFromUpload() — no mocking, since a fake/empty file wouldn't
-// exercise the actual conversion this is meant to guard. Word and Excel are both explicitly
-// accepted upload types (StoreDocumentRequest::ACCEPTED_MIMETYPES); a multi-sheet workbook is
-// used deliberately, since "does it lose sheets on conversion" was the reported concern.
-test('a multi-sheet xlsx converts to a PDF with every sheet present', function () {
-    Storage::fake('public'); // isolated disposable disk — soffice's real output still lands on a real path, just not production storage
-    $department = Department::create(['name' => 'Excise', 'slug' => 'excise', 'level' => 'department_level']);
-    $section    = Section::create(['department_id' => $department->id, 'name' => 'Account', 'slug' => 'account']);
-    $admin = User::factory()->create(['role' => 'system_admin', 'username' => fake()->unique()->userName()]);
+// Word/Excel/PowerPoint/... (2026-09-01): no LibreOffice PDF round-trip on upload — the original
+// is kept as-is (native_path) and converted straight to Markdown via markitdown, no OCR. See
+// Document::isNativeFormat() and DocumentController::createDocumentFromUpload().
+function uploadNative(User $admin, Section $section, string $fixture, string $filename, string $mime): Document
+{
+    $file = new UploadedFile(__DIR__ . '/../Fixtures/' . $fixture, $filename, $mime, null, true);
 
-    $file = new UploadedFile(
-        __DIR__ . '/../Fixtures/sample-multisheet.xlsx',
-        'budget.xlsx',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        null, true
-    );
-
-    $resp = $this->actingAs($admin)->post(route('documents.store'), [
-        'title' => 'Test Budget', 'document_type' => 'go', 'visibility' => 'public', 'language' => 'english',
+    $resp = test()->actingAs($admin)->post(route('documents.store'), [
+        'title' => 'Test Doc', 'document_type' => 'go', 'visibility' => 'public', 'language' => 'english',
         'section_id' => $section->id, 'file' => $file,
     ]);
-
     $resp->assertOk();
-    $document = Document::findOrFail($resp->json('document_id'));
-    $pdfPath  = Storage::disk('public')->path($document->original_pdf_path);
 
-    expect(str_ends_with($document->original_pdf_path, '.pdf'))->toBeTrue();
-    expect(is_file($pdfPath))->toBeTrue();
+    return Document::findOrFail($resp->json('document_id'));
+}
 
-    $text = shell_exec('pdftotext ' . escapeshellarg($pdfPath) . ' -');
-    expect($text)->toContain('Revenue Sheet')->toContain('Expenses Sheet');
-});
-
-test('a docx converts to a PDF', function () {
+test('a multi-sheet xlsx upload keeps the original and skips PDF conversion', function () {
     Storage::fake('public');
     $department = Department::create(['name' => 'Excise', 'slug' => 'excise', 'level' => 'department_level']);
     $section    = Section::create(['department_id' => $department->id, 'name' => 'Account', 'slug' => 'account']);
     $admin = User::factory()->create(['role' => 'system_admin', 'username' => fake()->unique()->userName()]);
 
-    $file = new UploadedFile(
-        __DIR__ . '/../Fixtures/sample.docx',
-        'circular.docx',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        null, true
-    );
+    $document = uploadNative($admin, $section, 'sample-multisheet.xlsx', 'budget.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
-    $resp = $this->actingAs($admin)->post(route('documents.store'), [
-        'title' => 'Test Circular', 'document_type' => 'go', 'visibility' => 'public', 'language' => 'english',
-        'section_id' => $section->id, 'file' => $file,
-    ]);
+    expect($document->original_format)->toBe('xlsx');
+    expect($document->isNativeFormat())->toBeTrue();
+    expect($document->original_pdf_path)->toBeNull();
+    expect($document->native_path)->not->toBeNull();
+    expect(Storage::disk('public')->exists($document->native_path))->toBeTrue();
+});
 
+test('converting a multi-sheet xlsx produces Markdown with every sheet, no OCR queued', function () {
+    Storage::fake('public');
+    $department = Department::create(['name' => 'Excise', 'slug' => 'excise', 'level' => 'department_level']);
+    $section    = Section::create(['department_id' => $department->id, 'name' => 'Account', 'slug' => 'account']);
+    $admin = User::factory()->create(['role' => 'system_admin', 'username' => fake()->unique()->userName()]);
+
+    $document = uploadNative($admin, $section, 'sample-multisheet.xlsx', 'budget.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+    $this->actingAs($admin)->post(route('documents.convert', $document->id))->assertOk();
+
+    (new App\Jobs\ConvertDocumentToMarkdown($document->id))->handle();
+
+    $document->refresh();
+    expect($document->status)->toBe('review'); // never 'ocr_pending' — nothing scanned to OCR
+    expect($document->metadata['extraction_method'])->toBe('markitdown-native');
+    expect($document->markdown_path)->not->toBeNull();
+
+    $markdown = Storage::disk('public')->get($document->markdown_path);
+    expect($markdown)->toContain('Revenue Sheet')->toContain('Expenses Sheet');
+});
+
+test('a docx upload converts straight to Markdown via markitdown', function () {
+    Storage::fake('public');
+    $department = Department::create(['name' => 'Excise', 'slug' => 'excise', 'level' => 'department_level']);
+    $section    = Section::create(['department_id' => $department->id, 'name' => 'Account', 'slug' => 'account']);
+    $admin = User::factory()->create(['role' => 'system_admin', 'username' => fake()->unique()->userName()]);
+
+    $document = uploadNative($admin, $section, 'sample.docx', 'circular.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    expect($document->isNativeFormat())->toBeTrue();
+
+    (new App\Jobs\ConvertDocumentToMarkdown($document->id))->handle();
+
+    $document->refresh();
+    expect($document->status)->toBe('review');
+    expect(Storage::disk('public')->get($document->markdown_path))->toContain('Sample Word document body text');
+});
+
+test('convertToPdf generates a real PDF for a native-format document on request', function () {
+    Storage::fake('public');
+    $department = Department::create(['name' => 'Excise', 'slug' => 'excise', 'level' => 'department_level']);
+    $section    = Section::create(['department_id' => $department->id, 'name' => 'Account', 'slug' => 'account']);
+    $admin = User::factory()->create(['role' => 'system_admin', 'username' => fake()->unique()->userName()]);
+
+    $document = uploadNative($admin, $section, 'sample.docx', 'circular.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    expect($document->original_pdf_path)->toBeNull();
+
+    $resp = $this->actingAs($admin)->post(route('documents.convert-to-pdf', $document->id));
     $resp->assertOk();
-    $document = Document::findOrFail($resp->json('document_id'));
-    expect(is_file(Storage::disk('public')->path($document->original_pdf_path)))->toBeTrue();
+
+    $document->refresh();
+    expect($document->original_pdf_path)->not->toBeNull();
+    expect(Storage::disk('public')->exists($document->original_pdf_path))->toBeTrue();
+    // native_path and original_format are untouched -- still the same Word document underneath
+    expect($document->native_path)->not->toBeNull();
+    expect($document->original_format)->toBe('docx');
 });

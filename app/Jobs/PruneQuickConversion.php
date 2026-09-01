@@ -31,7 +31,7 @@ class PruneQuickConversion implements ShouldQueue
             return;
         }
 
-        foreach ([$quickConversion->pdf_path, $quickConversion->markdown_path, $quickConversion->structure_path] as $path) {
+        foreach ([$quickConversion->pdf_path, $quickConversion->native_path, $quickConversion->markdown_path, $quickConversion->structure_path] as $path) {
             if ($path) {
                 Storage::disk('public')->delete($path);
             }

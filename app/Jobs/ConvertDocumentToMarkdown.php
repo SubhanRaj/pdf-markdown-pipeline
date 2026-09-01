@@ -35,6 +35,12 @@ class ConvertDocumentToMarkdown implements ShouldQueue
 
         $document->forceFill(['status' => 'processing'])->save();
 
+        if ($document->isNativeFormat()) {
+            $this->handleNative($document);
+
+            return;
+        }
+
         $absolutePdfPath = Storage::disk('public')->path($document->original_pdf_path);
 
         try {
@@ -139,21 +145,67 @@ class ConvertDocumentToMarkdown implements ShouldQueue
                 RunOcrExtraction::dispatch($document->id, config('ocr.default'));
             }
         } catch (\Throwable $e) {
-            Log::error('ConvertDocumentToMarkdown failed', ['document_id' => $document->id, 'error' => $e->getMessage()]);
+            $this->markFailed($document, $e);
+        }
+    }
 
-            DB::transaction(function () use ($document, $e) {
+    /**
+     * Word/Excel/PowerPoint/ODT/RTF/TXT/CSV — markitdown reads the original file directly, no
+     * PDF/OCR/Docling pipeline involved. Always lands in 'review', never 'ocr_pending': these
+     * formats carry no scanned layout, so there's nothing OCR could add.
+     */
+    private function handleNative(Document $document): void
+    {
+        try {
+            $absoluteNativePath = Storage::disk('public')->path($document->native_path);
+            $markdown = $this->engine->convertNativeToMarkdown($absoluteNativePath);
+
+            $markdownPath = preg_replace('/\.[^.\/]+$/', '.md', $document->native_path);
+            if (! Storage::disk('public')->put($markdownPath, $markdown)) {
+                throw new \RuntimeException("Failed to write markdown file: {$markdownPath}");
+            }
+
+            DB::transaction(function () use ($document, $markdownPath) {
                 $oldStatus = $document->status;
-                $document->forceFill(['status' => 'failed'])->save();
+
+                $document->update([
+                    'markdown_path' => $markdownPath,
+                    'status'        => 'review',
+                    'metadata'      => array_merge($document->metadata ?? [], [
+                        'extraction_method' => 'markitdown-native',
+                        'needs_ocr_review'  => false,
+                    ]),
+                ]);
 
                 DocumentStatusHistory::create([
                     'document_id' => $document->id,
                     'actor_id'    => null,
                     'from_status' => $oldStatus,
-                    'to_status'   => 'failed',
-                    'note'        => $e->getMessage(),
+                    'to_status'   => 'review',
+                    'note'        => 'Converted to Markdown via markitdown (' . strtoupper($document->original_format) . ' — no OCR needed, already selectable text).',
                 ]);
             });
+        } catch (\Throwable $e) {
+            $this->markFailed($document, $e);
         }
+    }
+
+    private function markFailed(Document $document, \Throwable $e): void
+    {
+        Log::error('ConvertDocumentToMarkdown failed', ['document_id' => $document->id, 'error' => $e->getMessage()]);
+
+        DB::transaction(function () use ($document, $e) {
+            $oldStatus = $document->status;
+            $document->forceFill(['status' => 'failed'])->save();
+
+            DocumentStatusHistory::create([
+                'document_id' => $document->id,
+                'actor_id'    => null,
+                'from_status' => $oldStatus,
+                'to_status'   => 'failed',
+                'note'        => $e->getMessage(),
+            ]);
+        });
     }
 
 }

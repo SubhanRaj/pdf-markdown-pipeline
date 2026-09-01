@@ -48,6 +48,38 @@ class Document extends Model
         'rejected'         => ['label' => 'Rejected',         'color' => 'red'],
     ];
 
+    /**
+     * Mime => real extension for every format that skips the LibreOffice/OCR pipeline (2026-09-01):
+     * these are already selectable text (or, for spreadsheets, structured cells) with no scanned
+     * layout to OCR — markitdown reads them directly. Images and PDFs are unaffected — they stay
+     * on the existing LibreOffice-Draw/OCR path, see DocumentController::createDocumentFromUpload().
+     */
+    public const NATIVE_MARKITDOWN_MIMES = [
+        'application/msword'                                                          => 'doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'    => 'docx',
+        'application/vnd.ms-excel'                                                   => 'xls',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'          => 'xlsx',
+        'application/vnd.ms-powerpoint'                                              => 'ppt',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'  => 'pptx',
+        'application/vnd.oasis.opendocument.text'                                    => 'odt',
+        'application/vnd.oasis.opendocument.spreadsheet'                             => 'ods',
+        'application/vnd.oasis.opendocument.presentation'                            => 'odp',
+        'application/rtf'                                                            => 'rtf',
+        'text/plain'                                                                 => 'txt',
+        'text/csv'                                                                   => 'csv',
+    ];
+
+    /** True for a document whose original file is kept as-is (native_path) rather than converted to PDF at upload. */
+    public function isNativeFormat(): bool
+    {
+        return in_array($this->original_format, self::NATIVE_MARKITDOWN_MIMES, true);
+    }
+
+    public function hasPdf(): bool
+    {
+        return (bool) $this->original_pdf_path;
+    }
+
     /** Exclude pending_approval and rejected docs from all regular public/browse queries. */
     public function scopePublishable(Builder $query): Builder
     {
@@ -223,6 +255,8 @@ class Document extends Model
         'sibling_document_id',
         'original_filename',
         'original_pdf_path',
+        'native_path',
+        'original_format',
         'markdown_path',
         'vault_path',
         'status',

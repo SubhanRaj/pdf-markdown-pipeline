@@ -232,6 +232,11 @@ class ApprovalController extends Controller
         $oldPdfPath = $document->original_pdf_path;
         $oldMdPath  = $document->markdown_path;
 
+        // A native-format document (Word/Excel/...) has no original_pdf_path at all — move
+        // native_path instead, keeping its real extension. See Document::isNativeFormat().
+        $oldNativePath = $document->native_path;
+        $newNativePath = $oldNativePath ? $newVaultDir . '/' . $newSlug . '_' . $timestamp . '.' . $document->original_format : null;
+
         // Build the context label for the history note
         $oldLabel = $document->division?->name
             ?? $document->section?->name
@@ -246,14 +251,17 @@ class ApprovalController extends Controller
         try {
             DB::transaction(function () use (
                 $document, $newDept, $newSection, $newDivision, $newRuleSet,
-                $newVaultDir, $newPdfPath, $newSlug, $willApprove,
-                $finalStatus, $reclassifyNote, $oldMdPath
+                $newVaultDir, $newPdfPath, $newNativePath, $newSlug, $willApprove,
+                $finalStatus, $reclassifyNote, $oldMdPath, $oldPdfPath
             ) {
-                // Compute new markdown path if one exists
+                // Compute new markdown path if one exists — derived from whichever of
+                // original_pdf_path/native_path this document actually has, since a
+                // native-format document has no PDF filename to base it on.
                 $newMdPath = null;
                 if ($oldMdPath) {
-                    $newMdFilename = pathinfo($newPdfPath, PATHINFO_FILENAME) . '.md';
-                    $newMdPath     = pathinfo($newPdfPath, PATHINFO_DIRNAME) . '/' . $newMdFilename;
+                    $mdBasis       = $oldPdfPath ? $newPdfPath : $newNativePath;
+                    $newMdFilename = pathinfo($mdBasis, PATHINFO_FILENAME) . '.md';
+                    $newMdPath     = pathinfo($mdBasis, PATHINFO_DIRNAME) . '/' . $newMdFilename;
                 }
 
                 $document->update([
@@ -263,7 +271,8 @@ class ApprovalController extends Controller
                     'rule_set_id'       => $newRuleSet?->id,
                     'slug'              => $newSlug,
                     'vault_path'        => $newVaultDir,
-                    'original_pdf_path' => $newPdfPath,
+                    'original_pdf_path' => $oldPdfPath ? $newPdfPath : null,
+                    'native_path'       => $newNativePath,
                     'markdown_path'     => $newMdPath,
                     'status'            => $finalStatus,
                 ]);
@@ -289,9 +298,11 @@ class ApprovalController extends Controller
 
             // Move physical files after the transaction (best-effort, non-fatal)
             $this->movePublicFile($oldPdfPath, $newPdfPath, $document->id, 'pdf');
+            $this->movePublicFile($oldNativePath, $newNativePath, $document->id, $document->original_format);
             if ($oldMdPath) {
-                $newMdFilename = pathinfo($newPdfPath, PATHINFO_FILENAME) . '.md';
-                $newMdPath     = pathinfo($newPdfPath, PATHINFO_DIRNAME) . '/' . $newMdFilename;
+                $mdBasis       = $oldPdfPath ? $newPdfPath : $newNativePath;
+                $newMdFilename = pathinfo($mdBasis, PATHINFO_FILENAME) . '.md';
+                $newMdPath     = pathinfo($mdBasis, PATHINFO_DIRNAME) . '/' . $newMdFilename;
                 $this->movePublicFile($oldMdPath, $newMdPath, $document->id, 'md');
             }
 
@@ -403,6 +414,10 @@ class ApprovalController extends Controller
                 'pdf_url'         => $doc->original_pdf_path
                     ? route('approvals.pdf', $doc->id)
                     : null,
+                'native_url'      => $doc->native_path
+                    ? route('approvals.native', $doc->id)
+                    : null,
+                'native_format'   => $doc->native_path ? strtoupper($doc->original_format) : null,
                 'approve_url'     => route('approvals.approve', $doc->id),
                 'reject_url'      => route('approvals.reject', $doc->id),
                 'reclassify_url'  => route('approvals.reclassify', $doc->id),
@@ -460,5 +475,17 @@ class ApprovalController extends Controller
             $filename,
             ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
         );
+    }
+
+    /** Downloads a native-format (Word/Excel/...) document's original file — no PDF preview exists for these. */
+    public function native(int $id): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $document = Document::whereIn('status', ['pending_approval', 'rejected'])->findOrFail($id);
+
+        if (! $document->native_path || ! Storage::disk('public')->exists($document->native_path)) {
+            abort(404, 'Original file not found.');
+        }
+
+        return Storage::disk('public')->download($document->native_path, $document->original_filename ?: 'document.' . $document->original_format);
     }
 }

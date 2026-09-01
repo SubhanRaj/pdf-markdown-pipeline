@@ -63,18 +63,50 @@ class PolicyDocumentController extends Controller
         // Uploaded up front (outside the transaction, same convention as
         // DocumentController@store) so a failed DB write never leaves an orphaned file
         // and a failed file write never leaves a policy document without one.
-        $pdfPath  = null;
-        $vaultDir = null;
+        $pdfPath        = null;
+        $nativePath     = null;
+        $originalFormat = 'pdf';
+        $vaultDir       = null;
 
         if ($request->hasFile('file')) {
-            $vaultDir = implode('/', ['document_vault', $department->level, $department->slug, 'rules', $slug]);
-            $pdfPath  = $request->file('file')->storeAs($vaultDir, $slug . '_' . now()->format('YmdHis') . '.pdf', 'public');
+            $vaultDir     = implode('/', ['document_vault', $department->level, $department->slug, 'rules', $slug]);
+            $file         = $request->file('file');
+            $uploadedMime = $file->getMimeType();
+            $nativeExt    = Document::NATIVE_MARKITDOWN_MIMES[$uploadedMime] ?? null;
+            $timestamp    = now()->format('YmdHis');
 
-            if (! $pdfPath) {
+            if ($uploadedMime === 'application/pdf') {
+                $pdfPath = $file->storeAs($vaultDir, "{$slug}_{$timestamp}.pdf", 'public');
+            } elseif ($nativeExt !== null) {
+                // Word/Excel/PowerPoint/ODT/RTF/TXT/CSV — same reasoning as
+                // DocumentController::createDocumentFromUpload().
+                $nativePath     = $file->storeAs($vaultDir, "{$slug}_{$timestamp}.{$nativeExt}", 'public');
+                $originalFormat = $nativeExt;
+            } else {
+                // Images — still need LibreOffice Draw, no native text layer to extract.
+                $rawPath = $file->storeAs($vaultDir, "{$slug}_{$timestamp}.upload", 'public');
+                if ($rawPath) {
+                    try {
+                        $convertedPath = (new \App\Services\PdfConversionEngine())->convertToPdf(
+                            Storage::disk('public')->path($rawPath),
+                            Storage::disk('public')->path($vaultDir)
+                        );
+                        $pdfPath = "{$vaultDir}/{$slug}_{$timestamp}.pdf";
+                        rename($convertedPath, Storage::disk('public')->path($pdfPath));
+                        Storage::disk('public')->delete($rawPath);
+                    } catch (\Throwable $e) {
+                        Storage::disk('public')->delete($rawPath);
+                        Log::error('Policy document upload: PDF conversion failed', ['error' => $e->getMessage()]);
+                        flash()->error('Could not convert this file to PDF. Please try again or upload a PDF directly.');
+                        return back()->withInput();
+                    }
+                }
+            }
+
+            if (! $pdfPath && ! $nativePath) {
                 Log::error('Policy document upload: file could not be saved to disk', [
                     'user_id' => $request->user()->id, 'vault_dir' => $vaultDir,
-                    'original_filename' => $request->file('file')->getClientOriginalName(),
-                    'size' => $request->file('file')->getSize(),
+                    'original_filename' => $file->getClientOriginalName(), 'size' => $file->getSize(),
                 ]);
 
                 flash()->error('File could not be saved. Please try again.');
@@ -83,7 +115,7 @@ class PolicyDocumentController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($request, $department, $policy, $validated, $pdfPath, $vaultDir, $slug) {
+            DB::transaction(function () use ($request, $department, $policy, $validated, $pdfPath, $nativePath, $originalFormat, $vaultDir, $slug) {
                 $newPolicyDoc = $department->ruleSets()->create([
                     'name'                 => $validated['name'],
                     'effective_start_date' => $validated['effective_start_date'] ?? null,
@@ -115,8 +147,8 @@ class PolicyDocumentController extends Controller
                     }
                 }
 
-                if ($pdfPath) {
-                    $this->storePolicyDocument($request, $department, $newPolicyDoc, $validated, $pdfPath, $vaultDir);
+                if ($pdfPath || $nativePath) {
+                    $this->storePolicyDocument($request, $department, $newPolicyDoc, $validated, $pdfPath, $nativePath, $originalFormat, $vaultDir);
                 }
             });
 
@@ -125,6 +157,9 @@ class PolicyDocumentController extends Controller
         } catch (\Throwable $e) {
             if ($pdfPath) {
                 Storage::disk('public')->delete($pdfPath);
+            }
+            if ($nativePath) {
+                Storage::disk('public')->delete($nativePath);
             }
 
             Log::error('PolicyDocumentController@store failed', [
@@ -137,7 +172,7 @@ class PolicyDocumentController extends Controller
     }
 
     /** Creates the policy document's root Document(s) from the file uploaded alongside it. */
-    private function storePolicyDocument(Request $request, Department $department, RuleSet $policyDoc, array $validated, string $pdfPath, string $vaultDir): void
+    private function storePolicyDocument(Request $request, Department $department, RuleSet $policyDoc, array $validated, ?string $pdfPath, ?string $nativePath, string $originalFormat, string $vaultDir): void
     {
         $requireApproval = $request->user()->shouldRequireApproval($policyDoc);
         $initialStatus   = $requireApproval ? 'pending_approval' : 'uploaded';
@@ -153,6 +188,8 @@ class PolicyDocumentController extends Controller
             'language'          => $language,
             'original_filename' => preg_replace('/[^\w\s\-\.\(\)]/', '_', $request->file('file')->getClientOriginalName()),
             'original_pdf_path' => $pdfPath,
+            'native_path'       => $nativePath,
+            'original_format'   => $originalFormat,
             'vault_path'        => $vaultDir,
             'status'            => $initialStatus,
             'visibility'        => $validated['visibility'] ?? 'public',

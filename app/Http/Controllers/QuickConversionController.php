@@ -15,6 +15,7 @@ use App\Models\Folder;
 use App\Models\QuickConversion;
 use App\Models\RuleSet;
 use App\Models\Section;
+use App\Services\PdfConversionEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -64,20 +65,59 @@ class QuickConversionController extends Controller
             $quickConversion = null;
 
             DB::transaction(function () use ($request, $validated, $ttlHours, &$quickConversion) {
+                $uploadedMime = $request->file('file')->getMimeType();
+                $nativeExt    = Document::NATIVE_MARKITDOWN_MIMES[$uploadedMime] ?? null;
+
                 $quickConversion = QuickConversion::create([
                     'user_id'            => $request->user()->id,
                     'title'              => $validated['title'] ?: null,
                     'original_filename'  => preg_replace('/[^\w\s\-\.\(\)]/', '_', $request->file('file')->getClientOriginalName()),
                     'pdf_path'           => '', // set below once we know the id
+                    'original_format'    => $nativeExt ?? 'pdf', // images convert to real PDF below, so stay tagged 'pdf'
                     'status'             => 'uploaded',
                     'expires_at'         => now()->addHours($ttlHours),
                 ]);
 
-                $pdfPath = $request->file('file')->storeAs("quick_conversions/{$quickConversion->id}", 'original.pdf', 'public');
+                if ($nativeExt !== null) {
+                    // Word/Excel/PowerPoint/ODT/RTF/TXT/CSV — kept as-is, same reasoning as
+                    // DocumentController::createDocumentFromUpload(). Real extension, not
+                    // "original.pdf" (this file isn't a PDF and never will be for this flow).
+                    $nativePath = $request->file('file')->storeAs("quick_conversions/{$quickConversion->id}", "original.{$nativeExt}", 'public');
+                    if (! $nativePath) {
+                        throw new \RuntimeException('File could not be saved.');
+                    }
+                    $quickConversion->update(['pdf_path' => null, 'native_path' => $nativePath]);
 
-                if (! $pdfPath) {
+                    return;
+                }
+
+                if ($uploadedMime === 'application/pdf') {
+                    $pdfPath = $request->file('file')->storeAs("quick_conversions/{$quickConversion->id}", 'original.pdf', 'public');
+                    if (! $pdfPath) {
+                        throw new \RuntimeException('File could not be saved.');
+                    }
+                    $quickConversion->update(['pdf_path' => $pdfPath]);
+
+                    return;
+                }
+
+                // Images — no native text layer, still need LibreOffice Draw first (same as
+                // DocumentController's image branch; this flow was missing this step entirely
+                // before 2026-09-01, so an image upload here just silently failed).
+                $uploadDir = "quick_conversions/{$quickConversion->id}";
+                $rawPath   = $request->file('file')->storeAs($uploadDir, 'original.upload', 'public');
+                if (! $rawPath) {
                     throw new \RuntimeException('File could not be saved.');
                 }
+
+                $convertedPath = (new PdfConversionEngine())->convertToPdf(
+                    Storage::disk('public')->path($rawPath),
+                    Storage::disk('public')->path($uploadDir)
+                );
+
+                $pdfPath = "{$uploadDir}/original.pdf";
+                rename($convertedPath, Storage::disk('public')->path($pdfPath));
+                Storage::disk('public')->delete($rawPath);
 
                 $quickConversion->update(['pdf_path' => $pdfPath]);
             });
@@ -182,6 +222,24 @@ class QuickConversionController extends Controller
     }
 
     /** Download the converted Markdown directly — for users who just want the file, nothing saved into the vault. */
+    /** Serves a native-format (Word/Excel/...) conversion's original file — no PDF exists for these. */
+    public function native(QuickConversion $quickConversion): StreamedResponse
+    {
+        $this->authorizeOwner($quickConversion);
+
+        if (! $quickConversion->native_path || ! Storage::disk('public')->exists($quickConversion->native_path)) {
+            abort(404, 'Original file not found.');
+        }
+
+        $filename = $quickConversion->original_filename ?: 'document.' . $quickConversion->original_format;
+
+        return Storage::disk('public')->response(
+            $quickConversion->native_path,
+            $filename,
+            ['Content-Disposition' => 'inline; filename="' . $filename . '"']
+        );
+    }
+
     public function download(QuickConversion $quickConversion): StreamedResponse
     {
         $this->authorizeOwner($quickConversion);
@@ -200,7 +258,7 @@ class QuickConversionController extends Controller
     {
         $this->authorizeOwner($quickConversion);
 
-        foreach ([$quickConversion->pdf_path, $quickConversion->markdown_path, $quickConversion->structure_path] as $path) {
+        foreach ([$quickConversion->pdf_path, $quickConversion->native_path, $quickConversion->markdown_path, $quickConversion->structure_path] as $path) {
             if ($path) {
                 Storage::disk('public')->delete($path);
             }
@@ -278,7 +336,9 @@ class QuickConversionController extends Controller
         $timestamp = now()->format('YmdHis');
         $baseName  = "{$slug}_{$timestamp}";
 
-        $newPdfPath = "{$vaultDir}/{$baseName}.pdf";
+        $isNative        = $quickConversion->isNativeFormat();
+        $newPdfPath      = $isNative ? null : "{$vaultDir}/{$baseName}.pdf";
+        $newNativePath   = $isNative ? "{$vaultDir}/{$baseName}.{$quickConversion->original_format}" : null;
         $newMarkdownPath = $quickConversion->markdown_path ? "{$vaultDir}/{$baseName}.md" : null;
 
         $uploadContext   = $folder ?? $division ?? $section ?? $ruleSet;
@@ -286,7 +346,11 @@ class QuickConversionController extends Controller
         $initialStatus   = $requireApproval ? 'pending_approval' : $quickConversion->status;
 
         try {
-            Storage::disk('public')->move($quickConversion->pdf_path, $newPdfPath);
+            if ($isNative) {
+                Storage::disk('public')->move($quickConversion->native_path, $newNativePath);
+            } else {
+                Storage::disk('public')->move($quickConversion->pdf_path, $newPdfPath);
+            }
             if ($newMarkdownPath) {
                 Storage::disk('public')->move($quickConversion->markdown_path, $newMarkdownPath);
             }
@@ -297,7 +361,7 @@ class QuickConversionController extends Controller
             $document = null;
             $language = $validated['language'] ?? 'english';
 
-            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $folder, $department, $vaultDir, $newPdfPath, $newMarkdownPath, $slug, $request, $initialStatus, $language, $quickConversion, &$document) {
+            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $folder, $department, $vaultDir, $newPdfPath, $newNativePath, $newMarkdownPath, $slug, $request, $initialStatus, $language, $quickConversion, &$document) {
                 $document = Document::create([
                     'department_id'     => $department->id,
                     'section_id'        => $section?->id,
@@ -312,6 +376,8 @@ class QuickConversionController extends Controller
                     'language'          => $language,
                     'original_filename' => $quickConversion->original_filename,
                     'original_pdf_path' => $newPdfPath,
+                    'native_path'       => $newNativePath,
+                    'original_format'   => $quickConversion->original_format,
                     'markdown_path'     => $newMarkdownPath,
                     'vault_path'        => $vaultDir,
                     'status'            => $initialStatus,

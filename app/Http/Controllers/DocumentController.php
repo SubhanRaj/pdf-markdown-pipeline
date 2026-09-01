@@ -21,6 +21,7 @@ use App\Models\Folder;
 use App\Models\RuleSet;
 use App\Models\Section;
 use App\Models\User;
+use App\Services\PdfConversionEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -187,7 +188,7 @@ class DocumentController extends Controller
     {
         $paths = ['slug' => $newSlug];
 
-        foreach (['original_pdf_path', 'markdown_path'] as $field) {
+        foreach (['original_pdf_path', 'native_path', 'markdown_path'] as $field) {
             $old = $document->{$field};
             if ($old && Storage::disk('public')->exists($old)) {
                 $new = $vaultDir.'/'.basename($old);
@@ -203,7 +204,7 @@ class DocumentController extends Controller
     private function duplicateDocument(Document $source, string $vaultDir, string $newSlug, array $overrides, int $actorId): Document
     {
         $paths = [];
-        foreach (['original_pdf_path', 'markdown_path'] as $field) {
+        foreach (['original_pdf_path', 'native_path', 'markdown_path'] as $field) {
             $old = $source->{$field};
             if ($old && Storage::disk('public')->exists($old)) {
                 $new = $vaultDir.'/'.pathinfo($old, PATHINFO_FILENAME).'_copy_'.now()->format('YmdHis').'.'.pathinfo($old, PATHINFO_EXTENSION);
@@ -221,6 +222,8 @@ class DocumentController extends Controller
             'language'          => $source->language,
             'original_filename' => $source->original_filename,
             'original_pdf_path' => $paths['original_pdf_path'] ?? $source->original_pdf_path,
+            'native_path'       => $paths['native_path'] ?? $source->native_path,
+            'original_format'   => $source->original_format,
             'markdown_path'     => $paths['markdown_path'] ?? null,
             'status'            => $source->status,
             'visibility'        => $source->visibility,
@@ -559,6 +562,19 @@ class DocumentController extends Controller
     {
         $this->authorizeDocumentView($document, $section);
 
+        return $this->respondWithPdf($document);
+    }
+
+    /** Serves a native-format (Word/Excel/...) document's original file — no PDF exists for these until convertToPdf() is used. */
+    public function native(string $level, Department $department, Section $section, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $this->authorizeDocumentView($document, $section);
+
+        return $this->respondWithNative($document);
+    }
+
+    private function respondWithPdf(Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
         if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
             abort(404, 'PDF file not found.');
         }
@@ -569,6 +585,21 @@ class DocumentController extends Controller
             $document->original_pdf_path,
             $filename,
             ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
+        );
+    }
+
+    private function respondWithNative(Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        if (! $document->native_path || ! Storage::disk('public')->exists($document->native_path)) {
+            abort(404, 'Original file not found.');
+        }
+
+        $filename = $document->original_filename ?: 'document.' . $document->original_format;
+
+        return Storage::disk('public')->response(
+            $document->native_path,
+            $filename,
+            ['Content-Disposition' => 'inline; filename="' . $filename . '"']
         );
     }
 
@@ -700,9 +731,15 @@ class DocumentController extends Controller
             $slug = Document::uniqueSlugForSection($validated['title'], $section->id);
         }
 
-        $timestamp   = now()->format('YmdHis');
+        $timestamp    = now()->format('YmdHis');
         $uploadedMime = $file->getMimeType();
-        $storedName  = "{$slug}_{$timestamp}." . ($uploadedMime === 'application/pdf' ? 'pdf' : 'upload');
+        $nativeExt    = Document::NATIVE_MARKITDOWN_MIMES[$uploadedMime] ?? null;
+        $storedExt    = match (true) {
+            $uploadedMime === 'application/pdf' => 'pdf',
+            $nativeExt !== null                 => $nativeExt,
+            default                              => 'upload', // image — LibreOffice-converted below
+        };
+        $storedName  = "{$slug}_{$timestamp}.{$storedExt}";
         $storedPath  = $file->storeAs($vaultDir, $storedName, 'public');
 
         if (! $storedPath) {
@@ -719,42 +756,38 @@ class DocumentController extends Controller
             return response()->json(['message' => 'File could not be saved. Please try again.'], 500);
         }
 
-        $pdfPath = "{$vaultDir}/{$slug}_{$timestamp}.pdf";
+        $pdfPath        = null;
+        $nativePath     = null;
+        $originalFormat = 'pdf';
 
         if ($uploadedMime === 'application/pdf') {
             $pdfPath = $storedPath;
+        } elseif ($nativeExt !== null) {
+            // Word/Excel/PowerPoint/ODT/RTF/TXT/CSV — already selectable text or structured
+            // cells, nothing scanned to OCR. Kept exactly as uploaded rather than round-tripped
+            // through a lossy LibreOffice PDF conversion just to re-extract the same text back
+            // out afterwards — ConvertDocumentToMarkdown reads it directly via markitdown
+            // instead. A real PDF can still be generated on request — see convertToPdf().
+            $nativePath     = $storedPath;
+            $originalFormat = $nativeExt;
         } else {
-            // Non-PDF accepted types (Word/Excel/PowerPoint/ODT/RTF/TXT/CSV/images) must be
-            // converted to a real PDF before the OCR/markdown pipeline (which expects actual
-            // PDF bytes) ever sees them — LibreOffice headless handles every accepted type,
-            // images included, via its Draw component.
-            $absoluteDir     = Storage::disk('public')->path($vaultDir);
-            $absoluteUpload  = Storage::disk('public')->path($storedPath);
-            // -env:UserInstallation avoids relying on a writable $HOME for the www-data user
-            // (it has none — /var/www is root-owned); a per-conversion profile dir under
-            // storage/app also keeps concurrent uploads from sharing/locking one profile.
-            $profileDir      = storage_path('app/soffice-profile-' . Str::random(16));
-            // 120s -> 240s (2026-09-01): a large workbook/document, or several conversions
-            // competing for CPU during a bulk upload, can genuinely take longer than 120s —
-            // this was cutting off some real conversions, not just runaway/broken ones.
-            $convertResult   = Process::timeout(240)->run([
-                'soffice', '--headless', '--convert-to', 'pdf', '--outdir', $absoluteDir,
-                '-env:UserInstallation=file://' . $profileDir, $absoluteUpload,
-            ]);
-            (new \Illuminate\Filesystem\Filesystem())->deleteDirectory($profileDir);
-
-            $convertedPath = $absoluteDir . '/' . pathinfo($storedName, PATHINFO_FILENAME) . '.pdf';
-
-            if (! $convertResult->successful() || ! is_file($convertedPath)) {
+            // Images have no native text layer at all — still need LibreOffice Draw + the
+            // existing OCR pipeline, unchanged from before this format split.
+            try {
+                $convertedPath = (new PdfConversionEngine())->convertToPdf(
+                    Storage::disk('public')->path($storedPath),
+                    Storage::disk('public')->path($vaultDir)
+                );
+            } catch (\Throwable $e) {
                 Storage::disk('public')->delete($storedPath);
                 Log::error('Document upload PDF conversion failed', [
-                    'file'   => $storedName,
-                    'output' => $convertResult->errorOutput(),
+                    'file' => $storedName, 'output' => $e->getMessage(),
                 ]);
 
                 return response()->json(['message' => 'Could not convert this file to PDF. Please try again or upload a PDF directly.'], 500);
             }
 
+            $pdfPath = "{$vaultDir}/{$slug}_{$timestamp}.pdf";
             rename($convertedPath, Storage::disk('public')->path($pdfPath));
             Storage::disk('public')->delete($storedPath);
         }
@@ -774,7 +807,7 @@ class DocumentController extends Controller
             // rule_set rather than expanding into a pair of them.
             $language = $validated['language'] ?? 'english';
 
-            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $folder, $department, $vaultDir, $pdfPath, $slug, $file, $user, $metadata, $initialStatus, $language, &$document) {
+            DB::transaction(function () use ($validated, $section, $ruleSet, $division, $folder, $department, $vaultDir, $pdfPath, $nativePath, $originalFormat, $slug, $file, $user, $metadata, $initialStatus, $language, &$document) {
                 $document = Document::create([
                     'department_id'     => $department->id,
                     'section_id'        => $section?->id,
@@ -789,6 +822,8 @@ class DocumentController extends Controller
                     'language'          => $language,
                     'original_filename' => preg_replace('/[^\w\s\-\.\(\)]/', '_', $file->getClientOriginalName()),
                     'original_pdf_path' => $pdfPath,
+                    'native_path'       => $nativePath,
+                    'original_format'   => $originalFormat,
                     'vault_path'        => $vaultDir,
                     'status'            => $initialStatus,
                     'visibility'        => $validated['visibility'] ?? 'public',
@@ -824,7 +859,13 @@ class DocumentController extends Controller
             return response()->json(['redirect' => $redirectUrl, 'document_id' => $document->id]);
 
         } catch (\Throwable $e) {
-            Storage::disk('public')->delete($pdfPath);
+            // Exactly one of these is set, depending on which branch above ran.
+            if ($pdfPath) {
+                Storage::disk('public')->delete($pdfPath);
+            }
+            if ($nativePath) {
+                Storage::disk('public')->delete($nativePath);
+            }
 
             Log::error('DocumentController@store failed', [
                 'section_id'  => $validated['section_id'] ?? null,
@@ -1301,17 +1342,16 @@ class DocumentController extends Controller
             abort(403);
         }
 
-        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
-            abort(404, 'PDF file not found.');
+        return $this->respondWithPdf($document);
+    }
+
+    public function nativeRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        if (! auth()->check() && ! $document->isPubliclyVisible()) {
+            abort(403);
         }
 
-        $filename = $document->original_filename ?: 'document.pdf';
-
-        return Storage::disk('public')->response(
-            $document->original_pdf_path,
-            $filename,
-            ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
-        );
+        return $this->respondWithNative($document);
     }
 
     public function editRuleSetDoc(string $level, Department $department, RuleSet $ruleSet, Document $document): View
@@ -1392,17 +1432,14 @@ class DocumentController extends Controller
     {
         $this->authorizeDocumentView($document, $division);
 
-        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
-            abort(404, 'PDF file not found.');
-        }
+        return $this->respondWithPdf($document);
+    }
 
-        $filename = $document->original_filename ?: 'document.pdf';
+    public function nativeDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $this->authorizeDocumentView($document, $division);
 
-        return Storage::disk('public')->response(
-            $document->original_pdf_path,
-            $filename,
-            ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
-        );
+        return $this->respondWithNative($document);
     }
 
     public function editDivisionDoc(string $level, Department $department, Section $section, Division $division, Document $document): View
@@ -1483,17 +1520,14 @@ class DocumentController extends Controller
     {
         $this->authorizeDocumentView($document, $section);
 
-        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
-            abort(404, 'PDF file not found.');
-        }
+        return $this->respondWithPdf($document);
+    }
 
-        $filename = $document->original_filename ?: 'document.pdf';
+    public function nativeSectionFolderDoc(string $level, Department $department, Section $section, Folder $folder, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $this->authorizeDocumentView($document, $section);
 
-        return Storage::disk('public')->response(
-            $document->original_pdf_path,
-            $filename,
-            ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
-        );
+        return $this->respondWithNative($document);
     }
 
     public function editSectionFolderDoc(string $level, Department $department, Section $section, Folder $folder, Document $document): View
@@ -1574,17 +1608,14 @@ class DocumentController extends Controller
     {
         $this->authorizeDocumentView($document, $division);
 
-        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
-            abort(404, 'PDF file not found.');
-        }
+        return $this->respondWithPdf($document);
+    }
 
-        $filename = $document->original_filename ?: 'document.pdf';
+    public function nativeDivisionFolderDoc(string $level, Department $department, Section $section, Division $division, Folder $folder, Document $document): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $this->authorizeDocumentView($document, $division);
 
-        return Storage::disk('public')->response(
-            $document->original_pdf_path,
-            $filename,
-            ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $filename . '"']
-        );
+        return $this->respondWithNative($document);
     }
 
     public function editDivisionFolderDoc(string $level, Department $department, Section $section, Division $division, Folder $folder, Document $document): View
@@ -1705,6 +1736,48 @@ class DocumentController extends Controller
         return $context !== null && $user->hasPrivilege('documents.upload') && $user->canUploadTo($context);
     }
 
+    /**
+     * On-demand PDF generation for a native-format (Word/Excel/...) document — the original
+     * upload skips this entirely (see createDocumentFromUpload()); this exists purely for
+     * someone who wants a PDF copy anyway (printing, sharing outside the app, etc.). Doesn't
+     * touch native_path, markdown_path, or status — this document's Markdown was already
+     * extracted straight from the native file and stays exactly as it is.
+     */
+    public function convertToPdf(int $id): JsonResponse
+    {
+        $document = Document::findOrFail($id);
+
+        if (! $this->canConvertDocument($document)) {
+            abort(403);
+        }
+
+        if (! $document->isNativeFormat()) {
+            return response()->json(['message' => 'This document already has a PDF.'], 422);
+        }
+
+        if (! $document->native_path || ! Storage::disk('public')->exists($document->native_path)) {
+            return response()->json(['message' => 'Original file not found.'], 404);
+        }
+
+        try {
+            $convertedPath = (new PdfConversionEngine())->convertToPdf(
+                Storage::disk('public')->path($document->native_path),
+                Storage::disk('public')->path($document->vault_path)
+            );
+        } catch (\Throwable $e) {
+            Log::error('convertToPdf failed', ['document_id' => $document->id, 'error' => $e->getMessage()]);
+
+            return response()->json(['message' => 'Could not convert this file to PDF. Please try again.'], 500);
+        }
+
+        $pdfPath = $document->vault_path . '/' . pathinfo($document->native_path, PATHINFO_FILENAME) . '.pdf';
+        rename($convertedPath, Storage::disk('public')->path($pdfPath));
+
+        $document->update(['original_pdf_path' => $pdfPath]);
+
+        return response()->json(['status' => 'converted']);
+    }
+
     public function convert(int $id): JsonResponse
     {
         $document = Document::findOrFail($id);
@@ -1717,8 +1790,9 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Document is not in a convertible state.'], 422);
         }
 
-        if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {
-            return response()->json(['message' => 'Original PDF file not found.'], 404);
+        $sourcePath = $document->isNativeFormat() ? $document->native_path : $document->original_pdf_path;
+        if (! $sourcePath || ! Storage::disk('public')->exists($sourcePath)) {
+            return response()->json(['message' => 'Original file not found.'], 404);
         }
 
         $structureEngine = request()->input('structure_engine', config('docling.default_ocr_engine'));
@@ -1786,11 +1860,13 @@ class DocumentController extends Controller
         $skipped = 0;
 
         foreach ($documents as $document) {
+            $sourcePath = $document->isNativeFormat() ? $document->native_path : $document->original_pdf_path;
+
             if (
                 ! $this->canConvertDocument($document)
                 || ! in_array($document->status, ['uploaded', 'review', 'verified', 'failed'], true)
-                || ! $document->original_pdf_path
-                || ! Storage::disk('public')->exists($document->original_pdf_path)
+                || ! $sourcePath
+                || ! Storage::disk('public')->exists($sourcePath)
             ) {
                 $skipped++;
                 continue;
@@ -1875,6 +1951,10 @@ class DocumentController extends Controller
 
         if (! in_array($document->status, ['review', 'verified', 'failed'], true)) {
             return response()->json(['message' => 'Document is not in a state that supports OCR re-extraction.'], 422);
+        }
+
+        if ($document->isNativeFormat()) {
+            return response()->json(['message' => 'This document was uploaded as ' . strtoupper($document->original_format) . ', already selectable text — there is nothing scanned here for OCR to re-read.'], 422);
         }
 
         if (! $document->original_pdf_path || ! Storage::disk('public')->exists($document->original_pdf_path)) {

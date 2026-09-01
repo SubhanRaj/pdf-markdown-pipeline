@@ -89,7 +89,8 @@
                 <div id="drawer-no-pdf" class="hidden flex-1 flex items-center justify-center text-slate-400 dark:text-slate-600">
                     <div class="text-center">
                         <i class="ti ti-file-off text-4xl mb-2"></i>
-                        <p class="text-sm">No PDF available for preview.</p>
+                        <p id="drawer-no-pdf-text" class="text-sm">No PDF available for preview.</p>
+                        <a id="drawer-native-link" href="#" class="hidden text-sm text-indigo-600 dark:text-indigo-400 hover:underline mt-2 inline-block">Download original file →</a>
                     </div>
                 </div>
             </div>
@@ -254,6 +255,16 @@
                     document.getElementById('drawer-pdf').src = '';
                     pdfWrap.classList.add('hidden');
                     noPdf.classList.remove('hidden');
+
+                    const nativeLink = document.getElementById('drawer-native-link');
+                    if (currentDoc.native_url) {
+                        document.getElementById('drawer-no-pdf-text').textContent = currentDoc.native_format + ' file — no in-browser preview.';
+                        nativeLink.href = currentDoc.native_url;
+                        nativeLink.classList.remove('hidden');
+                    } else {
+                        document.getElementById('drawer-no-pdf-text').textContent = 'No PDF available for preview.';
+                        nativeLink.classList.add('hidden');
+                    }
                 }
 
                 renderDrawerActions(currentDoc, tabKey);

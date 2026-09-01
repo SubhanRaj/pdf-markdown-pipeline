@@ -35,6 +35,20 @@ trait ManagesDocumentFiles
             'pdf'
         );
 
+        // A native-format document (Word/Excel/...) has no original_pdf_path at all — its only
+        // "original" is native_path, kept with its real extension so restoreFiles() can put it
+        // back exactly as uploaded. See Document::isNativeFormat().
+        if ($document->native_path) {
+            $this->moveFile(
+                Storage::disk('public'),
+                $document->native_path,
+                Storage::disk('local'),
+                'archived_documents/' . $document->id . '.' . $document->original_format,
+                $document->id,
+                $document->original_format
+            );
+        }
+
         if ($document->markdown_path) {
             $this->moveFile(
                 Storage::disk('public'),
@@ -62,6 +76,17 @@ trait ManagesDocumentFiles
             'pdf'
         );
 
+        if ($document->native_path) {
+            $this->moveFile(
+                Storage::disk('local'),
+                'archived_documents/' . $document->id . '.' . $document->original_format,
+                Storage::disk('public'),
+                $document->native_path,
+                $document->id,
+                $document->original_format
+            );
+        }
+
         if ($document->markdown_path) {
             $this->moveFile(
                 Storage::disk('local'),
@@ -83,10 +108,16 @@ trait ManagesDocumentFiles
     {
         Storage::disk('local')->delete('archived_documents/' . $document->id . '.pdf');
         Storage::disk('local')->delete('archived_documents/' . $document->id . '.md');
+        if ($document->native_path) {
+            Storage::disk('local')->delete('archived_documents/' . $document->id . '.' . $document->original_format);
+        }
 
         // Legacy: documents archived before this flow may still be on the public disk
         if ($document->original_pdf_path) {
             Storage::disk('public')->delete($document->original_pdf_path);
+        }
+        if ($document->native_path) {
+            Storage::disk('public')->delete($document->native_path);
         }
         if ($document->markdown_path) {
             Storage::disk('public')->delete($document->markdown_path);

@@ -64,6 +64,7 @@
             ? route('departments.policy.periods.show', [$department->levelAlias(), $department, $ruleSet->container, $ruleSet])
             : route("departments.{$ruleSet->kind}.show", [$department->levelAlias(), $department, $ruleSet]);
         $pdfRoute       = route("documents.{$ruleSet->kind}.pdf",      [$department->levelAlias(), $department, $ruleSet, $document]);
+        $nativeRoute    = route("documents.{$ruleSet->kind}.native",   [$department->levelAlias(), $department, $ruleSet, $document]);
         $editRoute      = route("documents.{$ruleSet->kind}.edit",     [$department->levelAlias(), $department, $ruleSet, $document]);
         $updateRoute    = route("documents.{$ruleSet->kind}.update",   [$department->levelAlias(), $department, $ruleSet, $document]);
         $destroyRoute   = route("documents.{$ruleSet->kind}.destroy",  [$department->levelAlias(), $department, $ruleSet, $document]);
@@ -71,6 +72,7 @@
         $contextName    = $folder->name;
         $contextUrl     = route('departments.sections.divisions.folders.show', [$department->levelAlias(), $department, $section, $division, $folder]);
         $pdfRoute       = route('documents.divisions.folders.pdf',     [$department->levelAlias(), $department, $section, $division, $folder, $document]);
+        $nativeRoute    = route('documents.divisions.folders.native',  [$department->levelAlias(), $department, $section, $division, $folder, $document]);
         $editRoute      = route('documents.divisions.folders.edit',    [$department->levelAlias(), $department, $section, $division, $folder, $document]);
         $updateRoute    = route('documents.divisions.folders.update',  [$department->levelAlias(), $department, $section, $division, $folder, $document]);
         $destroyRoute   = route('documents.divisions.folders.destroy', [$department->levelAlias(), $department, $section, $division, $folder, $document]);
@@ -78,6 +80,7 @@
         $contextName    = $folder->name;
         $contextUrl     = route('departments.sections.folders.show', [$department->levelAlias(), $department, $section, $folder]);
         $pdfRoute       = route('documents.folders.pdf',     [$department->levelAlias(), $department, $section, $folder, $document]);
+        $nativeRoute    = route('documents.folders.native',  [$department->levelAlias(), $department, $section, $folder, $document]);
         $editRoute      = route('documents.folders.edit',    [$department->levelAlias(), $department, $section, $folder, $document]);
         $updateRoute    = route('documents.folders.update',  [$department->levelAlias(), $department, $section, $folder, $document]);
         $destroyRoute   = route('documents.folders.destroy', [$department->levelAlias(), $department, $section, $folder, $document]);
@@ -85,6 +88,7 @@
         $contextName    = $division->name;
         $contextUrl     = route('departments.sections.divisions.show', [$department->levelAlias(), $department, $section, $division]);
         $pdfRoute       = route('documents.divisions.pdf',    [$department->levelAlias(), $department, $section, $division, $document]);
+        $nativeRoute    = route('documents.divisions.native', [$department->levelAlias(), $department, $section, $division, $document]);
         $editRoute      = route('documents.divisions.edit',   [$department->levelAlias(), $department, $section, $division, $document]);
         $updateRoute    = route('documents.divisions.update', [$department->levelAlias(), $department, $section, $division, $document]);
         $destroyRoute   = route('documents.divisions.destroy',[$department->levelAlias(), $department, $section, $division, $document]);
@@ -92,6 +96,7 @@
         $contextName    = $section->name;
         $contextUrl     = route('departments.sections.show', [$department->levelAlias(), $department, $section]);
         $pdfRoute       = route('documents.pdf',     [$department->levelAlias(), $department, $section, $document]);
+        $nativeRoute    = route('documents.native',  [$department->levelAlias(), $department, $section, $document]);
         $editRoute      = route('documents.edit',    [$department->levelAlias(), $department, $section, $document]);
         $updateRoute    = route('documents.update',  [$department->levelAlias(), $department, $section, $document]);
         $destroyRoute   = route('documents.destroy', [$department->levelAlias(), $department, $section, $document]);
@@ -528,7 +533,7 @@
                 <div class="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-xs font-medium flex-shrink-0">
                     <button type="button" id="view-tab-pdf"
                             class="px-3 py-1.5 flex items-center gap-1.5 bg-indigo-500 text-white">
-                        <i class="ti ti-file-type-pdf text-sm"></i> PDF
+                        <i class="ti ti-file-type-pdf text-sm"></i> {{ $document->isNativeFormat() ? strtoupper($document->original_format) : 'PDF' }}
                     </button>
                     {{-- Markdown tab only exists once verified — an unverified extraction isn't
                          something to casually browse to, the Compare & Verify banner above is
@@ -557,14 +562,39 @@
                             <i class="ti ti-download text-sm"></i>
                         </button>
                     </div>
-                    <a href="{{ $pdfRoute }}" target="_blank" id="pdf-newtab-link"
+                    <a href="{{ $document->isNativeFormat() ? $nativeRoute : $pdfRoute }}" target="_blank" id="pdf-newtab-link"
                        class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
-                        Open in new tab <i class="ti ti-external-link text-xs"></i>
+                        {{ $document->isNativeFormat() ? 'Download original' : 'Open in new tab' }} <i class="ti ti-external-link text-xs"></i>
                     </a>
+                    @if($document->isNativeFormat() && $canConvertDoc)
+                    <button type="button" id="convert-to-pdf-btn" data-url="{{ route('documents.convert-to-pdf', $document->id) }}"
+                            class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
+                        <i class="ti ti-file-type-pdf text-xs"></i> Convert to PDF
+                    </button>
+                    @endif
                 </div>
             </div>
 
             <div id="viewer-pdf">
+                @if($document->isNativeFormat())
+                {{-- No good open-source in-browser renderer exists for every native format — docx
+                     and xlsx get a real renderer (native-preview.js), everything else falls back
+                     to a download link. See claude.md for the library evaluation. --}}
+                <div id="native-preview-container" class="overflow-auto bg-white dark:bg-slate-950" style="height: 75vh;"></div>
+                <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+                <script src="https://cdn.jsdelivr.net/npm/docx-preview@0.4.0/dist/docx-preview.min.js"></script>
+                <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+                <script src="{{ asset('js/native-preview.js') }}"></script>
+                <script>
+                    renderNativePreview(
+                        document.getElementById('native-preview-container'),
+                        {{ Js::from($nativeRoute) }},
+                        {{ Js::from($document->original_format) }},
+                        {{ Js::from($nativeRoute) }},
+                        {{ Js::from($document->original_filename) }}
+                    );
+                </script>
+                @else
                 <iframe id="pdf-iframe" src="{{ $pdfRoute }}#view=FitH&toolbar=1&navpanes=0"
                         class="w-full border-0"
                         style="height: 75vh;"
@@ -583,6 +613,7 @@
                         <i class="ti ti-external-link text-base"></i> Open PDF
                     </a>
                 </div>
+                @endif
             </div>
 
             @if($hasMarkdown && $isVerified)
@@ -827,7 +858,11 @@
                     <i class="ti ti-file-type-pdf text-sm text-red-500 dark:text-red-400"></i>
                     <span class="text-xs font-bold uppercase tracking-widest text-red-700 dark:text-red-400">Original</span>
                 </div>
+                @if($document->isNativeFormat())
+                <div id="compare-native-preview" class="w-full flex-1 overflow-auto bg-white dark:bg-slate-950"></div>
+                @else
                 <iframe id="compare-pdf-iframe" data-src="{{ $pdfRoute }}#view=FitH&toolbar=1&navpanes=0" class="w-full flex-1 border-0" title="Original PDF"></iframe>
+                @endif
             </div>
             <div class="w-1/2 flex flex-col min-h-0 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
                 <div class="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border-b border-indigo-100 dark:border-indigo-900/40 flex-shrink-0 flex items-center gap-2 flex-wrap">
@@ -855,6 +890,7 @@
                     class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
                 <i class="ti ti-circle-check text-base"></i> Save &amp; Verify
             </button>
+            @unless($document->isNativeFormat())
             <select id="compare-ocr-engine-select"
                     class="text-sm font-medium border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 dark:[color-scheme:dark]">
                 @foreach(config('ocr.engines') as $engineKey => $engineConfig)
@@ -866,6 +902,7 @@
                     class="inline-flex items-center gap-1.5 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
                 <i class="ti ti-scan text-base"></i> Run OCR Extraction
             </button>
+            @endunless
             @if($canRevertOcr)
             <button type="button" id="compare-revert-ocr-btn" data-revert-ocr-url="{{ route('documents.revert-ocr', $document->id) }}"
                     class="inline-flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
@@ -1003,6 +1040,38 @@ try {
 }
 
 try {
+    const convertPdfBtn = document.getElementById('convert-to-pdf-btn');
+    if (convertPdfBtn) {
+        convertPdfBtn.addEventListener('click', function () {
+            convertPdfBtn.disabled = true;
+            convertPdfBtn.innerHTML = '<i class="ti ti-loader-2 animate-spin text-xs"></i> Converting…';
+
+            fetch(convertPdfBtn.dataset.url, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '{{ csrf_token() }}',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            }).then(function (res) {
+                return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+            }).then(function ({ ok, data }) {
+                if (!ok) {
+                    throw new Error(data.message || 'Could not convert to PDF.');
+                }
+                window.location.reload();
+            }).catch(function (err) {
+                convertPdfBtn.disabled = false;
+                convertPdfBtn.innerHTML = '<i class="ti ti-file-type-pdf text-xs"></i> Convert to PDF';
+                Swal.fire({ icon: 'error', text: err.message || 'Could not convert to PDF.' });
+            });
+        });
+    }
+} catch (e) {
+    console.error('Convert-to-PDF button init failed:', e);
+}
+
+try {
     // Feature-detect inline PDF support rather than sniffing the UA string. Chromium browsers
     // expose navigator.pdfViewerEnabled — true on desktop, false on Android Chrome/Firefox (they
     // have no inline PDF plugin, so the iframe below would render blank or trigger a download).
@@ -1097,6 +1166,7 @@ try {
     const openBtn = document.getElementById('open-compare-modal-btn');
     const modal = document.getElementById('compare-modal');
     const compareIframe = document.getElementById('compare-pdf-iframe');
+    const compareNativePreview = document.getElementById('compare-native-preview');
     if (openBtn && modal) {
         openBtn.addEventListener('click', function () {
             modal.style.display = 'block';
@@ -1105,6 +1175,16 @@ try {
             // the modal (and iframe) actually has real layout dimensions.
             if (compareIframe && !compareIframe.src) {
                 compareIframe.src = compareIframe.dataset.src;
+            }
+            if (compareNativePreview && !compareNativePreview.dataset.loaded && window.renderNativePreview) {
+                compareNativePreview.dataset.loaded = '1';
+                renderNativePreview(
+                    compareNativePreview,
+                    {{ Js::from($document->isNativeFormat() ? $nativeRoute : null) }},
+                    {{ Js::from($document->original_format) }},
+                    {{ Js::from($document->isNativeFormat() ? $nativeRoute : null) }},
+                    {{ Js::from($document->original_filename) }}
+                );
             }
         });
     }
