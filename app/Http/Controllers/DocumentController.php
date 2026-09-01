@@ -739,7 +739,11 @@ class DocumentController extends Controller
             $nativeExt !== null                 => $nativeExt,
             default                              => 'upload', // image — LibreOffice-converted below
         };
-        $storedName  = "{$slug}_{$timestamp}.{$storedExt}";
+        // The DB slug/URL keeps the title in full (up to the 255-char validation limit); the
+        // physical filename gets a separately-truncated, filesystem-safe version so a long
+        // Unicode title never risks the 255-byte ext4 filename limit. See slugForFilename().
+        $fsSlug      = Document::slugForFilename($slug);
+        $storedName  = "{$fsSlug}_{$timestamp}.{$storedExt}";
         $storedPath  = $file->storeAs($vaultDir, $storedName, 'public');
 
         if (! $storedPath) {
@@ -787,7 +791,7 @@ class DocumentController extends Controller
                 return response()->json(['message' => 'Could not convert this file to PDF. Please try again or upload a PDF directly.'], 500);
             }
 
-            $pdfPath = "{$vaultDir}/{$slug}_{$timestamp}.pdf";
+            $pdfPath = "{$vaultDir}/{$fsSlug}_{$timestamp}.pdf";
             rename($convertedPath, Storage::disk('public')->path($pdfPath));
             Storage::disk('public')->delete($storedPath);
         }

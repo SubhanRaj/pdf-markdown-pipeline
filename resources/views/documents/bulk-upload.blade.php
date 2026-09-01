@@ -645,6 +645,19 @@
         }
 
         isUploading = false;
+
+        // A per-row badge (setRowStatus) already shows each failure, but it's easy to miss in a
+        // long queue — surface a toast too so a batch with failures never looks like it silently
+        // finished. Non-blocking, auto-dismisses; the per-row text is still there for detail.
+        if (errorCount > 0) {
+            Swal.fire({
+                toast: true, position: 'top-end', icon: 'warning', showConfirmButton: false,
+                timer: 6000, timerProgressBar: true,
+                title: errorCount === 1 ? '1 file failed to upload' : `${errorCount} files failed to upload`,
+                text: 'See the highlighted rows below for details.',
+            });
+        }
+
         statusEl.textContent = shouldConvert
             ? `${doneCount} uploaded and queued for conversion, ${errorCount} failed.`
             : `${doneCount} uploaded, ${errorCount} failed.`;

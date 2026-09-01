@@ -5018,8 +5018,25 @@ generation") and had no length cap. The failing title, a normal-length Hindi sen
 255-byte NAME_MAX per path component. Disk space, inodes, and permissions were all fine; this was
 purely a filename-length limit the code never accounted for.
 
-Fixed at the one place every model's slug routes through: `HasUnicodeSlug::makeSlug()` now caps
-the result to 150 bytes via `mb_strcut()` (byte-safe, never splits a multi-byte character), leaving
-headroom for the `_{timestamp}.{ext}` suffix. This covers `Document`, `RuleSet`, `Division`, and
-`Folder` slugs in one change — no controller-level fix needed. Added
-`tests/Feature/LongTitleUploadTest.php` reproducing the exact failing title.
+First pass capped `makeSlug()` itself at 150 bytes. The user then asked for titles up to ~256
+characters, in any language, to genuinely work — which an across-the-board byte cap on the DB slug
+can't deliver: 256 Devanagari characters is up to ~768 bytes, nowhere close to fitting in a
+255-byte filename component no matter how it's capped, while the *DB* slug/URL has no such limit
+and shouldn't be shortened just because the filesystem has one.
+
+Reworked into two separate functions in `HasUnicodeSlug`: `makeSlug()` (uncapped — the DB slug and
+URL keep the title in full, already bounded by the title's own `max:255` validation) and a new
+`slugForFilename()` (150-byte `mb_strcut` cap, used only when building the actual on-disk
+filename). Every call site that builds a stored filename from a slug —
+`DocumentController::createDocumentFromUpload()`, `PolicyDocumentController::store()`,
+`QuickConversionController::place()`, `ApprovalController::reclassify()` — now runs the slug
+through `slugForFilename()` first instead of using it raw. `move()`/`copy()`/`archiveFiles()`
+needed no change; they reuse the existing on-disk filename rather than rebuilding one.
+`tests/Feature/LongTitleUploadTest.php` now uploads a 250-character Devanagari title and asserts
+both halves: the DB slug stays essentially full length, and the stored filename stays under 255
+bytes.
+
+Also added a SweetAlert2 toast (`sections/show.blade.php`, `divisions/show.blade.php`,
+`folders/show.blade.php`, `documents/bulk-upload.blade.php`) that fires once per batch when any
+file fails during a bulk/folder upload — the existing per-row error badge was easy to miss in a
+long queue, so a batch that partly failed could look like it silently finished.

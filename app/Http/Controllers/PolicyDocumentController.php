@@ -74,24 +74,27 @@ class PolicyDocumentController extends Controller
             $uploadedMime = $file->getMimeType();
             $nativeExt    = Document::NATIVE_MARKITDOWN_MIMES[$uploadedMime] ?? null;
             $timestamp    = now()->format('YmdHis');
+            // See Document::slugForFilename() -- the DB slug/vault dir can hold a long Unicode
+            // title in full, but the physical filename needs its own, byte-safe truncation.
+            $fsSlug       = Document::slugForFilename($slug);
 
             if ($uploadedMime === 'application/pdf') {
-                $pdfPath = $file->storeAs($vaultDir, "{$slug}_{$timestamp}.pdf", 'public');
+                $pdfPath = $file->storeAs($vaultDir, "{$fsSlug}_{$timestamp}.pdf", 'public');
             } elseif ($nativeExt !== null) {
                 // Word/Excel/PowerPoint/ODT/RTF/TXT/CSV — same reasoning as
                 // DocumentController::createDocumentFromUpload().
-                $nativePath     = $file->storeAs($vaultDir, "{$slug}_{$timestamp}.{$nativeExt}", 'public');
+                $nativePath     = $file->storeAs($vaultDir, "{$fsSlug}_{$timestamp}.{$nativeExt}", 'public');
                 $originalFormat = $nativeExt;
             } else {
                 // Images — still need LibreOffice Draw, no native text layer to extract.
-                $rawPath = $file->storeAs($vaultDir, "{$slug}_{$timestamp}.upload", 'public');
+                $rawPath = $file->storeAs($vaultDir, "{$fsSlug}_{$timestamp}.upload", 'public');
                 if ($rawPath) {
                     try {
                         $convertedPath = (new \App\Services\PdfConversionEngine())->convertToPdf(
                             Storage::disk('public')->path($rawPath),
                             Storage::disk('public')->path($vaultDir)
                         );
-                        $pdfPath = "{$vaultDir}/{$slug}_{$timestamp}.pdf";
+                        $pdfPath = "{$vaultDir}/{$fsSlug}_{$timestamp}.pdf";
                         rename($convertedPath, Storage::disk('public')->path($pdfPath));
                         Storage::disk('public')->delete($rawPath);
                     } catch (\Throwable $e) {

@@ -225,8 +225,11 @@ class ApprovalController extends Controller
             $newSlug = Document::uniqueSlugForSection($document->title, $newSection->id);
         }
 
-        $timestamp      = now()->format('YmdHis');
-        $newPdfFilename = "{$newSlug}_{$timestamp}.pdf";
+        $timestamp = now()->format('YmdHis');
+        // See Document::slugForFilename() -- the DB slug can hold a long Unicode title in full,
+        // but the physical filename needs its own, byte-safe truncation.
+        $newFsSlug      = Document::slugForFilename($newSlug);
+        $newPdfFilename = "{$newFsSlug}_{$timestamp}.pdf";
         $newPdfPath     = $newVaultDir . '/' . $newPdfFilename;
 
         $oldPdfPath = $document->original_pdf_path;
@@ -235,7 +238,7 @@ class ApprovalController extends Controller
         // A native-format document (Word/Excel/...) has no original_pdf_path at all — move
         // native_path instead, keeping its real extension. See Document::isNativeFormat().
         $oldNativePath = $document->native_path;
-        $newNativePath = $oldNativePath ? $newVaultDir . '/' . $newSlug . '_' . $timestamp . '.' . $document->original_format : null;
+        $newNativePath = $oldNativePath ? $newVaultDir . '/' . $newFsSlug . '_' . $timestamp . '.' . $document->original_format : null;
 
         // Build the context label for the history note
         $oldLabel = $document->division?->name

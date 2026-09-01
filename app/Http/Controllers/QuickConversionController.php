@@ -334,7 +334,9 @@ class QuickConversionController extends Controller
         }
 
         $timestamp = now()->format('YmdHis');
-        $baseName  = "{$slug}_{$timestamp}";
+        // See Document::slugForFilename() -- the DB slug can hold a long Unicode title in full,
+        // but the physical filename needs its own, byte-safe truncation.
+        $baseName  = Document::slugForFilename($slug) . "_{$timestamp}";
 
         $isNative        = $quickConversion->isNativeFormat();
         $newPdfPath      = $isNative ? null : "{$vaultDir}/{$baseName}.pdf";
