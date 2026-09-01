@@ -35,7 +35,13 @@ return [
             'root' => storage_path('app/private'),
             'serve' => true,
             'throw' => false,
-            'report' => false,
+            // 'report' => true doesn't change behavior (still returns false, callers still
+            // check for it) — it just makes Laravel call the exception handler's report() on
+            // the real Flysystem failure (permission denied, disk full, etc.) instead of
+            // discarding it silently, so a "File could not be saved" a user hits actually
+            // leaves a diagnosable entry in storage/logs/laravel.log (2026-09-01, previously
+            // this reason was unrecoverable — see claude.md).
+            'report' => true,
         ],
 
         'public' => [
@@ -44,7 +50,13 @@ return [
             'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/storage',
             'visibility' => 'public',
             'throw' => false,
-            'report' => false,
+            // 'report' => true doesn't change behavior (still returns false, callers still
+            // check for it) — it just makes Laravel call the exception handler's report() on
+            // the real Flysystem failure (permission denied, disk full, etc.) instead of
+            // discarding it silently, so a "File could not be saved" a user hits actually
+            // leaves a diagnosable entry in storage/logs/laravel.log (2026-09-01, previously
+            // this reason was unrecoverable — see claude.md).
+            'report' => true,
             // Flysystem's default dir permission (0755) locks out the queue worker
             // (runs as a different user than the web server) from writing into any
             // freshly auto-created folder. Group-writable so both can write.
@@ -64,7 +76,13 @@ return [
             'endpoint' => env('AWS_ENDPOINT'),
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
             'throw' => false,
-            'report' => false,
+            // 'report' => true doesn't change behavior (still returns false, callers still
+            // check for it) — it just makes Laravel call the exception handler's report() on
+            // the real Flysystem failure (permission denied, disk full, etc.) instead of
+            // discarding it silently, so a "File could not be saved" a user hits actually
+            // leaves a diagnosable entry in storage/logs/laravel.log (2026-09-01, previously
+            // this reason was unrecoverable — see claude.md).
+            'report' => true,
         ],
 
     ],

@@ -706,6 +706,16 @@ class DocumentController extends Controller
         $storedPath  = $file->storeAs($vaultDir, $storedName, 'public');
 
         if (! $storedPath) {
+            // The real reason (permission denied, disk full, …) is swallowed by the 'public'
+            // disk's throw=>false config and only surfaces via its report=>true side effect —
+            // logged separately by Laravel's exception handler. This entry ties that failure to
+            // the actual request, since the handler's own log line has no request context.
+            Log::error('Document upload: file could not be saved to disk', [
+                'user_id' => $user->id, 'vault_dir' => $vaultDir, 'stored_name' => $storedName,
+                'original_filename' => $file->getClientOriginalName(), 'size' => $file->getSize(),
+                'mime' => $uploadedMime,
+            ]);
+
             return response()->json(['message' => 'File could not be saved. Please try again.'], 500);
         }
 

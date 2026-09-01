@@ -204,5 +204,15 @@
         });
     }
 
-    window.ResilientUpload = { request, sleep, PACE_MS, Queue, uploadFile, SPLIT_THRESHOLD_BYTES, allQueued };
+    // Deletes a queued row by id regardless of which page's key it belongs to — for the
+    // documents.my-uploads.index page's Discard action, which (unlike a single upload page's
+    // own Queue instance) has no one key to scope a Queue to.
+    async function removeQueued(id) {
+        if (id == null) return;
+        let db;
+        try { db = await openDb(); } catch (e) { return; }
+        db.transaction(STORE, 'readwrite').objectStore(STORE).delete(id);
+    }
+
+    window.ResilientUpload = { request, sleep, PACE_MS, Queue, uploadFile, SPLIT_THRESHOLD_BYTES, allQueued, removeQueued };
 })();

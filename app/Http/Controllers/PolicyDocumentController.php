@@ -71,6 +71,12 @@ class PolicyDocumentController extends Controller
             $pdfPath  = $request->file('file')->storeAs($vaultDir, $slug . '_' . now()->format('YmdHis') . '.pdf', 'public');
 
             if (! $pdfPath) {
+                Log::error('Policy document upload: file could not be saved to disk', [
+                    'user_id' => $request->user()->id, 'vault_dir' => $vaultDir,
+                    'original_filename' => $request->file('file')->getClientOriginalName(),
+                    'size' => $request->file('file')->getSize(),
+                ]);
+
                 flash()->error('File could not be saved. Please try again.');
                 return back()->withInput();
             }

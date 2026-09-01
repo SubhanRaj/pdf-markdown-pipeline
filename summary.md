@@ -4867,3 +4867,32 @@ XSS opening from an unescaped name.
 `resources/views/documents/my-uploads.blade.php` (new), `routes/web.php`,
 `resources/views/sections/show.blade.php`, `resources/views/divisions/show.blade.php`,
 `resources/views/folders/show.blade.php`, `tests/Feature/MyUploadsPageTest.php` (new).
+
+## Discard for legacy queued uploads, and logging for silent disk-write failures (2026-09-01)
+
+**"My Uploads" was read-only.** A row queued from before this feature shipped has no
+`pageUrl`/`pageLabel` — the fields didn't exist when it was queued — so it listed under "Unknown
+destination" with no "Resume here" link and no way to act on it: exactly the "it just shows these
+files are there" complaint. `ResilientUpload.removeQueued(id)` deletes a queued row by id
+regardless of which page's `key` it belongs to (unlike `Queue.remove()`, which needs an instance
+scoped to one page's key). `my-uploads.blade.php` now has Discard (per file, and per group) using
+it, so an orphaned legacy row is no longer stuck.
+
+**"File could not be saved" was silent — no log entry anywhere.** `config/filesystems.php`'s
+disks are `'throw' => false` (a write failure returns `false` for the caller to handle) but were
+also `'report' => false`, which additionally suppressed Laravel's own automatic report-the-
+exception call — so the real reason (permission denied, disk full, whatever it actually was)
+never reached `storage/logs/laravel.log` at all. Flipped to `'report' => true` — same `false`
+return value, same behavior, but the real Flysystem failure now gets logged. Added explicit
+`Log::error()` calls with request context (user, vault dir, filename, size) at the two upload
+call sites that had this silent-failure shape (`DocumentController`, `PolicyDocumentController`),
+since the automatic report has no request context of its own to attach.
+
+This doesn't yet explain *why* uploads have been failing — that reason was never captured before
+today, so there's nothing in the logs yet to point at a specific cause. The next time it happens,
+`storage/logs/laravel.log` will have it.
+
+**Files changed:** `config/filesystems.php`, `app/Http/Controllers/DocumentController.php`,
+`app/Http/Controllers/PolicyDocumentController.php`, `public/js/resilient-upload.js`,
+`resources/views/documents/my-uploads.blade.php`,
+`tests/Feature/UploadFailureLoggingTest.php` (new).
