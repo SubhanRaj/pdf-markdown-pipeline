@@ -4896,3 +4896,32 @@ today, so there's nothing in the logs yet to point at a specific cause. The next
 `app/Http/Controllers/PolicyDocumentController.php`, `public/js/resilient-upload.js`,
 `resources/views/documents/my-uploads.blade.php`,
 `tests/Feature/UploadFailureLoggingTest.php` (new).
+
+## Word/Excel conversion timeout raised, evaluated switching away from LibreOffice (2026-09-01)
+
+A .xlsx upload was reported as failing the day before, and separately, a concern that converting
+Word/Excel to PDF for storage might lose sheets or formatting. The specific failure left no trace
+(it predates the disk-write logging fix above, so there's nothing to diagnose it from — retry
+after this deploy and it'll be in the log). The general fidelity concern was tested directly:
+a 3-sheet workbook, including one with a source-set restricted Print Area (the most plausible way
+a real file could lose content on conversion), converts to a 3-page PDF with every sheet's content
+intact — verified against the actual `pdftotext` output of a real `soffice` conversion, not a
+mock or assumption.
+
+Evaluated switching to a PHP library (PhpSpreadsheet/PHPWord) or a client-side one (mammoth.js/
+sheetjs) instead, and recommended against both: PhpSpreadsheet/PHPWord's own PDF writers are a
+simplified HTML-to-PDF pass, not a real layout engine, and in practice reproduce complex
+formatting (merged cells, charts, mixed fonts) less faithfully than LibreOffice's actual rendering
+engine — the same one the desktop app uses. Client-side libraries don't produce a real PDF (HTML
+output only), don't cover the legacy binary formats (`.doc`/`.xls`/`.ppt`) or `.odt`/`.rtf` that
+are already accepted, and the server-side LibreOffice step would still be needed as a fallback —
+more code and dependencies for a worse result. The original Office file is also deleted right
+after conversion, so no rendering library is needed for it either — nothing is ever kept in that
+format to display later.
+
+What did get fixed: the conversion timeout was 120s — plausibly too tight for a large/complex
+workbook, or several conversions competing for CPU during a bulk upload — raised to 240s.
+
+**Files changed:** `app/Http/Controllers/DocumentController.php`,
+`tests/Feature/NonPdfUploadConversionTest.php` (new), `tests/Fixtures/sample-multisheet.xlsx`
+(new), `tests/Fixtures/sample.docx` (new).

@@ -734,7 +734,10 @@ class DocumentController extends Controller
             // (it has none — /var/www is root-owned); a per-conversion profile dir under
             // storage/app also keeps concurrent uploads from sharing/locking one profile.
             $profileDir      = storage_path('app/soffice-profile-' . Str::random(16));
-            $convertResult   = Process::timeout(120)->run([
+            // 120s -> 240s (2026-09-01): a large workbook/document, or several conversions
+            // competing for CPU during a bulk upload, can genuinely take longer than 120s —
+            // this was cutting off some real conversions, not just runaway/broken ones.
+            $convertResult   = Process::timeout(240)->run([
                 'soffice', '--headless', '--convert-to', 'pdf', '--outdir', $absoluteDir,
                 '-env:UserInstallation=file://' . $profileDir, $absoluteUpload,
             ]);

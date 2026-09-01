@@ -2,14 +2,17 @@
 
 use App\Models\Department;
 use App\Models\Division;
+use App\Models\Folder;
 use App\Models\Section;
 use App\Models\User;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
 
-test('repro: division-level folder upload via find_or_create then document store with folder_id only', function () {
+test('a division-level folder upload with only folder_id sent is authorized', function () {
+    Storage::fake('public'); // real disk I/O would otherwise land in production storage
     $department = Department::create(['name' => 'Excise', 'slug' => 'excise', 'level' => 'department_level']);
     $section    = Section::create(['department_id' => $department->id, 'name' => 'Account', 'slug' => 'account']);
     $division   = Division::create(['section_id' => $section->id, 'department_id' => $department->id, 'name' => 'Performance Audit', 'slug' => 'performance-audit']);
@@ -31,17 +34,19 @@ test('repro: division-level folder upload via find_or_create then document store
         'folder_id' => $folderId,
         'file' => UploadedFile::fake()->create('test.pdf', 100, 'application/pdf'),
     ]);
-    dump($docResp->status(), $docResp->json());
+
+    $docResp->assertOk();
 });
 
 test('a mismatched division_id sent alongside a folder from a different division is still rejected', function () {
+    Storage::fake('public');
     $department = Department::create(['name' => 'Excise', 'slug' => 'excise', 'level' => 'department_level']);
     $section    = Section::create(['department_id' => $department->id, 'name' => 'Account', 'slug' => 'account']);
     $divisionA  = Division::create(['section_id' => $section->id, 'department_id' => $department->id, 'name' => 'Division A', 'slug' => 'division-a']);
     $divisionB  = Division::create(['section_id' => $section->id, 'department_id' => $department->id, 'name' => 'Division B', 'slug' => 'division-b']);
     $admin = User::factory()->create(['role' => 'system_admin', 'username' => fake()->unique()->userName()]);
 
-    $folder = \App\Models\Folder::create([
+    $folder = Folder::create([
         'department_id' => $department->id, 'section_id' => $section->id, 'division_id' => $divisionA->id,
         'name' => 'A Folder', 'slug' => 'a-folder',
     ]);
