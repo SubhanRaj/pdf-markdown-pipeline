@@ -5040,3 +5040,31 @@ Also added a SweetAlert2 toast (`sections/show.blade.php`, `divisions/show.blade
 `folders/show.blade.php`, `documents/bulk-upload.blade.php`) that fires once per batch when any
 file fails during a bulk/folder upload — the existing per-row error badge was easy to miss in a
 long queue, so a batch that partly failed could look like it silently finished.
+
+## Two-column body-text pages were being read column-by-column, alternately (2026-09-01)
+
+Many rules documents run amendments in a two-column layout — the existing provision on the left
+half of the page, the new/amended text on the right (e.g. the CL Bottling Rules 1st Amendment
+2022). `pdf_structure_extractor.py`'s `_reading_order_sort()` (shared by every extraction mode —
+native-text PDF, Tesseract hOCR, EasyOCR, PaddleOCR, Surya) was a flat row-major sort: top-to-
+bottom by y-position, then left-to-right by x-position, across the full page width. On a real
+two-column page that reads one line from the left column, then one from the right, alternately —
+scrambling the "existing" and "new" provisions together instead of reading each in full.
+
+Added `_find_column_gutter()`: per page, looks for a vertical band wide enough (20pt/px) that no
+line's horizontal span crosses it, sitting in the page's middle half — the visual signature of a
+real column split. If found, with enough lines on each side to trust it, `_reading_order_sort()`
+reads that page as two columns (left block top-to-bottom, then right block) instead of the
+row-major sort. Guarded against a real 2-column *table* (e.g. "item | price") being misread the
+same way: table rows line up across the gutter at matching heights, prose columns mostly don't
+(each side wraps independently), so a page where most left lines have a same-height right-side
+counterpart falls through to the existing row-major sort, leaving `detect_tables()` to handle it
+as a table like before.
+
+Added `resources/python/test_pdf_structure_extractor.py` — an assert-based, no-pytest self-check
+(4 cases: two-column prose read left-then-right, an ordinary single-column page untouched, a
+row-aligned table correctly *not* read as two columns, and a stray short line near the margin not
+enough to flip a page into column mode).
+
+**Files changed:** `resources/python/pdf_structure_extractor.py`,
+`resources/python/test_pdf_structure_extractor.py` (new).

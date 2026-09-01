@@ -560,6 +560,23 @@ for the before/after verification against a real document.
    flattened into one paragraph. Applies uniformly across all extraction modes (`pdf`, `hocr`,
    `easyocr`, `paddleocr`; Surya gets its own path, see below), each populating `Line.x0/x1/y0`
    from whatever positional data that mode's source provides.
+
+   **Two-column body-text pages read left-column-then-right, not interleaved (2026-09-01).**
+   `_reading_order_sort()` used to be a flat row-major sort (top-to-bottom, then left-to-right)
+   across the whole page width — correct for an ordinary single-column page, but on a genuine
+   two-column layout (an amendment gazette's side-by-side "existing provision" / "new provision"
+   format — see e.g. the CL Bottling Rules 1st Amendment 2022) it read one line from each column
+   alternately by height, scrambling the two clauses together. `_find_column_gutter()` now runs
+   per page first: it looks for a vertical band wide enough (`COLUMN_GAP_MIN_WIDTH = 20pt/px`)
+   that no line's `[x0, x1]` span crosses it, sitting in the middle half of the page width. If
+   found, and each side has enough lines (`COLUMN_MIN_LINES_PER_SIDE = 3`) to trust the read,
+   the page is read as two columns: the whole left block top-to-bottom, then the whole right
+   block. Guarded against misfiring on a genuine 2-column *table* (e.g. a plain "item | price"
+   list) — real table rows line up across the gutter at matching heights, prose columns mostly
+   don't (each side wraps independently), so a page where >60% of left-side lines have a
+   right-side line at (near) the same y falls through to the ordinary row-major sort instead,
+   leaving `detect_tables()` below to handle it as before. Self-check:
+   `resources/python/test_pdf_structure_extractor.py` (no pytest dependency, run directly).
 2. Quality-checks the output via `isGoodQuality()` plus a separate legacy-font check, three
    independent failure signals, all meaning "don't trust this text layer":
    - `(cid:\d+)` glyph-ID fallback tokens (pdfminer couldn't resolve a character to Unicode

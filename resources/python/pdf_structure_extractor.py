@@ -24,7 +24,10 @@ paragraph structure. This script fixes that by working from font-size/line-heigh
                              — same heading/list heuristics, just a different size proxy.
 
 Output: Markdown on stdout. All modes share one heading/list/paragraph classifier so a
-verifier sees consistent structure regardless of which extraction path produced it.
+verifier sees consistent structure regardless of which extraction path produced it. All modes
+also share _reading_order_sort()'s two-column detection: a page laid out as two side-by-side
+blocks (e.g. an amendment gazette's "existing provision" / "new provision" columns) is read left
+column top-to-bottom then right column, not interleaved by height.
 """
 import re
 import sys
@@ -109,6 +112,16 @@ COLUMN_X_TOLERANCE = 16.0
 # line into several LTTextLine fragments (see detect_tables' fill-ratio check for the other
 # half of this guard) — real tables in practice run to at least 3 rows here.
 MIN_TABLE_ROWS = 3
+
+# Two-column *body text* pages (a gazette amendment's "existing provision" / "new provision"
+# side-by-side layout, e.g. CL-Bottling Rules 1st Amendment 2022) need a real gutter — a band
+# this wide with nothing printed in it — to be told apart from an ordinary single-column
+# paragraph whose lines just happen to end short of the right margin here and there.
+COLUMN_GAP_MIN_WIDTH = 20.0
+# Below this many lines on a side, there's not enough signal to trust a two-column read over
+# the default row-major one — a short caption or page number floating near the margin
+# shouldn't be enough to flip the whole page into column mode.
+COLUMN_MIN_LINES_PER_SIDE = 3
 
 
 def _group_rows(lines: list[Line]) -> list[list[Line]]:
@@ -421,17 +434,102 @@ def classify_and_render(
     return '\n\n'.join(out)
 
 
+def _find_column_gutter(lines: list[Line]) -> float | None:
+    """
+    Looks for a vertical gutter on one page — a band of horizontal space wide enough that no
+    line's [x0, x1] span crosses it, sitting roughly through the page's middle — the visual
+    signature of a genuine two-column layout (an amendment gazette's side-by-side "existing
+    provision" / "new provision" format is exactly this). An ordinary single-column paragraph
+    page has lines running most of the way across, with no such gap. Returns the gutter's
+    x-center, or None if this page doesn't read as two columns.
+    """
+    spans = sorted((l.x0, l.x1) for l in lines if l.x1 > l.x0)
+    if len(spans) < COLUMN_MIN_LINES_PER_SIDE * 2:
+        return None
+
+    page_left = spans[0][0]
+    page_right = max(x1 for _, x1 in spans)
+    width = page_right - page_left
+    if width < 200:  # too narrow to judge (degenerate bbox data, near-empty page, etc.)
+        return None
+
+    merged: list[list[float]] = []
+    for x0, x1 in spans:
+        if merged and x0 <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], x1)
+        else:
+            merged.append([x0, x1])
+    if len(merged) < 2:
+        return None
+
+    # Restrict the search to the middle half of the page width — a gutter found there is a real
+    # column split; a gap found near either edge is just where the text block happens to end.
+    lo, hi = page_left + width * 0.25, page_right - width * 0.25
+    best_width, gutter = COLUMN_GAP_MIN_WIDTH, None
+    for (_, a1), (b0, _) in zip(merged, merged[1:]):
+        gap_width = b0 - a1
+        center = (a1 + b0) / 2
+        if gap_width > best_width and lo <= center <= hi:
+            best_width, gutter = gap_width, center
+    if gutter is None:
+        return None
+
+    left = [l for l in lines if (l.x0 + l.x1) / 2 < gutter]
+    right = [l for l in lines if (l.x0 + l.x1) / 2 >= gutter]
+    if len(left) < COLUMN_MIN_LINES_PER_SIDE or len(right) < COLUMN_MIN_LINES_PER_SIDE:
+        return None
+
+    # A real table's rows line up across the gutter at matching heights (e.g. a plain
+    # "item | price" list); two independently-wrapped prose columns mostly don't, since each
+    # side's paragraph wraps on its own. If most left lines have a right-side line at (near)
+    # the same height, this reads better as a table — leave it to detect_tables() below rather
+    # than reading the whole left block, then the whole right block, which would scramble a
+    # real table's row order.
+    aligned = sum(1 for l in left if any(abs(l.y0 - r.y0) <= ROW_Y_TOLERANCE for r in right))
+    if aligned / len(left) > 0.6:
+        return None
+
+    return gutter
+
+
 def _reading_order_sort(lines: list[Line]) -> list[Line]:
     """
-    Re-sorts into row-major reading order (top-to-bottom, left-to-right per row) regardless of
-    the order the source extractor happened to emit lines in. This matters specifically for
-    tables: pdfminer (and some OCR engines) group text into containers/blocks by whatever
-    proximity heuristic they use internally, which for a table often means "all of column 1
-    top-to-bottom, then all of column 2" rather than row-by-row — table-row grouping in
-    detect_tables() only works if same-row cells are adjacent in the list, so this normalizes
-    that before detection runs. PDF y-coordinates increase upward, hence the descending sort.
+    Re-sorts into reading order, page by page, regardless of the order the source extractor
+    happened to emit lines in.
+
+    A page with a detected column gutter (see _find_column_gutter) reads the entire left column
+    top-to-bottom, then the entire right column — the row-major sort below, applied blindly,
+    would instead interleave a line from each column by height, alternately mixing an amendment
+    clause's "existing provision" and "new provision" text together line by line.
+
+    Every other page (the common case, and any page whose two-column check didn't pass) gets a
+    plain row-major sort (top-to-bottom, left-to-right per row). This also matters for tables:
+    pdfminer (and some OCR engines) group text into containers/blocks by whatever proximity
+    heuristic they use internally, which for a table often means "all of column 1 top-to-bottom,
+    then all of column 2" rather than row-by-row — table-row grouping in detect_tables() only
+    works if same-row cells are adjacent in the list, so this normalizes that before detection
+    runs. PDF y-coordinates increase upward, hence the descending sort.
     """
-    return sorted(lines, key=lambda l: (l.page, -round(l.y0 / ROW_Y_TOLERANCE), l.x0))
+    by_page: dict[int, list[Line]] = {}
+    for line in lines:
+        by_page.setdefault(line.page, []).append(line)
+
+    row_major = lambda ls: sorted(ls, key=lambda l: (-round(l.y0 / ROW_Y_TOLERANCE), l.x0))
+
+    ordered: list[Line] = []
+    for page in sorted(by_page):
+        page_lines = by_page[page]
+        gutter = _find_column_gutter(page_lines)
+        if gutter is None:
+            ordered.extend(row_major(page_lines))
+            continue
+
+        left = [l for l in page_lines if (l.x0 + l.x1) / 2 < gutter]
+        right = [l for l in page_lines if (l.x0 + l.x1) / 2 >= gutter]
+        ordered.extend(row_major(left))
+        ordered.extend(row_major(right))
+
+    return ordered
 
 
 # Set by extract_pdf() when a legacy non-Unicode font is detected; read by main() afterward.
