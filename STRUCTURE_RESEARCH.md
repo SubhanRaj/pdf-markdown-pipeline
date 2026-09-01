@@ -1,9 +1,10 @@
 # Structure Detection Research — Docling Evaluation
 
-**Date:** 2026-07-15 (last updated 2026-07-24)
+**Date:** 2026-07-15 (last updated 2026-09-01)
 **Status:** Live in production. Phase 1 (structure detection, M32), partial Phase 2 (table splice,
-M33), heading splice + pipeline reorder (M34), the legacy-font force-ocr fix (M37), and the
-Docling-table-priority fix (M38) are all shipped — see `summary.md`. This file
+M33), heading splice + pipeline reorder (M34), the legacy-font force-ocr fix (M37), the
+Docling-table-priority fix (M38), and two-column reading order (M102) are all shipped — see
+`summary.md`. This file
 records what was tried and found, so the reasoning trail isn't lost — same purpose
 `OCR_RESEARCH.md` serves for character accuracy. Supersedes `STRUCTURE_HANDOFF.md`'s original
 three-pass proposal (structural map → raw extraction → structured reconstruction); see git
@@ -194,6 +195,49 @@ document (138 tell-chars) and 2 more from the same batch that had silently slipp
 Chandigarh's clean-English policy or two scanned-with-no-text-layer documents (empty output,
 correctly not flagged — those already get caught by the separate near-empty-text quality check
 in `ConvertDocumentToMarkdown::isGoodQuality()`).
+
+## M102 (2026-09-01) — Two-column amendment layouts, read left-then-right instead of interleaved
+
+Prompted by a real category of document: rules amendments that lay the existing provision and
+the new provision out side by side on the page — the "existing" text fills the left half, the
+"amended" text fills the right half (the CL Bottling Rules 1st Amendment 2022 is a concrete
+example). `_reading_order_sort()` (`pdf_structure_extractor.py`, shared by every extraction mode)
+had always been a flat row-major sort: group lines into rows by y-position, then order left-to-
+right within each row, across the *full page width*. That's correct for an ordinary single-column
+page, but on a real two-column layout it reads one line from the left provision, then one from
+the right, alternately — the two clauses come out scrambled together rather than each read in
+full.
+
+**Fix:** `_find_column_gutter()` runs per page, before the sort. It looks for a vertical band at
+least `COLUMN_GAP_MIN_WIDTH` (20, in the page's native unit — PDF points for `--mode pdf`, pixels
+for the OCR modes) wide that no line's `[x0, x1]` span crosses, restricted to the middle half of
+the page's horizontal extent (a gap found near either edge is just where the text block happens
+to end, not a real column split). If found, and each side has at least `COLUMN_MIN_LINES_PER_SIDE`
+(3) lines — enough to trust the read over a stray short line near a margin — the page is read as
+two columns: the whole left block top-to-bottom, then the whole right block, instead of the
+row-major sort.
+
+**Table false-positive guard.** A page-wide gutter search would just as happily "detect" a real
+2-column table (a plain "item | price" list has exactly the same visual gutter). The distinguishing
+signal: a table's rows line up across the gutter at matching heights (each price sits beside its
+item), while two independently-wrapped prose columns mostly don't — each side's paragraph wraps
+on its own schedule. So `_find_column_gutter()` also checks: for each left-side line, is there a
+right-side line within `ROW_Y_TOLERANCE` of the same y0? If more than 60% of left lines have one,
+the page reads better as a table than as two reading-order columns, and the function returns
+`None` — falling through to the existing row-major sort and `detect_tables()`, unchanged.
+
+**Verification.** No synthetic two-column PDF was built for this (reportlab isn't installed in
+either the app's or the markitdown venv) — instead, `resources/python/test_pdf_structure_extractor.py`
+exercises `_find_column_gutter()`/`_reading_order_sort()` directly against `Line` objects shaped
+the same way pdfminer/hOCR/OCR-engine output actually is: two independently-wrapped 5-line columns
+(confirms the split fires and reads left-then-right), an ordinary 6-line single-column page
+(confirms no false positive), a row-aligned 5-row "item | price" table (confirms the alignment
+guard suppresses the column read), and a single short line floating near the right margin on an
+otherwise single-column page (confirms 3 lines-per-side is enough of a floor). All four pass. If
+you have a real two-column amendment PDF on hand, running it through `documents.convert` and
+comparing the Markdown output against the original page is worth doing before calling this closed
+for anything beyond the geometry this test covers — a real government-typeset gutter can be
+narrower, ragged, or interrupted by a stray line in ways a hand-built test case doesn't capture.
 
 ## Open follow-ups, not implemented
 

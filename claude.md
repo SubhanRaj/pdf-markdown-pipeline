@@ -576,7 +576,8 @@ for the before/after verification against a real document.
    don't (each side wraps independently), so a page where >60% of left-side lines have a
    right-side line at (near) the same y falls through to the ordinary row-major sort instead,
    leaving `detect_tables()` below to handle it as before. Self-check:
-   `resources/python/test_pdf_structure_extractor.py` (no pytest dependency, run directly).
+   `resources/python/test_pdf_structure_extractor.py` (no pytest dependency, run directly). See
+   `STRUCTURE_RESEARCH.md`'s M102 entry.
 2. Quality-checks the output via `isGoodQuality()` plus a separate legacy-font check, three
    independent failure signals, all meaning "don't trust this text layer":
    - `(cid:\d+)` glyph-ID fallback tokens (pdfminer couldn't resolve a character to Unicode
