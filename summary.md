@@ -5002,3 +5002,24 @@ since LibreOffice is still what `convertToPdf()`/the image path use.
 `resources/views/approvals/index.blade.php`, `routes/web.php`,
 `tests/Feature/NonPdfUploadConversionTest.php`, `tests/Feature/QuickConversionNativeFormatTest.php`
 (new), `tests/Feature/PolicyDocumentNativeFormatTest.php` (new).
+
+## Long Devanagari titles broke uploads with a silent write failure (2026-09-01)
+
+A user reported a 30.7 MB PDF upload failing with the generic "File could not be saved. Please
+try again." (the same disk-write logging added earlier this session finally caught a real
+production case). The stack trace pointed at `LocalFilesystemAdapter::writeToFile()` throwing
+`UnableToWriteFile` with an **empty** reason string — `file_put_contents()` had returned `false`
+without setting any PHP warning `error_get_last()` could report.
+
+Root cause: the stored filename (`{$slug}_{$timestamp}.{$ext}`) was built from a slug that
+preserves Unicode script (`HasUnicodeSlug::makeSlug()` — see claude.md "Unicode-aware slug
+generation") and had no length cap. The failing title, a normal-length Hindi sentence, produced a
+267-byte filename component once UTF-8-encoded (Devanagari is 3 bytes/character) — past ext4's
+255-byte NAME_MAX per path component. Disk space, inodes, and permissions were all fine; this was
+purely a filename-length limit the code never accounted for.
+
+Fixed at the one place every model's slug routes through: `HasUnicodeSlug::makeSlug()` now caps
+the result to 150 bytes via `mb_strcut()` (byte-safe, never splits a multi-byte character), leaving
+headroom for the `_{timestamp}.{ext}` suffix. This covers `Document`, `RuleSet`, `Division`, and
+`Folder` slugs in one change — no controller-level fix needed. Added
+`tests/Feature/LongTitleUploadTest.php` reproducing the exact failing title.

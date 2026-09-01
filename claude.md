@@ -1928,11 +1928,15 @@ protected static function makeSlug(string $text): string
 {
     $slug = mb_strtolower($text);
     $slug = preg_replace('/[^\p{L}\p{M}\p{N}]+/u', '-', $slug);
+    $slug = trim($slug, '-');
+    $slug = mb_strcut($slug, 0, 150, 'UTF-8');
     return trim($slug, '-');
 }
 ```
 
 This keeps Unicode letters + combining marks intact and collapses everything else (spaces, brackets, punctuation) to hyphens. Result: `fl-bottling-rules-2011-16th-amendment-शुद्धिपत्र`. Modern browsers display percent-decoded Devanagari in the address bar, so the URL reads naturally. Never add `Str::slug()` calls to model slug helpers.
+
+**Slug is capped at 150 bytes** (`mb_strcut`, byte-safe — never splits a multi-byte character). The slug becomes part of the stored filename (`{$slug}_{$timestamp}.{$ext}`), and ext4's NAME_MAX is 255 bytes per path component. Devanagari is 3 bytes/character in UTF-8, so an uncapped slug from a normal-length Hindi sentence (a title a human would consider unremarkable) could exceed 255 bytes on its own. Before the cap existed, that made `file_put_contents()` fail with no PHP warning (confirmed empty `error_get_last()`), which surfaced to the user as a bare "File could not be saved. Please try again." with no way to tell why. See `tests/Feature/LongTitleUploadTest.php`.
 
 ### Mass assignment protection
 - Every model must have an explicit `$fillable` array (or `#[Fillable]` attribute). **Never use `$guarded = []`**.
