@@ -5068,3 +5068,29 @@ enough to flip a page into column mode).
 
 **Files changed:** `resources/python/pdf_structure_extractor.py`,
 `resources/python/test_pdf_structure_extractor.py` (new).
+
+## Bulk-upload row: a long error message crushed the title input it was next to (2026-09-02)
+
+Reported with a screenshot: a purely-numeric filename auto-fills a title with no letters in it,
+which the backend correctly rejects ("Title must contain at least one letter — a filename or ID
+number alone makes a poor, unreadable document URL"). But the queue row showing that error made
+the title impossible to actually fix — the title input appeared crushed down to a sliver, with
+the error text sprawling across most of the row's width instead.
+
+Root cause: `statusBadge` (the small "Pending"/"Uploading…"/"✓ Done" pill) is `flex-shrink-0`, and
+`setRowStatus()` wrote the full dynamic error message directly into it for the error state. A
+`flex-shrink-0` element refuses to shrink, so a message that long forced the badge to its full
+unwrapped width, and the sibling `meta` column — which holds `titleInput`, the exact control
+needed to fix the title — got squeezed down to almost nothing to make room.
+
+Fixed in all four upload views (`sections/show.blade.php`, `divisions/show.blade.php`,
+`folders/show.blade.php`, `documents/bulk-upload.blade.php` — each has its own duplicated
+queue-row JS, no shared render component to fix once): `statusBadge` now always shows a short
+fixed label per state; the full error message moved into a new `errorLine` paragraph inside
+`meta`, right under the title input, where it wraps normally instead of blowing out the row's
+width. The title input stays fully visible and editable next to the error explaining why it needs
+fixing.
+
+**Files changed:** `resources/views/sections/show.blade.php`,
+`resources/views/divisions/show.blade.php`, `resources/views/folders/show.blade.php`,
+`resources/views/documents/bulk-upload.blade.php`.

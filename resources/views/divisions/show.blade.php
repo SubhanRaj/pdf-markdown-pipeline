@@ -451,8 +451,12 @@
 
     function setRowStatus(item, state, msg) {
         item.statusBadge.className = badgeClass(state);
-        const labels = { pending: 'Pending', uploading: 'Uploading…', done: '✓ Done' };
-        item.statusBadge.textContent = state === 'error' ? ('✗ ' + (msg || 'Error')) : (labels[state] || state);
+        const labels = { pending: 'Pending', uploading: 'Uploading…', done: '✓ Done', error: '✗ Error' };
+        item.statusBadge.textContent = labels[state] || state;
+        if (item.errorLine) {
+            if (state === 'error' && msg) { item.errorLine.textContent = msg; item.errorLine.classList.remove('hidden'); }
+            else { item.errorLine.classList.add('hidden'); }
+        }
         if (state === 'done') item.row.style.opacity = '0.6';
     }
 
@@ -496,8 +500,16 @@
             const sizeLine = document.createElement('p');
             sizeLine.className = 'text-[10px] text-slate-400 dark:text-slate-500 truncate';
             sizeLine.textContent = (file.size / 1048576).toFixed(1) + ' MB · ' + file.name;
+            // Full error text (e.g. "Title must contain at least one letter…") lives here, not
+            // in statusBadge — that badge is flex-shrink-0 with no width cap, so a long message
+            // used to force it to its full unwrapped width and crush titleInput down to a sliver,
+            // hiding the very control the user needs to fix the title. This wraps normally inside
+            // meta's constrained width instead, right under the input.
+            const errorLine = document.createElement('p');
+            errorLine.className = 'text-[10px] text-red-500 dark:text-red-400 hidden';
             meta.appendChild(titleWrap);
             meta.appendChild(sizeLine);
+            meta.appendChild(errorLine);
             const statusBadge = document.createElement('span');
             statusBadge.className = badgeClass('pending');
             statusBadge.textContent = 'Pending';
@@ -508,7 +520,7 @@
             row.appendChild(icon); row.appendChild(meta);
             row.appendChild(statusBadge); row.appendChild(removeBtn);
             queueList.appendChild(row);
-            const item = { file, titleInput, titleWrap, statusBadge, row, folderId: folderId || null, queueId: null };
+            const item = { file, titleInput, titleWrap, errorLine, statusBadge, row, folderId: folderId || null, queueId: null };
             uploadFiles.push(item);
             if (!skipPersist) queue.add(file, item.folderId).then(id => { item.queueId = id; });
             removeBtn.addEventListener('click', () => {
