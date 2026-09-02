@@ -5094,3 +5094,21 @@ fixing.
 **Files changed:** `resources/views/sections/show.blade.php`,
 `resources/views/divisions/show.blade.php`, `resources/views/folders/show.blade.php`,
 `resources/views/documents/bulk-upload.blade.php`.
+
+## Share button on department/section/division/folder pages (2026-09-02)
+
+The document show page already had a Share dropdown (WhatsApp/X/copy-link) — extracted into a
+new `<x-share-button :title="...">` component (`resources/views/components/share-button.blade.php`)
+so department, section, division, and folder show pages could get the same control without each
+carrying its own copy. `documents/show.blade.php` itself now uses the component too, instead of
+the original inline block.
+
+Purely client-side (Alpine, self-hosted), no controller action or route — it just shares
+`url()->current()`, the page it's already rendered on. Visible to every visitor regardless of the
+container's own visibility setting, same as the document page always did: it doesn't expose
+anything a viewer looking at the page couldn't already copy from the address bar.
+
+**Files changed:** `resources/views/components/share-button.blade.php` (new),
+`resources/views/documents/show.blade.php`, `resources/views/department/show.blade.php`,
+`resources/views/sections/show.blade.php`, `resources/views/divisions/show.blade.php`,
+`resources/views/folders/show.blade.php`.
