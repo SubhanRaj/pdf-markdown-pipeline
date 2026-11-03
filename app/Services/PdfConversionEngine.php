@@ -294,8 +294,8 @@ class PdfConversionEngine
         try {
             // 600s floor was the old fixed cap; a 737-page scan needs ~1.3s/page (measured), so
             // 4s/page leaves ~3x headroom for a loaded box.
-            $pages = $this->countPages($absolutePdfPath);
-            $rasterResult = Process::timeout(max(600, $pages * 4))->run([
+            $pageCount = $this->countPages($absolutePdfPath);
+            $rasterResult = Process::timeout(max(600, $pageCount * 4))->run([
                 'pdftoppm', '-png', '-r', '300', $absolutePdfPath, "{$tmpDir}/page",
             ]);
 
@@ -349,7 +349,7 @@ class PdfConversionEngine
 
             // These engines load large models per invocation, well beyond Tesseract's per-page cost.
             // EasyOCR/Paddle/Surya do all their OCR inside this one call, so it scales with pages.
-            $structured = Process::timeout(max(1800, $pages * 15))
+            $structured = Process::timeout(max(1800, $pageCount * 15))
                 ->env($engines[$engine]['env'] ?? [])
                 ->run($command);
 

@@ -5128,6 +5128,10 @@ Documents of ~50 pages or fewer keep the previous floors. Queue workers need `qu
 **Files changed:** `app/Services/PdfConversionEngine.php`, `app/Jobs/ConvertDocumentToMarkdown.php`,
 `app/Jobs/ConvertQuickConversionToMarkdown.php`.
 
+**Follow-up fix:** the first version reused `$pages` in `runOcr()` for both the page count and the later
+rasterized-image collection, so every OCR job died with `Collection * int` (documents 594, 596-602, all
+failed at 16:59-17:03). The count is now `$pageCount`; the failed documents were re-queued.
+
 
 ## Composer dependencies updated (2026-11-03)
 
