@@ -27,6 +27,11 @@ class ConvertDocumentToMarkdown implements ShouldQueue
     public function __construct(public int $documentId, public string $structureEngine = 'tesseract')
     {
         $this->engine = new PdfConversionEngine();
+
+        // Scales with page count (Docling's budget) — read here, not in handle(): Laravel
+        // captures $timeout from the job object before it is serialized onto the queue.
+        $path = Document::find($documentId)?->original_pdf_path;
+        $this->timeout = $this->engine->convertJobTimeout($path ? Storage::disk('public')->path($path) : null);
     }
 
     public function handle(): void

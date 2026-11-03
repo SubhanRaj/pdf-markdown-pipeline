@@ -24,6 +24,9 @@ class ConvertQuickConversionToMarkdown implements ShouldQueue
     public function __construct(public int $quickConversionId, public string $structureEngine = 'tesseract')
     {
         $this->engine = new PdfConversionEngine();
+
+        $path = QuickConversion::find($quickConversionId)?->pdf_path;
+        $this->timeout = $this->engine->convertJobTimeout($path ? Storage::disk('public')->path($path) : null);
     }
 
     public function handle(): void

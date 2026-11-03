@@ -425,8 +425,9 @@ still trigger OCR manually too (e.g. to retry with a different engine).
 from approval. A **Convert to Markdown** button on `documents/show` (and a per-row **Convert**/**Retry**
 button on the Pipeline monitor, and an **auto-convert** checkbox on the Bulk Upload page) calls
 `POST /documents/{id}/convert`, which dispatches `App\Jobs\ConvertDocumentToMarkdown`
-(`ShouldQueue`, `$timeout = 1200` — bumped from 900 to give the Docling structure pass below
-headroom). `convert()`, `convertOcr()`, `revertOcr()`, `discardMarkdown()`, and `structureJson()` —
+(`ShouldQueue`; `$timeout` is set in the constructor from page count via
+`PdfConversionEngine::convertJobTimeout()` — 1200s floor, up to 14400s for a very large scan, so the
+Docling pass below has room; see "Page-scaled timeouts" under the Pass 0 notes). `convert()`, `convertOcr()`, `revertOcr()`, `discardMarkdown()`, and `structureJson()` —
 everything that produces or refines the Markdown *draft* — are gated by the shared private
 `canConvertDocument()` helper (controller-only check, not the stricter `is_admin` route-group
 middleware, which is reserved for `admin.*` user management routes): `system_admin`
@@ -544,6 +545,16 @@ pixels instead of the broken text layer, scoped to only this one case (never a b
 `--force-ocr`, which STRUCTURE_RESEARCH.md's Finding 3 confirms is impractical at real page
 counts). Timeout for this path bumped to 900s (was 600s). See `STRUCTURE_RESEARCH.md`'s M37 entry
 for the before/after verification against a real document.
+
+**Page-scaled timeouts (2026-11-03).** Every long `Process::timeout()` in `PdfConversionEngine` used to
+be a fixed number, sized for ~50-page documents. A 737-page, 246 MB scan failed twice: Docling
+(force-OCR, legacy font) hit its 900s cap and was silently dropped, then `pdftoppm -r 300` hit its
+600s cap (measured ~1.3s/page, so ~16 min) and failed the OCR job. Now: `pdftoppm` `max(600, pages*4)`,
+the EasyOCR/Paddle/Surya pass `max(1800, pages*15)`, Docling `doclingTimeout()` (`max(floor, pages*8)`
+force-OCR / `pages*3` otherwise, capped 13000s; force-OCR measured ~4s/page), and the convert job's own
+`$timeout` = Docling's worst case + 600s, capped at 14400s — under the database queue's
+`retry_after` (14700s) so a second worker can't re-reserve a long job. Small documents keep the old
+floors. Tesseract's per-page loop is still serial (~3s/page, so ~40 min at 737 pages).
 
 **`ConvertDocumentToMarkdown` job — text-layer pass, now runs first (see M34 above):**
 1. Runs `resources/python/pdf_structure_extractor.py --mode pdf` through the same venv Python

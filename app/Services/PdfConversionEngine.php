@@ -79,6 +79,30 @@ class PdfConversionEngine
     }
 
     /**
+     * Docling's wall-clock budget. Floors are the old fixed 600s/900s; the per-page rates are
+     * ~2x measured (force-OCR ~4s/page on this box), so a 737-page scan no longer times out
+     * at 15 min with the structure pass silently dropped.
+     */
+    public function doclingTimeout(int $pages, bool $forceOcr): int
+    {
+        return min(13000, max($forceOcr ? 900 : 600, $pages * ($forceOcr ? 8 : 3)));
+    }
+
+    /**
+     * ConvertDocumentToMarkdown / ConvertQuickConversionToMarkdown job timeout: Docling's
+     * worst case plus headroom for the two pdfminer passes. Capped under the database queue's
+     * retry_after (14700s) so a long job is never re-reserved by a second worker mid-run.
+     */
+    public function convertJobTimeout(?string $absolutePdfPath): int
+    {
+        if (! $absolutePdfPath || ! is_file($absolutePdfPath)) {
+            return 1200;
+        }
+
+        return min(14400, max(1200, $this->doclingTimeout($this->countPages($absolutePdfPath), true) + 600));
+    }
+
+    /**
      * Pass 0 — Docling layout/table structure detection. Additive and non-fatal: any failure
      * here (bad venv, timeout, malformed output) is logged and swallowed, never blocks the
      * text-layer/OCR pipeline below. Table/heading cell text Docling extracts is kept and
@@ -121,9 +145,7 @@ class PdfConversionEngine
                 }
                 $command[] = $absolutePdfPath;
 
-                // force-ocr genuinely takes longer (whole-document OCR instead of bitmap-only) —
-                // give it more room than the default path, still inside the job's 1200s ceiling.
-                $result = Process::timeout($forceOcr ? 900 : 600)->run($command);
+                $result = Process::timeout($this->doclingTimeout($this->countPages($absolutePdfPath), $forceOcr))->run($command);
 
                 if (! $result->successful()) {
                     Log::warning('Docling structure analysis failed', ['id' => $id, 'error' => $result->errorOutput()]);
@@ -270,7 +292,10 @@ class PdfConversionEngine
         mkdir($tmpDir, 0755, true);
 
         try {
-            $rasterResult = Process::timeout(600)->run([
+            // 600s floor was the old fixed cap; a 737-page scan needs ~1.3s/page (measured), so
+            // 4s/page leaves ~3x headroom for a loaded box.
+            $pages = $this->countPages($absolutePdfPath);
+            $rasterResult = Process::timeout(max(600, $pages * 4))->run([
                 'pdftoppm', '-png', '-r', '300', $absolutePdfPath, "{$tmpDir}/page",
             ]);
 
@@ -323,7 +348,8 @@ class PdfConversionEngine
             $command[] = $tmpDir;
 
             // These engines load large models per invocation, well beyond Tesseract's per-page cost.
-            $structured = Process::timeout(1800)
+            // EasyOCR/Paddle/Surya do all their OCR inside this one call, so it scales with pages.
+            $structured = Process::timeout(max(1800, $pages * 15))
                 ->env($engines[$engine]['env'] ?? [])
                 ->run($command);
 

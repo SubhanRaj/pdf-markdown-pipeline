@@ -5112,3 +5112,18 @@ anything a viewer looking at the page couldn't already copy from the address bar
 `resources/views/documents/show.blade.php`, `resources/views/department/show.blade.php`,
 `resources/views/sections/show.blade.php`, `resources/views/divisions/show.blade.php`,
 `resources/views/folders/show.blade.php`.
+
+## 700+ page scan failed conversion and OCR on fixed timeouts (2026-11-03)
+
+A 737-page, 246 MB scan (uploaded by Ravi Prakash Gautam, document 594) failed: Docling's force-OCR
+pass hit its fixed 900s cap and was dropped without a structure map, then `RunOcrExtraction`'s
+`pdftoppm -r 300` hit its fixed 600s cap and the job went to `failed`. The job-level timeouts
+already scaled with page count for OCR; the inner `Process::timeout()` values did not.
+
+`PdfConversionEngine` now scales `pdftoppm`, the EasyOCR/Paddle/Surya pass, and Docling by page
+count (`doclingTimeout()`), and `ConvertDocumentToMarkdown` / `ConvertQuickConversionToMarkdown` set
+their own `$timeout` from it (`convertJobTimeout()`, capped at 14400s, under `retry_after`).
+Documents of ~50 pages or fewer keep the previous floors. Queue workers need `queue:restart` to pick it up.
+
+**Files changed:** `app/Services/PdfConversionEngine.php`, `app/Jobs/ConvertDocumentToMarkdown.php`,
+`app/Jobs/ConvertQuickConversionToMarkdown.php`.
