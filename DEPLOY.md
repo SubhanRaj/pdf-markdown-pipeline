@@ -372,6 +372,23 @@ row-locks each job on pop, so two workers never process the same *available* job
 `retry_after` is correctly set above; that's the only thing that made concurrent workers unsafe
 here.
 
+## Updating Composer dependencies
+
+```bash
+composer update          # within composer.json's constraints; commit composer.lock
+php artisan view:clear   # compiled Blade views can reference the old framework
+php artisan queue:restart
+```
+
+Queue workers load `vendor/` once at start, so don't run `composer update` while a long
+conversion/OCR job is running on the live box — the job keeps the old classes in memory and
+lazily autoloads new ones. Wait for the queue to drain (or resolve the update in a separate
+`git worktree` and copy `composer.lock` over), then `composer install` and `queue:restart`. The
+`post-autoload-dump` hook re-runs `markitdown:install`, which re-checks the Python venv.
+`composer update` stays inside the constraints in `composer.json`, so major releases (currently
+Pest 5) are opt-in. The stock `tests/Feature/ExampleTest.php` fails with `no such table:
+documents` (no `RefreshDatabase`) — unrelated to dependency state.
+
 ## Verifying a deployment
 
 ```bash

@@ -5127,3 +5127,21 @@ Documents of ~50 pages or fewer keep the previous floors. Queue workers need `qu
 
 **Files changed:** `app/Services/PdfConversionEngine.php`, `app/Jobs/ConvertDocumentToMarkdown.php`,
 `app/Jobs/ConvertQuickConversionToMarkdown.php`.
+
+
+## Composer dependencies updated (2026-11-03)
+
+`composer update` within the existing constraints (`composer.json` unchanged): `laravel/framework`
+13.22.0 → 13.39.0, `laravel/fortify` 1.37.2 → 1.41.0, `resend/resend-php` 1.6.0 → 1.18.0,
+`php-flasher/flasher-laravel` 2.6.1 → 2.6.3, `pestphp/pest` 4.7.3 → 4.7.8, `laravel/pint`
+1.29.3 → 1.32.1, plus 87 transitive updates (all Symfony 8.1.x components, Carbon, Monolog, and
+others) — `innobrain/markitdown` stays at 3.5.0.
+
+Transitive changes worth knowing: `guzzlehttp/guzzle` 7.15.1 → 8.3.1 (a major, pulled in by the
+Resend client — the app itself never calls Guzzle directly), and the newer Fortify adds
+`web-auth/webauthn-lib` / `laravel/passkeys` as dependencies (passkey support is not enabled;
+`Fortify::ignoreRoutes()` still applies). Pest 5 and pest-plugin-laravel 5 were not taken —
+outside the constraints. The full test suite passes except the stock `ExampleTest`, which failed
+the same way before the update. A live Resend send was not exercised.
+
+**Files changed:** `composer.lock`, `DEPLOY.md` (new "Updating Composer dependencies" section).
